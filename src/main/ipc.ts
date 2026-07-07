@@ -1,0 +1,540 @@
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import type { IpcEventMap, IpcInvokeMap } from '../shared/types'
+import {
+  createCharacter,
+  createFolder,
+  deleteCharacter,
+  deleteFolder,
+  listCharacters,
+  pickCharacterThumbnail,
+  renameFolder,
+  reorderCharacters,
+  setFolderCollapsed,
+  setFolderColor,
+  updateCharacter
+} from './characters/repo'
+import { getDbPath, getDb } from './db'
+import { metadataFromPng, metadataFromPayloadJson } from './images/metadata'
+import {
+  createFragment,
+  createFragmentFolder,
+  deleteFragment,
+  deleteFragmentFolder,
+  exportTxtFragment,
+  exportAllFragmentsZip,
+  importTxtFragments,
+  listFragments,
+  renameFragmentFolder,
+  reorderFragments,
+  setFragmentFolderCollapsed,
+  setFragmentFolderColor,
+  updateFragment
+} from './fragments/repo'
+import {
+  deleteNaiToken,
+  getNaiToken,
+  getNaiTokenInfo,
+  getSetting,
+  setNaiToken,
+  setSetting
+} from './db/settings'
+import { anlasUsage, logBalance } from './nai/anlas-log'
+import { fetchAnlasBalance } from './nai/client'
+import { listImages, getImagePayload, saveGeneratedImage } from './images/storage'
+import { augmentImage, upscaleImage } from './nai/client'
+import {
+  listPresets,
+  createPreset,
+  renamePreset,
+  deletePreset,
+  listScenes,
+  createScene,
+  getScene,
+  updateScene,
+  duplicateScene,
+  deleteScene,
+  reorderScenes,
+  setReserveAll,
+  adjustReserveAll,
+  bulkMove,
+  bulkDelete,
+  bulkSetResolution,
+  bulkClearFavorites,
+  bulkClearImages,
+  bulkExportZip,
+  sceneImages,
+  setImageFavorite,
+  deleteImage,
+  exportScenesJson,
+  importScenesJson,
+  exportZip
+} from './scenes/repo'
+import {
+  listPromptPresets,
+  createPromptPreset,
+  updatePromptPreset,
+  deletePromptPreset
+} from './prompts/repo'
+import { exportAll, importAll } from './backup/repo'
+import { importNais2 } from './backup/nais2'
+import { startUpdateDownload } from './updater'
+import { countTokens } from './nai/tokenizer'
+import {
+  addRefImages,
+  collapseRefFolder,
+  colorRefFolder,
+  createRefFolder,
+  deleteRefFolder,
+  deleteRefImage,
+  listCharRefs,
+  listVibes,
+  renameRefFolder,
+  reorderRefs,
+  updateRefImage
+} from './refs/repo'
+import { searchTags } from './tags'
+import { imagesRoot, isUnderImagesRoot, defaultImagesRoot } from './images/storage'
+import { copyFileSync, readFileSync, writeFileSync } from 'fs'
+import { basename } from 'path'
+import sharp from 'sharp'
+import { verifyToken } from './nai/client'
+import type { GenerationQueue } from './queue/generation-queue'
+
+/** IpcInvokeMap 계약을 강제하는 handle 등록 헬퍼 */
+function handle<C extends keyof IpcInvokeMap>(
+  channel: C,
+  handler: (req: IpcInvokeMap[C]['req']) => Promise<IpcInvokeMap[C]['res']> | IpcInvokeMap[C]['res']
+): void {
+  ipcMain.handle(channel, (_event, req) => handler(req))
+}
+
+export function broadcast<C extends keyof IpcEventMap>(channel: C, payload: IpcEventMap[C]): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(channel, payload)
+  }
+}
+
+export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQueue }): void {
+  handle('db:status', () => ({ version: ctx.dbVersion, path: getDbPath() }))
+  handle('app:version', () => ({ version: app.getVersion() }))
+
+  handle('nai:verifyToken', ({ token }) => verifyToken(token))
+
+  // 검증 성공 시에만 저장 — 잘못된 토큰이 조용히 저장되는 것 방지
+  handle('nai:setToken', async ({ token }) => {
+    const result = await verifyToken(token)
+    if (result.valid) setNaiToken(token)
+    return result
+  })
+
+  handle('nai:tokenStatus', () => getNaiTokenInfo())
+  handle('nai:revealToken', () => ({ token: getNaiToken() }))
+  handle('nai:deleteToken', () => {
+    deleteNaiToken()
+  })
+  handle('nai:balance', async () => {
+    const token = getNaiToken()
+    if (!token) return { anlas: null, tier: null }
+    const { anlas, tier } = await fetchAnlasBalance(token)
+    if (anlas !== null) logBalance(anlas)
+    return { anlas, tier }
+  })
+  handle('nai:anlasUsage', () => anlasUsage())
+
+  handle('queue:enqueue', ({ request, count }) => ({ ids: ctx.queue.enqueue(request, count) }))
+  handle('queue:cancel', ({ ids }) => {
+    ctx.queue.cancel(ids)
+  })
+  handle('queue:status', () => ctx.queue.status())
+
+  handle('images:list', ({ limit, offset }) => listImages(limit, offset))
+  handle('images:payload', ({ id }) => ({ payloadJson: getImagePayload(id) }))
+
+  handle('scenePresets:list', () => ({ items: listPresets() }))
+  handle('scenePresets:create', ({ name }) => ({ id: createPreset(name) }))
+  handle('scenePresets:rename', ({ id, name }) => {
+    renamePreset(id, name)
+  })
+  handle('scenePresets:delete', ({ id }) => {
+    deletePreset(id)
+  })
+
+  handle('promptPresets:list', () => ({ items: listPromptPresets() }))
+  handle('promptPresets:create', ({ name, prompt, negativePrompt }) => ({
+    id: createPromptPreset(name, prompt, negativePrompt)
+  }))
+  handle('promptPresets:update', ({ id, patch }) => {
+    updatePromptPreset(id, patch)
+  })
+  handle('promptPresets:delete', ({ id }) => {
+    deletePromptPreset(id)
+  })
+
+  handle('update:start', () => {
+    startUpdateDownload()
+  })
+
+  handle('backup:export', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const stamp = new Date().toISOString().slice(0, 10)
+    const result = await dialog.showSaveDialog(win, {
+      title: '데이터 내보내기',
+      defaultPath: `NAIS3-backup-${stamp}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return { saved: false }
+    writeFileSync(result.filePath, JSON.stringify(exportAll()))
+    return { saved: true }
+  })
+
+  handle('backup:import', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showOpenDialog(win, {
+      title: '데이터 가져오기 (NAIS3 / NAIS2 백업)',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
+    try {
+      const data = JSON.parse(readFileSync(result.filePaths[0], 'utf-8')) as Record<string, unknown>
+      // 포맷 감지: NAIS3는 _app='NAIS3', NAIS2는 nais2-* 키
+      if (data._app === 'NAIS3') {
+        const { imported } = importAll(data)
+        return { summary: `NAIS3 백업 복원 완료 (${imported}개 항목)`, needsPromptReload: true }
+      }
+      if (Object.keys(data).some((k) => k.startsWith('nais2-'))) {
+        const r = importNais2(data)
+        const parts = [
+          r.characters ? `캐릭터 ${r.characters}` : '',
+          r.presets ? `프리셋 ${r.presets}` : '',
+          r.fragments ? `조각 ${r.fragments}` : '',
+          r.prompt ? '프롬프트' : ''
+        ].filter(Boolean)
+        return {
+          summary: parts.length ? `NAIS2에서 ${parts.join(' · ')} 가져옴` : '가져올 항목이 없습니다',
+          needsPromptReload: r.prompt
+        }
+      }
+      return { error: '알 수 없는 백업 형식입니다' }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  handle('scenes:list', ({ presetId }) => ({ items: listScenes(presetId) }))
+  handle('scenes:create', ({ presetId, name }) => ({ id: createScene(presetId, name) }))
+  handle('scenes:get', ({ id }) => ({ scene: getScene(id) }))
+  handle('scenes:update', ({ id, patch }) => {
+    updateScene(id, patch)
+  })
+  handle('scenes:duplicate', ({ id }) => ({ id: duplicateScene(id) }))
+  handle('scenes:delete', ({ id }) => {
+    deleteScene(id)
+  })
+  handle('scenes:reorder', ({ ids }) => {
+    reorderScenes(ids)
+  })
+  handle('scenes:setReserveAll', ({ presetId, count }) => {
+    setReserveAll(presetId, count)
+  })
+  handle('scenes:adjustReserveAll', ({ presetId, delta }) => {
+    adjustReserveAll(presetId, delta)
+  })
+  handle('scenes:bulkMove', ({ ids, presetId }) => {
+    bulkMove(ids, presetId)
+  })
+  handle('scenes:bulkDelete', ({ ids }) => {
+    bulkDelete(ids)
+  })
+  handle('scenes:bulkSetResolution', ({ ids, width, height }) => {
+    bulkSetResolution(ids, width, height)
+  })
+  handle('scenes:bulkClearFavorites', ({ ids }) => {
+    bulkClearFavorites(ids)
+  })
+  handle('scenes:bulkClearImages', ({ ids }) => ({ deleted: bulkClearImages(ids) }))
+  handle('scenes:bulkExportZip', async ({ ids }) => ({ count: await bulkExportZip(ids) }))
+  handle('scenes:images', ({ sceneId, limit, offset }) => sceneImages(sceneId, limit, offset))
+  handle('images:setFavorite', ({ id, favorite }) => {
+    setImageFavorite(id, favorite)
+  })
+  handle('images:delete', ({ id }) => {
+    deleteImage(id)
+  })
+  handle('scenes:exportJson', async ({ presetId }) => ({ saved: await exportScenesJson(presetId) }))
+  handle('scenes:importJson', async ({ presetId }) => ({ count: await importScenesJson(presetId) }))
+  handle('scenes:exportZip', async ({ mode }) => ({ count: await exportZip(mode) }))
+
+  handle('settings:get', ({ key }) => ({ value: getSetting(key) }))
+  handle('settings:set', ({ key, value }) => {
+    setSetting(key, value)
+  })
+
+  handle('chars:list', () => listCharacters())
+  handle('chars:create', ({ name, folderId }) => ({ id: createCharacter(name, folderId) }))
+  handle('chars:update', ({ id, patch }) => {
+    updateCharacter(id, patch)
+  })
+  handle('chars:delete', ({ id }) => {
+    deleteCharacter(id)
+  })
+  handle('chars:pickThumbnail', async ({ id }) => ({
+    thumbnail: await pickCharacterThumbnail(id)
+  }))
+  handle('chars:reorder', ({ order }) => {
+    reorderCharacters(order)
+  })
+  handle('chars:folderCreate', ({ name }) => ({ id: createFolder(name) }))
+  handle('chars:folderRename', ({ id, name }) => {
+    renameFolder(id, name)
+  })
+  handle('chars:folderCollapse', ({ id, collapsed }) => {
+    setFolderCollapsed(id, collapsed)
+  })
+  handle('chars:folderColor', ({ id, color }) => {
+    setFolderColor(id, color)
+  })
+  handle('chars:folderDelete', ({ id }) => {
+    deleteFolder(id)
+  })
+
+  handle('frags:list', () => listFragments())
+  handle('frags:create', ({ name, folderId }) => ({ id: createFragment(name, folderId) }))
+  handle('frags:update', ({ id, patch }) => {
+    updateFragment(id, patch)
+  })
+  handle('frags:delete', ({ id }) => {
+    deleteFragment(id)
+  })
+  handle('frags:importTxt', async () => ({ count: await importTxtFragments() }))
+  handle('frags:exportTxt', async ({ id }) => ({ saved: await exportTxtFragment(id) }))
+  handle('frags:exportAll', async () => ({ count: await exportAllFragmentsZip() }))
+  handle('frags:reorder', ({ order }) => {
+    reorderFragments(order)
+  })
+  handle('frags:folderCreate', ({ name }) => ({ id: createFragmentFolder(name) }))
+  handle('frags:folderRename', ({ id, name }) => {
+    renameFragmentFolder(id, name)
+  })
+  handle('frags:folderCollapse', ({ id, collapsed }) => {
+    setFragmentFolderCollapsed(id, collapsed)
+  })
+  handle('frags:folderColor', ({ id, color }) => {
+    setFragmentFolderColor(id, color)
+  })
+  handle('frags:folderDelete', ({ id }) => {
+    deleteFragmentFolder(id)
+  })
+
+  handle('tags:search', ({ query, limit }) => ({ items: searchTags(query, limit) }))
+  handle('tokens:count', ({ texts }) => ({ counts: texts.map(countTokens) }))
+
+  handle('images:showInFolder', ({ filePath }) => {
+    if (isUnderImagesRoot(filePath)) shell.showItemInFolder(filePath)
+  })
+
+  handle('images:saveAs', async ({ filePath }) => {
+    if (!isUnderImagesRoot(filePath)) return { saved: false }
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showSaveDialog(win, {
+      title: '다른 이름으로 저장',
+      defaultPath: basename(filePath),
+      filters: [{ name: 'PNG', extensions: ['png'] }]
+    })
+    if (result.canceled || !result.filePath) return { saved: false }
+    copyFileSync(filePath, result.filePath)
+    return { saved: true }
+  })
+
+
+  handle('settings:getSaveDir', () => ({
+    dir: imagesRoot(),
+    isDefault: imagesRoot() === defaultImagesRoot()
+  }))
+  handle('settings:pickSaveDir', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showOpenDialog(win, {
+      title: '저장 폴더 선택',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return { dir: null }
+    setSetting('save_dir', result.filePaths[0])
+    return { dir: result.filePaths[0] }
+  })
+  handle('settings:resetSaveDir', () => {
+    setSetting('save_dir', '')
+    return { dir: defaultImagesRoot() }
+  })
+  handle('gen:setDelay', ({ ms }) => {
+    ctx.queue.setDelayMs(ms)
+    setSetting('gen_delay_ms', String(ms))
+  })
+
+  handle('images:readMetadata', async ({ filePath, base64 }) => {
+    try {
+      if (base64) {
+        const buf = Buffer.from(base64.replace(/^data:[^,]+,/, ''), 'base64')
+        const meta = await metadataFromPng(buf)
+        return meta ? { meta } : { error: '이 이미지에서 NAI 메타데이터를 찾지 못했습니다' }
+      }
+      if (filePath) {
+        if (!isUnderImagesRoot(filePath)) return { error: '허용되지 않은 경로' }
+        // 1) PNG tEXt 우선
+        const buf = readFileSync(filePath)
+        const fromPng = await metadataFromPng(buf)
+        if (fromPng) return { meta: fromPng }
+        // 2) 폴백: DB payload_json (우리 스트리밍 이미지는 tEXt가 없을 수 있음)
+        const row = getDb()
+          .prepare('SELECT payload_json FROM images WHERE file_path = ?')
+          .get(filePath) as { payload_json: string } | undefined
+        if (row?.payload_json) {
+          const meta = metadataFromPayloadJson(row.payload_json)
+          if (meta) return { meta }
+        }
+        return { error: '메타데이터를 찾지 못했습니다' }
+      }
+      return { error: '입력이 없습니다' }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  handle('images:upscale', async ({ imageBase64, scale }) => {
+    const token = getNaiToken()
+    if (!token) return { error: 'NAI 토큰이 설정되지 않았습니다' }
+    try {
+      const input = Buffer.from(imageBase64.replace(/^data:[^,]+,/, ''), 'base64')
+      const meta = await sharp(input).metadata()
+      const png = await upscaleImage(token, {
+        imageBase64: input.toString('base64'),
+        width: meta.width ?? 0,
+        height: meta.height ?? 0,
+        scale
+      })
+      const saved = await saveGeneratedImage({
+        png,
+        sentPayload: JSON.stringify({ upscale: scale }),
+        seed: 0,
+        kind: 'upscale'
+      })
+      void fetchAnlasBalance(token).then(({ anlas }) => {
+        if (anlas !== null) {
+          logBalance(anlas)
+          broadcast('anlas:balance', { anlas })
+        }
+      })
+      return { filePath: saved.filePath, base64: png.toString('base64') }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  handle('director:run', async ({ method, imageBase64, prompt, defry }) => {
+    const token = getNaiToken()
+    if (!token) return { error: 'NAI 토큰이 설정되지 않았습니다' }
+    try {
+      const input = Buffer.from(imageBase64.replace(/^data:[^,]+,/, ''), 'base64')
+      const meta = await sharp(input).metadata()
+      const png = await augmentImage(token, {
+        method,
+        imageBase64: input.toString('base64'),
+        width: meta.width ?? 0,
+        height: meta.height ?? 0,
+        prompt,
+        defry
+      })
+      const saved = await saveGeneratedImage({
+        png,
+        sentPayload: JSON.stringify({ director: method, prompt, defry }),
+        seed: 0,
+        kind: method // 툴별 kind (bg-removal 등) → 히스토리 뱃지 구분
+      })
+      // 잔액 갱신 (디렉터 툴도 Anlas 소모, Opus는 소형 무료)
+      void fetchAnlasBalance(token).then(({ anlas }) => {
+        if (anlas !== null) {
+          logBalance(anlas)
+          broadcast('anlas:balance', { anlas })
+        }
+      })
+      return { filePath: saved.filePath, base64: png.toString('base64') }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  handle('images:readForSource', async ({ filePath }) => {
+    if (!isUnderImagesRoot(filePath)) return { error: '허용되지 않은 경로' }
+    try {
+      const buf = readFileSync(filePath)
+      const meta = await sharp(buf).metadata()
+      return { base64: buf.toString('base64'), width: meta.width ?? 0, height: meta.height ?? 0 }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 바이브 / 캐릭터 레퍼런스 라이브러리 (공용 저장소, kind로 분기)
+  handle('vibes:list', () => listVibes())
+  handle('vibes:add', async ({ folderId }) => ({ count: await addRefImages('vibe', folderId) }))
+  handle('vibes:update', ({ id, patch }) => {
+    updateRefImage('vibe', id, patch)
+  })
+  handle('vibes:delete', ({ id }) => {
+    deleteRefImage('vibe', id)
+  })
+  handle('vibes:reorder', ({ order }) => {
+    reorderRefs('vibe', order)
+  })
+  handle('vibes:folderCreate', ({ name }) => ({ id: createRefFolder('vibe', name) }))
+  handle('vibes:folderRename', ({ id, name }) => {
+    renameRefFolder('vibe', id, name)
+  })
+  handle('vibes:folderCollapse', ({ id, collapsed }) => {
+    collapseRefFolder('vibe', id, collapsed)
+  })
+  handle('vibes:folderColor', ({ id, color }) => {
+    colorRefFolder('vibe', id, color)
+  })
+  handle('vibes:folderDelete', ({ id }) => {
+    deleteRefFolder('vibe', id)
+  })
+
+  handle('crefs:list', () => listCharRefs())
+  handle('crefs:add', async ({ folderId }) => ({ count: await addRefImages('charref', folderId) }))
+  handle('crefs:update', ({ id, patch }) => {
+    updateRefImage('charref', id, patch)
+  })
+  handle('crefs:delete', ({ id }) => {
+    deleteRefImage('charref', id)
+  })
+  handle('crefs:reorder', ({ order }) => {
+    reorderRefs('charref', order)
+  })
+  handle('crefs:folderCreate', ({ name }) => ({ id: createRefFolder('charref', name) }))
+  handle('crefs:folderRename', ({ id, name }) => {
+    renameRefFolder('charref', id, name)
+  })
+  handle('crefs:folderCollapse', ({ id, collapsed }) => {
+    collapseRefFolder('charref', id, collapsed)
+  })
+  handle('crefs:folderColor', ({ id, color }) => {
+    colorRefFolder('charref', id, color)
+  })
+  handle('crefs:folderDelete', ({ id }) => {
+    deleteRefFolder('charref', id)
+  })
+
+  handle('window:control', ({ action }) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    if (!win) return
+    if (action === 'minimize') win.minimize()
+    else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize()
+    else win.close()
+  })
+
+  handle('window:setBackground', ({ color }) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) return
+    for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(color)
+  })
+
+  ctx.queue.on('changed', (status) => broadcast('queue:changed', status))
+}

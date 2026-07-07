@@ -1,0 +1,168 @@
+import { Dice5, Lock, LockOpen } from 'lucide-react'
+import type { UcPresetIndex } from '@shared/types'
+import { NOISE_SCHEDULES, SAMPLERS, UC_PRESET_OPTIONS } from '../lib/constants'
+import { ResolutionPicker } from './resolution-picker'
+import { useGenerationStore } from '../stores/generation-store'
+import { Button } from './ui/button'
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog'
+import { Input } from './ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
+import { Slider } from './ui/slider'
+import { Switch } from './ui/switch'
+
+function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="shrink-0 text-[13px] text-muted">{label}</span>
+      {children}
+    </div>
+  )
+}
+
+export function ParamsDialog({
+  open,
+  onOpenChange
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  const request = useGenerationStore((s) => s.request)
+  const patch = useGenerationStore((s) => s.patchRequest)
+  const seedLocked = useGenerationStore((s) => s.seedLocked)
+  const setSeedLocked = useGenerationStore((s) => s.setSeedLocked)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[420px] p-5">
+        <DialogTitle className="mb-4">생성 파라미터</DialogTitle>
+        <div className="grid gap-4">
+          <Row label="해상도">
+            <ResolutionPicker
+              className="w-52"
+              width={request.width}
+              height={request.height}
+              onPick={(width, height) => patch({ width, height })}
+            />
+          </Row>
+
+          <Row label="시드">
+            <div className="flex w-52 items-center gap-1.5">
+              <Input
+                className="font-mono"
+                value={request.seed < 0 ? '' : String(request.seed)}
+                placeholder="랜덤"
+                onChange={(e) => {
+                  const n = Number(e.target.value)
+                  patch({ seed: e.target.value === '' || Number.isNaN(n) ? -1 : n })
+                }}
+              />
+              <Button
+                size="icon"
+                variant={seedLocked ? 'accent' : 'ghost'}
+                title={seedLocked ? '시드 고정됨' : '시드 고정'}
+                onClick={() => setSeedLocked(!seedLocked)}
+              >
+                {seedLocked ? <Lock size={14} /> : <LockOpen size={14} />}
+              </Button>
+              <Button size="icon" variant="ghost" title="랜덤 시드" onClick={() => patch({ seed: -1 })}>
+                <Dice5 size={14} />
+              </Button>
+            </div>
+          </Row>
+
+          <Row label={`스텝 ${request.steps}`}>
+            <Slider
+              className="w-52"
+              min={1}
+              max={50}
+              step={1}
+              value={[request.steps]}
+              onValueChange={([v]) => patch({ steps: v })}
+            />
+          </Row>
+
+          <Row label={`CFG ${request.cfgScale}`}>
+            <Slider
+              className="w-52"
+              min={1}
+              max={10}
+              step={0.1}
+              value={[request.cfgScale]}
+              onValueChange={([v]) => patch({ cfgScale: Math.round(v * 10) / 10 })}
+            />
+          </Row>
+
+          <Row label={`Rescale ${request.cfgRescale}`}>
+            <Slider
+              className="w-52"
+              min={0}
+              max={1}
+              step={0.02}
+              value={[request.cfgRescale]}
+              onValueChange={([v]) => patch({ cfgRescale: Math.round(v * 100) / 100 })}
+            />
+          </Row>
+
+          <Row label="샘플러">
+            <Select value={request.sampler} onValueChange={(v) => patch({ sampler: v })}>
+              <SelectTrigger className="w-52">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SAMPLERS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+
+          <Row label="노이즈 스케줄">
+            <Select value={request.noiseSchedule} onValueChange={(v) => patch({ noiseSchedule: v })}>
+              <SelectTrigger className="w-52">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {NOISE_SCHEDULES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+
+          <Row label="UC 프리셋">
+            <Select
+              value={String(request.ucPreset)}
+              onValueChange={(v) => patch({ ucPreset: Number(v) as UcPresetIndex })}
+            >
+              <SelectTrigger className="w-52">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UC_PRESET_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={String(o.value)}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+
+          <Row label="퀄리티 태그">
+            <Switch
+              checked={request.qualityToggle}
+              onCheckedChange={(v) => patch({ qualityToggle: v })}
+            />
+          </Row>
+
+          <Row label="Variety+">
+            <Switch checked={request.variety} onCheckedChange={(v) => patch({ variety: v })} />
+          </Row>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

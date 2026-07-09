@@ -157,6 +157,9 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('queue:cancel', ({ ids }) => {
     ctx.queue.cancel(ids)
   })
+  handle('queue:reset', () => {
+    ctx.queue.reset()
+  })
   handle('queue:status', () => ctx.queue.status())
 
   handle('images:list', ({ limit, offset }) => listImages(limit, offset))

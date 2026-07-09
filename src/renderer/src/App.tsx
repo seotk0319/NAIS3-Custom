@@ -18,7 +18,7 @@ import { useFragmentsStore } from './stores/fragments-store'
 import { useCharRefsStore, useVibesStore } from './stores/refs-store'
 import { bindGenerationEvents, useGenerationStore } from './stores/generation-store'
 import { bindSceneEvents } from './stores/scenes-store'
-import { bindShortcuts, useShortcutsStore } from './stores/shortcuts-store'
+import { bindShortcuts, refreshWork, useShortcutsStore } from './stores/shortcuts-store'
 import { bindUpdateEvents } from './stores/update-store'
 import { bindNavMouse } from './lib/nav-history'
 import { useLayoutStore } from './stores/layout-store'
@@ -72,21 +72,25 @@ export default function App(): React.JSX.Element {
     const unbindKeys = bindShortcuts()
     const unbindUpdate = bindUpdateEvents()
     const unbindNav = bindNavMouse() // 마우스 4/5번 버튼 뒤로/앞으로
-    // F5 새로고침 (프로덕션에서도)
-    const onF5 = (e: KeyboardEvent): void => {
-      if (e.key === 'F5') {
+    // Ctrl/Cmd+R은 브라우저 기본 리로드 대신 작업 새로고침으로 처리한다.
+    // F5는 재설정 가능한 단축키 시스템(refreshWork)이 처리한다.
+    const onReloadKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      const isReload =
+        (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'r' || e.key === 'R')
+      if (isReload) {
         e.preventDefault()
-        window.location.reload()
+        void refreshWork()
       }
     }
-    window.addEventListener('keydown', onF5)
+    window.addEventListener('keydown', onReloadKey)
     return () => {
       unbindGen()
       unbindScene()
       unbindKeys()
       unbindUpdate()
       unbindNav()
-      window.removeEventListener('keydown', onF5)
+      window.removeEventListener('keydown', onReloadKey)
     }
   }, [])
 

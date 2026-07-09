@@ -51,6 +51,14 @@ export class GenerationQueue extends EventEmitter {
     this.emitChanged()
   }
 
+  reset(): void {
+    for (const controller of this.controllers.values()) {
+      controller.abort()
+    }
+    this.items.clear()
+    this.emitChanged()
+  }
+
   setDelayMs(ms: number): void {
     this.delayMs = ms
   }

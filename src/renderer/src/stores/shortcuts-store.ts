@@ -22,6 +22,7 @@ export type ShortcutAction =
   | 'openParams'
   | 'resetFragmentCounters'
   | 'curationFavorite'
+  | 'refreshWork'
 
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   generate: '생성 / 씬 생성',
@@ -37,7 +38,8 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   openCharRef: '레퍼런스 열기',
   openParams: '생성 파라미터 열기',
   resetFragmentCounters: '조각 순차 카운터 리셋',
-  curationFavorite: '선별 토글 (선별 작업)'
+  curationFavorite: '선별 토글 (선별 작업)',
+  refreshWork: '작업 새로고침 / 큐 초기화'
 }
 
 const DEFAULTS: Record<ShortcutAction, string> = {
@@ -54,7 +56,8 @@ const DEFAULTS: Record<ShortcutAction, string> = {
   openCharRef: 'Mod+Shift+I',
   openParams: 'Mod+P',
   resetFragmentCounters: 'Mod+Shift+R',
-  curationFavorite: 'F'
+  curationFavorite: 'F',
+  refreshWork: 'F5'
 }
 
 const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
@@ -89,6 +92,12 @@ interface ShortcutsState {
   setBinding: (a: ShortcutAction, combo: string) => void
   resetDefaults: () => void
   hydrate: () => Promise<void>
+}
+
+export async function refreshWork(): Promise<void> {
+  await window.nais.invoke('queue:reset', undefined)
+  await useScenesStore.getState().clearReserveAll()
+  window.location.reload()
 }
 
 function runAction(action: ShortcutAction): void {
@@ -144,6 +153,9 @@ function runAction(action: ShortcutAction): void {
       break
     case 'curationFavorite':
       window.dispatchEvent(new CustomEvent('nais:curation-favorite'))
+      break
+    case 'refreshWork':
+      void refreshWork()
       break
   }
 }
@@ -217,7 +229,7 @@ export function bindShortcuts(): () => void {
     const target = e.target as HTMLElement | null
     const typing =
       target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
-    if (typing && !e.metaKey && !e.ctrlKey) return
+    if (typing && !e.metaKey && !e.ctrlKey && entry[0] !== 'refreshWork') return
     e.preventDefault()
     runAction(entry[0])
   }

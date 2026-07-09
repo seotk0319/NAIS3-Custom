@@ -466,9 +466,9 @@ export interface IpcInvokeMap {
   'scenes:delete': { req: { id: number }; res: void }
   'scenes:reorder': { req: { ids: number[] }; res: void }
   /** 예약: 전체 취소(count=0 등 절대값 설정) */
-  'scenes:setReserveAll': { req: { presetId: number; count: number }; res: void }
+  'scenes:setReserveAll': { req: { presetId: number; count: number; ids?: number[] }; res: void }
   /** 예약: 전체 씬 예약 수를 delta만큼 증감 (최소 0) */
-  'scenes:adjustReserveAll': { req: { presetId: number; delta: number }; res: void }
+  'scenes:adjustReserveAll': { req: { presetId: number; delta: number; ids?: number[] }; res: void }
   /** 편집 모드 일괄 작업 (선택 씬 대상) */
   'scenes:bulkMove': { req: { ids: number[]; presetId: number }; res: void }
   'scenes:bulkDelete': { req: { ids: number[] }; res: void }

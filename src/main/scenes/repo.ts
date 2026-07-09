@@ -200,15 +200,29 @@ export function reorderScenes(ids: number[]): void {
 }
 
 /** 프리셋 내 전체 씬 예약 수를 count로 설정 (전체 취소 0 등) */
-export function setReserveAll(presetId: number, count: number): void {
-  getDb().prepare('UPDATE gen_scenes SET reserve_count = ? WHERE preset_id = ?').run(count, presetId)
+export function setReserveAll(presetId: number, count: number, ids?: number[]): void {
+  const db = getDb()
+  if (ids && ids.length > 0) {
+    db.prepare(
+      `UPDATE gen_scenes SET reserve_count = ? WHERE preset_id = ? AND id IN (${placeholders(ids.length)})`
+    ).run(count, presetId, ...ids)
+  } else {
+    db.prepare('UPDATE gen_scenes SET reserve_count = ? WHERE preset_id = ?').run(count, presetId)
+  }
 }
 
-/** 프리셋 내 전체 씬 예약 수를 delta만큼 증감 (최소 0) */
-export function adjustReserveAll(presetId: number, delta: number): void {
-  getDb()
-    .prepare('UPDATE gen_scenes SET reserve_count = MAX(0, reserve_count + ?) WHERE preset_id = ?')
-    .run(delta, presetId)
+/** 프리셋 내 씬 예약 수를 delta만큼 증감 (최소 0). ids 지정 시 해당 씬만. */
+export function adjustReserveAll(presetId: number, delta: number, ids?: number[]): void {
+  const db = getDb()
+  if (ids && ids.length > 0) {
+    db.prepare(
+      `UPDATE gen_scenes SET reserve_count = MAX(0, reserve_count + ?) WHERE preset_id = ? AND id IN (${placeholders(ids.length)})`
+    ).run(delta, presetId, ...ids)
+  } else {
+    db.prepare(
+      'UPDATE gen_scenes SET reserve_count = MAX(0, reserve_count + ?) WHERE preset_id = ?'
+    ).run(delta, presetId)
+  }
 }
 
 // ── 편집 모드 일괄 작업 ──────────────────────────────────

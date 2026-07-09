@@ -271,11 +271,11 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('scenes:reorder', ({ ids }) => {
     reorderScenes(ids)
   })
-  handle('scenes:setReserveAll', ({ presetId, count }) => {
-    setReserveAll(presetId, count)
+  handle('scenes:setReserveAll', ({ presetId, count, ids }) => {
+    setReserveAll(presetId, count, ids)
   })
-  handle('scenes:adjustReserveAll', ({ presetId, delta }) => {
-    adjustReserveAll(presetId, delta)
+  handle('scenes:adjustReserveAll', ({ presetId, delta, ids }) => {
+    adjustReserveAll(presetId, delta, ids)
   })
   handle('scenes:bulkMove', ({ ids, presetId }) => {
     bulkMove(ids, presetId)

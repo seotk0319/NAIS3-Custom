@@ -272,17 +272,32 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
   },
   adjustReserveAll: async (delta) => {
     const step = delta * (useGenerationStore.getState().batchCount || 1)
+    // 편집 모드에서 체크된 씬이 있으면 그 씬들만 예약, 아니면 전체
+    const { editMode, selection } = get()
+    const ids = editMode && selection.size > 0 ? [...selection] : undefined
     set({
-      scenes: get().scenes.map((s) => ({ ...s, reserveCount: Math.max(0, s.reserveCount + step) }))
+      scenes: get().scenes.map((s) =>
+        !ids || selection.has(s.id) ? { ...s, reserveCount: Math.max(0, s.reserveCount + step) } : s
+      )
     })
     await window.nais.invoke('scenes:adjustReserveAll', {
       presetId: get().activePresetId,
-      delta: step
+      delta: step,
+      ids
     })
   },
   clearReserveAll: async () => {
-    set({ scenes: get().scenes.map((s) => ({ ...s, reserveCount: 0 })) })
-    await window.nais.invoke('scenes:setReserveAll', { presetId: get().activePresetId, count: 0 })
+    // 편집 모드에서 체크된 씬이 있으면 그 씬들만 취소, 아니면 전체
+    const { editMode, selection } = get()
+    const ids = editMode && selection.size > 0 ? [...selection] : undefined
+    set({
+      scenes: get().scenes.map((s) => (!ids || selection.has(s.id) ? { ...s, reserveCount: 0 } : s))
+    })
+    await window.nais.invoke('scenes:setReserveAll', {
+      presetId: get().activePresetId,
+      count: 0,
+      ids
+    })
   },
 
   bulkMove: async (presetId) => {

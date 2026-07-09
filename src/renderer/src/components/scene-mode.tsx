@@ -221,6 +221,7 @@ function SceneGrid(): React.JSX.Element {
   const setCardOrientation = useScenesStore((s) => s.setCardOrientation)
   const adjustReserveAll = useScenesStore((s) => s.adjustReserveAll)
   const clearReserveAll = useScenesStore((s) => s.clearReserveAll)
+  const selection = useScenesStore((s) => s.selection)
   const reorder = useScenesStore((s) => s.reorder)
   const [curationOpen, setCurationOpen] = useState(false)
   const queueBusy = useGenerationStore(
@@ -339,8 +340,16 @@ function SceneGrid(): React.JSX.Element {
 
         <div className="flex-1" />
 
-        <IconBtn icon={<CalendarPlus size={16} />} tip="전체 예약 +1" onClick={() => void adjustReserveAll(1)} />
-        <IconBtn icon={<CalendarX size={16} />} tip="전체 예약 취소" onClick={() => void clearReserveAll()} />
+        <IconBtn
+          icon={<CalendarPlus size={16} />}
+          tip={editMode && selection.size > 0 ? `선택 ${selection.size}개 예약 +1` : '전체 예약 +1'}
+          onClick={() => void adjustReserveAll(1)}
+        />
+        <IconBtn
+          icon={<CalendarX size={16} />}
+          tip={editMode && selection.size > 0 ? `선택 ${selection.size}개 예약 취소` : '전체 예약 취소'}
+          onClick={() => void clearReserveAll()}
+        />
         <div className="mx-1 h-5 w-px bg-line" />
         {/* 카드 비율: 세로/가로 (해상도와 무관하게 고정) */}
         <IconBtn

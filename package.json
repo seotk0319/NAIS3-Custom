@@ -1,7 +1,7 @@
 {
-  "name": "nais3",
+  "name": "nais3-custom",
   "version": "1.0.7",
-  "description": "NAIS3 - NovelAI Image Studio 3",
+  "description": "NAIS3 Custom - NovelAI Image Studio 3 (커스텀 개조판)",
   "main": "./out/main/index.js",
   "author": "sunanakgo",
   "license": "GPL-3.0",

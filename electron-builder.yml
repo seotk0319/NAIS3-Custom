@@ -1,5 +1,5 @@
-appId: com.sunanakgo.nais3
-productName: NAIS3
+appId: com.sunanakgo.nais3custom
+productName: NAIS3 Custom
 directories:
   buildResources: build
 files:
@@ -15,7 +15,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: NAIS3
+  executableName: NAIS3-Custom
   # Windows는 둥근 모서리·여백 규칙이 없어 mac용(여백 큼) 대신 여백 최소 버전 사용
   icon: build/icon-win.png
   target:
@@ -25,7 +25,6 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
-  # 원클릭 대신 어시스트 설치 — 설치 경로 선택 가능
   oneClick: false
   allowToChangeInstallationDirectory: true
   # 차등 업데이트: .blockmap 파일 1개 추가되는 대신 업데이트 시 변경 블록만 다운로드 (훨씬 빠름)
@@ -50,7 +49,3 @@ dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
   writeUpdateInfo: false # dmg는 수동 설치용 — 업데이트 정보 미생성
 npmRebuild: false
-publish:
-  provider: github
-  owner: sunanakgo
-  repo: NAIS3

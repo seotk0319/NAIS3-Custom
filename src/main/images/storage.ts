@@ -19,7 +19,7 @@ export interface SavedImage {
 
 /** 기본 저장 폴더 (설정 미지정 시) */
 export function defaultImagesRoot(): string {
-  return join(app.getPath('pictures'), 'NAIS3')
+  return join(app.getPath('pictures'), app.getName())
 }
 
 /**

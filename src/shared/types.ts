@@ -308,6 +308,8 @@ export interface IpcInvokeMap {
   'db:status': { req: void; res: { version: number; path: string } }
   /** 앱 버전 */
   'app:version': { req: void; res: { version: string } }
+  /** Custom 프로필 (0=기본, 1/2=Custom N). title은 표시용 앱 이름 */
+  'app:profile': { req: void; res: { profile: number; title: string } }
   'nai:verifyToken': {
     req: { token: string }
     res: { valid: boolean; subscription?: SubscriptionInfo; error?: string }

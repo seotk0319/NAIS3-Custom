@@ -1,4 +1,15 @@
-import { Coins, Download, Loader2, Minus, PanelLeft, PanelRight, Settings, Square, X } from 'lucide-react'
+import {
+  Coins,
+  Download,
+  Loader2,
+  Minus,
+  PanelLeft,
+  PanelRight,
+  Settings,
+  Square,
+  X
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { cn } from '../lib/utils'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
@@ -50,7 +61,13 @@ function UpdateButton(): React.JSX.Element | null {
 }
 
 /** Anlas 잔액 + 예상 소모(-N). 토큰 미설정(잔액 없음)이면 표시하지 않음 */
-function AnlasChips({ balance, cost }: { balance: number | null; cost: number }): React.JSX.Element | null {
+function AnlasChips({
+  balance,
+  cost
+}: {
+  balance: number | null
+  cost: number
+}): React.JSX.Element | null {
   if (balance === null) return null
   return (
     <div className="no-drag mx-1 flex items-center gap-1">
@@ -97,6 +114,16 @@ export function Titlebar(): React.JSX.Element {
   const toggleRight = useLayoutStore((s) => s.toggleRight)
   const setSettingsOpen = useLayoutStore((s) => s.setSettingsOpen)
   const anlasBalance = useGenerationStore((s) => s.anlasBalance)
+  const [profileTitle, setProfileTitle] = useState<string | null>(null)
+
+  useEffect(() => {
+    void window.nais.invoke('app:profile', undefined).then(({ profile, title }) => {
+      if (profile > 0) {
+        setProfileTitle(title)
+        document.title = title
+      }
+    })
+  }, [])
 
   // 이번 생성에 소모될 Anlas 추정 (고해상도·캐릭터 레퍼런스·미인코딩 바이브 등)
   const request = useGenerationStore((s) => s.request)
@@ -130,6 +157,12 @@ export function Titlebar(): React.JSX.Element {
       <BarButton onClick={toggleLeft} active={leftOpen} title="프롬프트 패널 접기/펴기">
         <PanelLeft size={15} />
       </BarButton>
+
+      {profileTitle && (
+        <span className="mx-1 shrink-0 rounded-md bg-surface-2 px-2 py-0.5 text-[11.5px] font-semibold text-muted">
+          {profileTitle}
+        </span>
+      )}
 
       <UpdateButton />
 

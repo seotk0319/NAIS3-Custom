@@ -108,6 +108,7 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
 import sharp from 'sharp'
 import { verifyToken } from './nai/client'
+import { APP_TITLE, PROFILE } from './profile'
 import type { GenerationQueue } from './queue/generation-queue'
 
 /** IpcInvokeMap 계약을 강제하는 handle 등록 헬퍼 */
@@ -127,6 +128,7 @@ export function broadcast<C extends keyof IpcEventMap>(channel: C, payload: IpcE
 export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQueue }): void {
   handle('db:status', () => ({ version: ctx.dbVersion, path: getDbPath() }))
   handle('app:version', () => ({ version: app.getVersion() }))
+  handle('app:profile', () => ({ profile: PROFILE, title: APP_TITLE }))
 
   handle('nai:verifyToken', ({ token }) => verifyToken(token))
 

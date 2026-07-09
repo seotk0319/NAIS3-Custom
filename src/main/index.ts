@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import sharp from 'sharp'
 import icon from '../../resources/icon.png?asset'
+import iconInverted from '../../resources/icon-inverted.png?asset'
 import { closeDb, initDb } from './db'
 import { getNaiToken } from './db/settings'
 import { getSetting } from './db/settings'
@@ -16,11 +17,22 @@ import { setupUpdater } from './updater'
 import { logBalance } from './nai/anlas-log'
 import { fetchAnlasBalance, generateImageStream, generateImageZip } from './nai/client'
 import { prepareCharRefs, prepareExtraCharRefs, prepareVibes } from './refs/prepare'
+import {
+  APP_TITLE,
+  APP_USER_MODEL_ID,
+  PROFILE,
+  SHOULD_INVERT_ICON,
+  initProfilePaths
+} from './profile'
 import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
 
-// 앱 이름 (dev 메뉴바·dock에서 'Electron' 대신 표시). 패키징 앱은 productName 사용
-app.setName('NAIS3')
+// Custom 프로필이면 userData를 먼저 분리 (단일 인스턴스 잠금·DB보다 앞서야 함)
+initProfilePaths()
+// 프로필별 창/작업표시줄 아이콘 — 짝수 프로필(Custom 2 등)은 색반전 아이콘으로 구분
+const appIcon = SHOULD_INVERT_ICON ? iconInverted : icon
+// 앱 이름 (dev 메뉴바·dock에서 'Electron' 대신 표시). 프로필이면 'NAIS3 Custom N'
+app.setName(APP_TITLE)
 
 // 중복 실행 방지 (특히 Windows) — 두 번째 실행은 기존 창을 앞으로
 if (!app.requestSingleInstanceLock()) {
@@ -42,6 +54,7 @@ protocol.registerSchemesAsPrivileged([
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
+    title: APP_TITLE,
     width: 1600,
     height: 900,
     minWidth: 1080,
@@ -54,7 +67,7 @@ function createWindow(): void {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     // 신호등을 큰 타이틀바(h-14=56px) 중앙에 세로 정렬
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 21 } } : {}),
-    ...(process.platform !== 'darwin' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -78,7 +91,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.sunanakgo.nais3')
+  electronApp.setAppUserModelId(APP_USER_MODEL_ID)
 
   protocol.handle('nais-image', (request) => {
     const url = new URL(request.url)
@@ -240,10 +253,10 @@ app.whenReady().then(() => {
   })
 
   // mac dock 아이콘 (dev 미리보기용 — 패키징 앱은 icns 사용)
-  if (process.platform === 'darwin' && app.dock) app.dock.setIcon(icon)
+  if (process.platform === 'darwin' && app.dock) app.dock.setIcon(appIcon)
 
   createWindow()
-  setupUpdater() // GitHub release 자동 업데이트 확인 (패키징된 앱에서만 실제 동작)
+  if (PROFILE === 0) setupUpdater() // 커스텀 프로필은 원본 릴리스 자동 업데이트를 사용하지 않음
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

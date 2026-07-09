@@ -95,7 +95,7 @@ export function appendPrompt(base: string, add: string): string {
  * 해상도만 씬 것을 사용 (소스가 있으면 소스 해상도가 우선). 바이브/레퍼런스/조각은
  * 메인 프로세스가 DB·와일드카드에서 읽어 적용하므로 여기선 프롬프트·캐릭터·파라미터만 구성.
  */
-function buildSceneRequest(scene: Scene): GenerationRequest {
+export function buildSceneRequest(scene: Scene): GenerationRequest {
   const base = useGenerationStore.getState().request
   const src = useGenerationStore.getState().source
   const characterPrompts = enabledCharacters().map((c) => ({

@@ -21,6 +21,7 @@ export type ShortcutAction =
   | 'openCharRef'
   | 'openParams'
   | 'resetFragmentCounters'
+  | 'curationFavorite'
 
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   generate: '생성 / 씬 생성',
@@ -35,7 +36,8 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   openVibe: '바이브 열기',
   openCharRef: '레퍼런스 열기',
   openParams: '생성 파라미터 열기',
-  resetFragmentCounters: '조각 순차 카운터 리셋'
+  resetFragmentCounters: '조각 순차 카운터 리셋',
+  curationFavorite: '선별 토글 (선별 작업)'
 }
 
 const DEFAULTS: Record<ShortcutAction, string> = {
@@ -51,7 +53,8 @@ const DEFAULTS: Record<ShortcutAction, string> = {
   openVibe: 'Mod+I',
   openCharRef: 'Mod+Shift+I',
   openParams: 'Mod+P',
-  resetFragmentCounters: 'Mod+Shift+R'
+  resetFragmentCounters: 'Mod+Shift+R',
+  curationFavorite: 'F'
 }
 
 const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
@@ -138,6 +141,9 @@ function runAction(action: ShortcutAction): void {
         .getState()
         .resetSequential()
         .then(() => toast('조각 순차 카운터를 리셋했습니다', 'success'))
+      break
+    case 'curationFavorite':
+      window.dispatchEvent(new CustomEvent('nais:curation-favorite'))
       break
   }
 }

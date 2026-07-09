@@ -8,6 +8,7 @@ import {
   FolderArchive,
   FolderOpen,
   ImageOff,
+  ListChecks,
   Loader2,
   Minus,
   MoreVertical,
@@ -40,6 +41,7 @@ import { askConfirm, askText } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
 import { cn } from '../lib/utils'
 import { ResolutionPicker } from './resolution-picker'
+import { SceneCuration } from './scene-curation'
 import { SceneDetail } from './scene-detail'
 import { SortableList, SortableRow } from './sortable-list'
 import { Button } from './ui/button'
@@ -171,11 +173,13 @@ function IconBtn({
   icon,
   tip,
   active,
+  disabled,
   onClick
 }: {
   icon: React.ReactNode
   tip: string
   active?: boolean
+  disabled?: boolean
   onClick: () => void
 }): React.JSX.Element {
   return (
@@ -183,8 +187,9 @@ function IconBtn({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
+          disabled={disabled}
           className={cn(
-            'grid size-8 place-items-center rounded-md transition-colors',
+            'grid size-8 place-items-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-35',
             active ? 'bg-accent text-white' : 'text-muted hover:bg-surface-2 hover:text-fg'
           )}
         >
@@ -212,6 +217,10 @@ function SceneGrid(): React.JSX.Element {
   const adjustReserveAll = useScenesStore((s) => s.adjustReserveAll)
   const clearReserveAll = useScenesStore((s) => s.clearReserveAll)
   const reorder = useScenesStore((s) => s.reorder)
+  const [curationOpen, setCurationOpen] = useState(false)
+  const queueBusy = useGenerationStore(
+    (s) => s.queue?.items.some((i) => i.state === 'generating' || i.state === 'pending') ?? false
+  )
 
   // 스크롤 위치 복원 — 마운트 직후 + 씬 목록이 늦게 로드된 경우 한 번 더
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -296,6 +305,12 @@ function SceneGrid(): React.JSX.Element {
           tip="편집 모드"
           active={editMode}
           onClick={() => setEditMode(!editMode)}
+        />
+        <IconBtn
+          icon={<ListChecks size={16} />}
+          tip="선별 작업"
+          disabled={scenes.length === 0 || queueBusy}
+          onClick={() => setCurationOpen(true)}
         />
 
         <div className="flex-1" />
@@ -413,6 +428,7 @@ function SceneGrid(): React.JSX.Element {
           </p>
         )}
       </div>
+      {curationOpen && <SceneCuration onClose={() => setCurationOpen(false)} />}
     </div>
   )
 }

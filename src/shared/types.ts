@@ -52,6 +52,14 @@ export interface CharRefItem {
   folderId: number | null
 }
 
+/** 1회성 캐릭터 레퍼런스 — 전역 레퍼런스 라이브러리와 무관하게 이 요청에만 적용 */
+export interface ExtraCharRef {
+  filePath: string
+  refType: CharRefType
+  strength: number
+  fidelity: number
+}
+
 export interface GenerationRequest {
   prompt: string
   /** Optional NAIS2-style split prompt parts. prompt is still the merged send text. */
@@ -76,6 +84,10 @@ export interface GenerationRequest {
   i2iNoise?: number
   /** i2i/인페인트 모드일 때만. 바이브/캐릭레퍼는 생성 시 메인이 DB에서 enabled 항목을 읽는다 */
   source?: SourceImage
+  /** 이 요청에만 추가로 적용할 캐릭터 레퍼런스 */
+  extraCharRefs?: ExtraCharRef[]
+  /** 조각/와일드카드 치환을 건너뛰고 원문 프롬프트를 생성 파이프라인에 넘긴다 */
+  skipWildcards?: boolean
   /** 씬 생성이면 씬 id (저장 시 images.scene_id 연결) */
   sceneId?: number
 }

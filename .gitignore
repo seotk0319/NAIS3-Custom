@@ -32,3 +32,11 @@ Thumbs.db
 # 내부 문서 (공개 제외)
 docs
 RESEARCH.md
+
+# Superloopy QA 증거 (내부)
+.superloopy
+
+# NAIS3 Custom 내부 작업 문서 (로컬 전용)
+NAIS3_CUSTOM_PORT_REPORT_*.md
+NAIS3_CUSTOM_REBUILD_PROMPT.md
+SPEC_v1.0.5_reference.txt

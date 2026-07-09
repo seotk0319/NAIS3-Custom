@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import sharp from 'sharp'
+import type { ExtraCharRef } from '../../shared/types'
 import type { CharacterReferenceOptions, VibeOptions } from '../nai/payload'
 import { ENDPOINTS } from '../nai/endpoints'
 import { enabledCharRefRows, enabledVibeRows, saveVibeEncoding } from './repo'
@@ -66,6 +67,22 @@ export async function prepareCharRefs(): Promise<CharacterReferenceOptions[]> {
       strength: row.strength,
       fidelity: row.fidelity,
       imageBase64: await processCharRefImage(row.filePath)
+    })
+  }
+  return result
+}
+
+/** 1회성 캐릭터 레퍼런스 — 라이브러리 DB에 저장하지 않고 동일한 이미지 전처리만 적용 */
+export async function prepareExtraCharRefs(
+  refs: ExtraCharRef[]
+): Promise<CharacterReferenceOptions[]> {
+  const result: CharacterReferenceOptions[] = []
+  for (const ref of refs) {
+    result.push({
+      referenceType: ref.refType as CharacterReferenceOptions['referenceType'],
+      strength: ref.strength,
+      fidelity: ref.fidelity,
+      imageBase64: await processCharRefImage(ref.filePath)
     })
   }
   return result

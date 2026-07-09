@@ -15,7 +15,7 @@ import { broadcast, registerIpcHandlers } from './ipc'
 import { setupUpdater } from './updater'
 import { logBalance } from './nai/anlas-log'
 import { fetchAnlasBalance, generateImageStream, generateImageZip } from './nai/client'
-import { prepareCharRefs, prepareVibes } from './refs/prepare'
+import { prepareCharRefs, prepareExtraCharRefs, prepareVibes } from './refs/prepare'
 import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
 
@@ -105,10 +105,12 @@ app.whenReady().then(() => {
     if (!token) throw new Error('NAI 토큰이 설정되지 않았습니다')
 
     // 배치 항목마다 여기서 치환 — 매 장 다른 와일드카드 결과가 나온다.
-    // 주석 제거가 반드시 먼저 — 주석 줄이 조각을 소모하거나(순차 카운터),
-    // 와일드카드 처리의 재조립이 개행을 지워 주석 범위가 전체로 번지는 것 방지 (NAIS2와 동일 순서)
+    // 일반 생성은 주석 제거가 반드시 먼저 — 주석 줄이 조각을 소모하거나(순차 카운터),
+    // 와일드카드 처리의 재조립이 개행을 지워 주석 범위가 전체로 번지는 것 방지 (NAIS2와 동일 순서).
+    // skipWildcards는 메타데이터 원문 복구용이므로 이 전처리 묶음을 건너뛴다.
     const fragSource = fragmentSource()
-    const sub = (text: string): string => processWildcards(removeComments(text), fragSource)
+    const sub = (text: string): string =>
+      rawRequest.skipWildcards ? text : processWildcards(removeComments(text), fragSource)
     let request = {
       ...rawRequest,
       prompt: sub(rawRequest.prompt),
@@ -123,7 +125,10 @@ app.whenReady().then(() => {
     // 바이브/캐릭레퍼는 DB의 enabled 항목에서 준비 (바이브는 필요 시 인코딩 — 2 Anlas, 캐시됨)
     const { vibes, newlyEncoded } = await prepareVibes(token)
     if (newlyEncoded.length) broadcast('vibes:encoded', {}) // 카드 인코딩 표시 갱신
-    const characterReferences = await prepareCharRefs()
+    const extraCharacterReferences = rawRequest.extraCharRefs?.length
+      ? await prepareExtraCharRefs(rawRequest.extraCharRefs)
+      : []
+    const characterReferences = [...extraCharacterReferences, ...(await prepareCharRefs())]
 
     let source = request.source
     // i2i/인페인트: 소스 해상도를 유효 NAI 해상도(64 배수·픽셀 상한)로 스냅하고 이미지를 맞춰 리사이즈.

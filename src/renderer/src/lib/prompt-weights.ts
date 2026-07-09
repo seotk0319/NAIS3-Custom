@@ -93,13 +93,14 @@ export function weightBackground(weight: number): string | null {
 /** 조각 구문 <...> 하이라이트 (NAIS2의 녹색 계승) */
 const FRAGMENT_BG = 'rgba(92, 190, 125, 0.3)'
 
-/** #부터 그 줄 끝까지의 [시작, 끝) 구간 (removeComments와 동일 규칙) */
+/** 줄 맨 앞(선행 공백 허용)이 #인 주석 줄의 [시작, 끝) 구간 */
 function commentSpans(text: string): { start: number; end: number }[] {
   const spans: { start: number; end: number }[] = []
   let offset = 0
   for (const line of text.split('\n')) {
-    const i = line.indexOf('#')
-    if (i !== -1) spans.push({ start: offset + i, end: offset + line.length })
+    if (line.trimStart().startsWith('#')) {
+      spans.push({ start: offset, end: offset + line.length })
+    }
     offset += line.length + 1 // '\n'
   }
   return spans

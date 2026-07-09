@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWeights } from '../src/renderer/src/lib/prompt-weights'
+import { highlightRanges, parseWeights } from '../src/renderer/src/lib/prompt-weights'
 
 function segmentFor(text: string, sub: string): number {
   const idx = text.indexOf(sub)
@@ -7,6 +7,13 @@ function segmentFor(text: string, sub: string): number {
   const seg = segs.find((s) => s.start <= idx && idx + sub.length <= s.end)
   if (!seg) throw new Error(`no segment covering ${sub}: ${JSON.stringify(segs)}`)
   return seg.weight
+}
+
+function highlightFor(text: string, sub: string): string | null {
+  const idx = text.indexOf(sub)
+  const range = highlightRanges(text).find((r) => r.start <= idx && idx + sub.length <= r.end)
+  if (!range) throw new Error(`no highlight covering ${sub}`)
+  return range.bg
 }
 
 describe('NAI 가중치 파서', () => {
@@ -50,5 +57,11 @@ describe('NAI 가중치 파서', () => {
 
   it('짝이 안 맞는 닫는 괄호는 무시 (음수 깊이 방지)', () => {
     expect(segmentFor('a } b', 'b')).toBe(1)
+  })
+
+  it('줄 맨 앞의 #만 주석이고 source#/target#의 #은 문법으로 보존한다', () => {
+    expect(highlightFor('# <comment>', '<comment>')).toBeNull()
+    expect(highlightFor('source# <source>', '<source>')).not.toBeNull()
+    expect(highlightFor('target# <target>', '<target>')).not.toBeNull()
   })
 })

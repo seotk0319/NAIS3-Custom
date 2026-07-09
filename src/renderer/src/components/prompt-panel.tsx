@@ -636,7 +636,7 @@ function SplitField({
 /** 프롬프트 문법 도움말 — ⓘ 팝오버 (주석·조각·순차·랜덤·가중치) */
 function SyntaxHelp(): React.JSX.Element {
   const rows: { syntax: string; desc: string }[] = [
-    { syntax: '# 메모', desc: '# 부터 줄 끝까지 주석 (전송 제외)' },
+    { syntax: '# 메모', desc: '줄 맨 앞의 #만 전체 줄 주석 (전송 제외)' },
     { syntax: '<이름>', desc: '조각 삽입 — 여러 줄이면 매 생성 랜덤 1줄' },
     { syntax: '<*이름>', desc: '순차 선택 — 생성마다 다음 줄 (헤더 ↺로 리셋)' },
     { syntax: '<a|b|c>', desc: '인라인 랜덤 — 셋 중 하나' },

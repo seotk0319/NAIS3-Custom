@@ -74,20 +74,14 @@ export function PromptEditor({
 
   const ranges = useMemo(() => highlightRanges(value), [value])
 
-  // #주석 회색 글씨 표시용 세그먼트 — removeComments와 동일 규칙(줄의 첫 # 부터 줄 끝까지).
+  // #주석 회색 글씨 표시용 세그먼트. 줄 맨 앞(선행 공백 허용)의 #만 주석으로 본다.
   // textarea "앞"(위) 레이어로 얹어, 주석 글자만 회색으로 덮어 그린다(전송/토큰은 별도 제외).
   const commentSegments = useMemo(() => {
     const segs: { text: string; comment: boolean }[] = []
     const lines = value.split('\n')
     lines.forEach((line, idx) => {
       const nl = idx < lines.length - 1 ? '\n' : ''
-      const hash = line.indexOf('#')
-      if (hash === -1) {
-        segs.push({ text: line + nl, comment: false })
-      } else {
-        if (hash > 0) segs.push({ text: line.slice(0, hash), comment: false })
-        segs.push({ text: line.slice(hash) + nl, comment: true })
-      }
+      segs.push({ text: line + nl, comment: line.trimStart().startsWith('#') })
     })
     return segs
   }, [value])
@@ -159,9 +153,9 @@ export function PromptEditor({
     const seq = ++searchSeqRef.current // 이 시점 이전에 발사된 검색 결과는 전부 무효
     const before = text.slice(0, cursor)
 
-    // 주석 구간(# 뒤)에서는 추천 안 함 — 어차피 전송 안 되는 텍스트
+    // 줄 맨 앞의 # 주석에서는 추천하지 않는다. 줄 중간의 #은 NAI 문법으로 취급한다.
     const lineStart = before.lastIndexOf('\n') + 1
-    if (before.slice(lineStart).includes('#')) {
+    if (before.slice(lineStart).trimStart().startsWith('#')) {
       setSuggestions([])
       return
     }
@@ -282,7 +276,7 @@ export function PromptEditor({
         }}
       />
 
-      {/* #주석 회색 글씨 오버레이 — textarea 위에 얹어 주석 글자만 회색으로 덮어 그린다 */}
+      {/* #주석 줄 회색 글씨 오버레이 — textarea 위에 얹어 주석 글자만 회색으로 덮어 그린다 */}
       <div
         ref={commentRef}
         aria-hidden

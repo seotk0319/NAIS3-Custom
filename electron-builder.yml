@@ -22,11 +22,15 @@ win:
     - nsis # exe 설치본만 (msi 없음)
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
   uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
   oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
+  # 기본 바로가기/설치 후 자동실행(=프로필 0)은 끄고, build/installer.nsh가
+  # 프로필 선택 페이지 + Custom 1/2(--profile) 바로가기를 직접 만든다
+  createDesktopShortcut: false
+  createStartMenuShortcut: false
+  runAfterFinish: false
   # 차등 업데이트: .blockmap 파일 1개 추가되는 대신 업데이트 시 변경 블록만 다운로드 (훨씬 빠름)
 mac:
   # macOS 표준 여백(박스 ~80%) 버전

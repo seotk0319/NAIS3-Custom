@@ -646,12 +646,12 @@ const SceneCard = memo(function SceneCard({
       {...sortable.attributes}
       {...sortable.listeners}
       className={cn(
-        'group relative touch-none overflow-hidden rounded-lg border bg-surface-2 transition',
+        'group relative touch-none select-none overflow-hidden rounded-lg border bg-surface-2 transition',
         editMode && checked ? 'border-accent ring-2 ring-accent/40' : 'border-line',
         sortable.isDragging && 'shadow-xl'
       )}
       style={{ aspectRatio: CARD_ASPECT[cardOrientation], ...dndStyle(sortable) }}
-      onClick={() => (editMode ? toggleSelected(scene.id) : select(scene.id))}
+      onClick={(e) => (editMode ? toggleSelected(scene.id, e.shiftKey) : select(scene.id))}
     >
       {/* 배경 이미지 (생성 중이면 스트리밍 프리뷰) */}
       {src ? (

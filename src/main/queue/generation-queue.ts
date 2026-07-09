@@ -39,6 +39,23 @@ export class GenerationQueue extends EventEmitter {
     return ids
   }
 
+  /**
+   * 여러 요청을 "한 번에" 큐에 넣는다 (씬 일괄 예약 생성용).
+   * 각 요청은 자체 seed를 그대로 쓰며, 전체를 단일 배치로 추가하고 emitChanged/run은 1회만.
+   * 렌더러가 항목마다 IPC를 왕복하지 않으므로 큐가 순차로 차오르지 않고, 취소 1번으로 전부 정리된다.
+   */
+  enqueueMany(requests: GenerationRequest[]): string[] {
+    const ids: string[] = []
+    for (const request of requests) {
+      const id = randomUUID()
+      this.items.set(id, { id, state: 'pending', request })
+      ids.push(id)
+    }
+    this.emitChanged()
+    void this.run()
+    return ids
+  }
+
   cancel(ids: string[]): void {
     for (const id of ids) {
       const item = this.items.get(id)

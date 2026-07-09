@@ -154,6 +154,7 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('nai:anlasUsage', () => anlasUsage())
 
   handle('queue:enqueue', ({ request, count }) => ({ ids: ctx.queue.enqueue(request, count) }))
+  handle('queue:enqueueMany', ({ requests }) => ({ ids: ctx.queue.enqueueMany(requests) }))
   handle('queue:cancel', ({ ids }) => {
     ctx.queue.cancel(ids)
   })

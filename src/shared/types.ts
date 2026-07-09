@@ -325,6 +325,7 @@ export interface IpcInvokeMap {
   'nai:balance': { req: void; res: { anlas: number | null; tier: string | null } }
   'nai:anlasUsage': { req: void; res: { today: number; week: number } }
   'queue:enqueue': { req: { request: GenerationRequest; count: number }; res: { ids: string[] } }
+  'queue:enqueueMany': { req: { requests: GenerationRequest[] }; res: { ids: string[] } }
   'queue:cancel': { req: { ids: string[] }; res: void }
   'queue:reset': { req: void; res: void }
   'queue:status': { req: void; res: QueueStatus }

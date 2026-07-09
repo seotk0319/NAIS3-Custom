@@ -15,6 +15,7 @@ interface ScenesState {
   selectedId: number | null // 상세로 연 씬
   editMode: boolean
   selection: Set<number> // 편집 모드 체크된 씬들
+  selectionAnchor: number | null // shift 범위선택 기준점(마지막 단일 클릭 씬)
   columns: number // 2~5
   cardOrientation: 'portrait' | 'landscape' // 카드 비율 고정 (해상도 무관)
 
@@ -39,7 +40,7 @@ interface ScenesState {
   setEditMode: (v: boolean) => void
   setColumns: (n: number) => void
   setCardOrientation: (o: 'portrait' | 'landscape') => void
-  toggleSelected: (id: number) => void
+  toggleSelected: (id: number, shift?: boolean) => void
   selectAll: () => void
   clearSelection: () => void
 
@@ -133,6 +134,7 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
   selectedId: null,
   editMode: false,
   selection: new Set(),
+  selectionAnchor: null,
   columns: Number(localStorage.getItem('scene_columns')) || 3,
   cardOrientation:
     (localStorage.getItem('scene_orientation') as 'portrait' | 'landscape') || 'portrait',
@@ -150,7 +152,7 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     await get().load()
   },
   setActivePreset: async (id) => {
-    set({ activePresetId: id, selectedId: null, selection: new Set() })
+    set({ activePresetId: id, selectedId: null, selection: new Set(), selectionAnchor: null })
     await get().load()
   },
   createPreset: async (name) => {
@@ -193,7 +195,7 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     set({ selectedId, images: [], imagesTotal: 0, favoritesOnly: false })
     if (selectedId != null) void get().loadImages(selectedId, true)
   },
-  setEditMode: (editMode) => set({ editMode, selection: new Set() }),
+  setEditMode: (editMode) => set({ editMode, selection: new Set(), selectionAnchor: null }),
   setColumns: (columns) => {
     set({ columns })
     localStorage.setItem('scene_columns', String(columns))
@@ -202,10 +204,27 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     set({ cardOrientation })
     localStorage.setItem('scene_orientation', cardOrientation)
   },
-  toggleSelected: (id) => {
+  toggleSelected: (id, shift) => {
     const next = new Set(get().selection)
+    const anchor = get().selectionAnchor
+    if (shift && anchor != null && anchor !== id) {
+      // 앵커~클릭 씬 사이 구간 전체에 앵커의 현재 선택 상태를 적용 (범위 체크/해제 모두 지원)
+      const ids = get().scenes.map((s) => s.id)
+      const ai = ids.indexOf(anchor)
+      const bi = ids.indexOf(id)
+      if (ai !== -1 && bi !== -1) {
+        const [lo, hi] = ai < bi ? [ai, bi] : [bi, ai]
+        const want = next.has(anchor)
+        for (let k = lo; k <= hi; k++) {
+          if (want) next.add(ids[k])
+          else next.delete(ids[k])
+        }
+        set({ selection: next }) // 앵커는 유지 — 연속으로 범위를 늘였다 줄였다 조정 가능
+        return
+      }
+    }
     next.has(id) ? next.delete(id) : next.add(id)
-    set({ selection: next })
+    set({ selection: next, selectionAnchor: id })
   },
   selectAll: () => set({ selection: new Set(get().scenes.map((s) => s.id)) }),
   clearSelection: () => set({ selection: new Set() }),
@@ -361,18 +380,21 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
 
   generateReserved: async () => {
     const reserved = get().scenes.filter((s) => s.reserveCount > 0)
+    if (reserved.length === 0) return
     // 예약을 큐에 넣는 즉시 예약 수는 소진(0) — 예약이란 게 "뽑을 대기열"이므로
     set({ scenes: get().scenes.map((s) => (s.reserveCount > 0 ? { ...s, reserveCount: 0 } : s)) })
     void window.nais.invoke('scenes:setReserveAll', { presetId: get().activePresetId, count: 0 })
+    // 모든 예약 장수를 한 배열로 모아 "한 번에" 큐에 넣는다. 항목마다 IPC를 왕복하며
+    // 순차로 차오르지 않으므로, 생성 중 취소 1번으로 전부 정리되고 나머지가 이어붙지 않는다.
+    const requests: GenerationRequest[] = []
     let offset = 0
     for (const scene of reserved) {
+      const req = buildSceneRequest(scene)
       for (let i = 0; i < scene.reserveCount; i++) {
-        await window.nais.invoke('queue:enqueue', {
-          request: { ...buildSceneRequest(scene), seed: sceneSeed(offset++) },
-          count: 1
-        })
+        requests.push({ ...req, seed: sceneSeed(offset++) })
       }
     }
+    await window.nais.invoke('queue:enqueueMany', { requests })
   },
 
   generateOne: async (sceneId) => {

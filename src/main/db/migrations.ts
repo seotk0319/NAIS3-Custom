@@ -267,5 +267,18 @@ export const migrations: ((db: Database.Database) => void)[] = [
       ALTER TABLE scene_presets ADD COLUMN default_width INTEGER;
       ALTER TABLE scene_presets ADD COLUMN default_height INTEGER;
     `)
+  },
+
+  // v12: 커스텀 리베이스 정합 — 옛 커스텀 포크(1.0.3 기반)는 v10에서 prompt_presets에
+  // base_prompt를 추가했지만 upstream v10은 params_json을 추가했다. 옛 포크 DB(user_version=10)는
+  // 그 divergence로 params_json이 누락되므로 여기서 idempotent하게 보정한다.
+  // 신규 설치·정상 upstream DB는 이미 params_json이 있으므로 no-op이다.
+  (db) => {
+    const cols = (
+      db.prepare(`PRAGMA table_info(prompt_presets)`).all() as { name: string }[]
+    ).map((c) => c.name)
+    if (!cols.includes('params_json')) {
+      db.exec(`ALTER TABLE prompt_presets ADD COLUMN params_json TEXT;`)
+    }
   }
 ]

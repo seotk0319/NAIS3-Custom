@@ -31,7 +31,7 @@ import {
 } from '@dnd-kit/core'
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Scene } from '@shared/types'
 import { RESOLUTIONS, imageUrl } from '../lib/constants'
 import { useGenerationStore } from '../stores/generation-store'
@@ -261,6 +261,18 @@ function SceneGrid(): React.JSX.Element {
   const generatingSceneId = useGenerationStore(
     (s) => s.queue?.items.find((i) => i.state === 'generating')?.request.sceneId ?? null
   )
+  // 씬별 큐 잔여 장수(대기+생성 중) — 연속 생성 중 각 씬에 몇 장 남았는지 표시용
+  const queueItems = useGenerationStore((s) => s.queue?.items)
+  const remainingByScene = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const it of queueItems ?? []) {
+      const sid = it.request.sceneId
+      if (sid != null && (it.state === 'pending' || it.state === 'generating')) {
+        m.set(sid, (m.get(sid) ?? 0) + 1)
+      }
+    }
+    return m
+  }, [queueItems])
 
   async function exportJson(): Promise<void> {
     await window.nais.invoke('scenes:exportJson', { presetId: activePresetId })
@@ -415,6 +427,7 @@ function SceneGrid(): React.JSX.Element {
                   scene={scene}
                   live={scene.id === generatingSceneId ? previewPng : null}
                   generating={scene.id === generatingSceneId}
+                  remaining={remainingByScene.get(scene.id) ?? 0}
                 />
               ))}
               <button
@@ -599,11 +612,14 @@ function dndStyle(sortable: ReturnType<typeof useSortable>): CSSProperties {
 const SceneCard = memo(function SceneCard({
   scene,
   live,
-  generating
+  generating,
+  remaining
 }: {
   scene: Scene
   live: string | null
   generating: boolean
+  /** 이 씬의 큐 잔여 장수(대기+생성 중). 0이면 배지 숨김 */
+  remaining: number
 }): React.JSX.Element {
   const editMode = useScenesStore((s) => s.editMode)
   const cardOrientation = useScenesStore((s) => s.cardOrientation)
@@ -685,35 +701,45 @@ const SceneCard = memo(function SceneCard({
         </span>
       )}
 
-      {/* 우측 상단 — 편집 모드 체크박스 / 일반 3점 메뉴 */}
-      {editMode ? (
-        <span
-          className={cn(
-            'absolute right-1.5 top-1.5 grid size-5 place-items-center rounded border-2 transition',
-            checked ? 'border-accent bg-accent text-white' : 'border-white/80 bg-black/30'
-          )}
-        >
-          {checked && <span className="text-[11px] leading-none">✓</span>}
-        </span>
-      ) : (
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-full bg-black/55 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <MoreVertical size={14} />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-40 p-1" onClick={(e) => e.stopPropagation()}>
-            <MenuItem icon={<Pencil size={13} />} label="이름 변경" onClick={() => void renameScene()} />
-            <MenuItem icon={<Copy size={13} />} label="복제" onClick={() => void duplicate(scene.id)} />
-            <MenuItem icon={<FolderOpen size={13} />} label="폴더 열기" onClick={() => void openFolder()} />
-            <MenuItem icon={<Trash2 size={13} />} label="삭제" danger onClick={() => void removeScene()} />
-          </PopoverContent>
-        </Popover>
-      )}
+      {/* 우측 상단 — 잔여 장수 배지 + (편집 체크박스 / 3점 메뉴). flex라 폭 무관하게 안 겹침 */}
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+        {remaining > 0 && (
+          <span
+            className="grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1.5 text-[12px] font-bold text-white shadow"
+            title={`이 씬 큐 잔여 ${remaining}장`}
+          >
+            {remaining}
+          </span>
+        )}
+        {editMode ? (
+          <span
+            className={cn(
+              'grid size-5 place-items-center rounded border-2 transition',
+              checked ? 'border-accent bg-accent text-white' : 'border-white/80 bg-black/30'
+            )}
+          >
+            {checked && <span className="text-[11px] leading-none">✓</span>}
+          </span>
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className="grid size-6 place-items-center rounded-full bg-black/55 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <MoreVertical size={14} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-40 p-1" onClick={(e) => e.stopPropagation()}>
+              <MenuItem icon={<Pencil size={13} />} label="이름 변경" onClick={() => void renameScene()} />
+              <MenuItem icon={<Copy size={13} />} label="복제" onClick={() => void duplicate(scene.id)} />
+              <MenuItem icon={<FolderOpen size={13} />} label="폴더 열기" onClick={() => void openFolder()} />
+              <MenuItem icon={<Trash2 size={13} />} label="삭제" danger onClick={() => void removeScene()} />
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
 
       {/* 하단 그라디언트 + 이름 + 예약 +/- */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-6">

@@ -24,6 +24,7 @@ import { useDirectorStore } from '../stores/director-store'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
 import { cn } from '../lib/utils'
+import { StyleRestoreCard } from './style-restore-card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -230,6 +231,8 @@ export function DirectorMode(): React.JSX.Element {
           {TOOLS.map((tool) => (
             <ToolCard key={tool.method} tool={tool} disabled={!source || loading} cost={toolCost} />
           ))}
+          <div className="!my-3 h-px bg-line" />
+          <StyleRestoreCard />
         </div>
       </div>
     </div>

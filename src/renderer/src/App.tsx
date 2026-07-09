@@ -5,6 +5,7 @@ import { LoadingScreen } from './components/loading-screen'
 import { Toaster } from './components/toaster'
 import { PreviewPane } from './components/preview-pane'
 import { DirectorMode } from './components/director-mode'
+import { LibraryView } from './components/library-view'
 import { InpaintHost } from './components/inpaint-host'
 import { MetadataDialog } from './components/metadata-dialog'
 import { PromptPanel } from './components/prompt-panel'
@@ -125,6 +126,8 @@ export default function App(): React.JSX.Element {
             <SceneMode />
           ) : centerMode === 'director' ? (
             <DirectorMode />
+          ) : centerMode === 'library' ? (
+            <LibraryView />
           ) : (
             <PreviewPane />
           )}

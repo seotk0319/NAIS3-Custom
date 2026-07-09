@@ -45,6 +45,7 @@ import { SceneCuration } from './scene-curation'
 import { SceneDetail } from './scene-detail'
 import { SortableList, SortableRow } from './sortable-list'
 import { Button } from './ui/button'
+import { EditableCount } from './ui/editable-count'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -711,9 +712,14 @@ const SceneCard = memo(function SceneCard({
             >
               <Minus size={13} />
             </button>
-            <span className="min-w-4 text-center text-[12px] font-medium text-white">
-              {scene.reserveCount}
-            </span>
+            <EditableCount
+              value={scene.reserveCount}
+              min={0}
+              max={9999}
+              onCommit={(n) => void update(scene.id, { reserveCount: n })}
+              className="min-w-4 text-center text-[12px] font-medium text-white"
+              inputClassName="w-10"
+            />
             <button
               className="grid size-5 place-items-center rounded-full text-white hover:bg-white/20"
               onClick={() => void adjustReserve(scene.id, 1)}

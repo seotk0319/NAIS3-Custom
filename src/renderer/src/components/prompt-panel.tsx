@@ -28,6 +28,7 @@ import { ParamsDialog } from './params-dialog'
 import { RefOverlay } from './ref-overlay'
 import { SOURCE_BANNER_HEIGHT, SourceBanner } from './source-banner'
 import { Button } from './ui/button'
+import { EditableCount } from './ui/editable-count'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 const TOKEN_LIMIT = 512
@@ -344,16 +345,12 @@ export function PromptPanel(): React.JSX.Element {
           >
             <Minus size={13} />
           </Button>
-          {/* 숫자 직접 입력 가능 */}
-          <input
-            className="w-8 bg-transparent text-center font-mono text-[13px] text-ink outline-none"
+          <EditableCount
             value={batchCount}
-            inputMode="numeric"
-            onChange={(e) => {
-              const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10)
-              if (!Number.isNaN(n)) setBatchCount(n)
-            }}
-            onFocus={(e) => e.target.select()}
+            min={1}
+            max={99}
+            onCommit={setBatchCount}
+            className="w-8 text-center font-mono text-[13px] text-ink"
           />
           <Button
             size="icon"

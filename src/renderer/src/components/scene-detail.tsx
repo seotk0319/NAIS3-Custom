@@ -13,6 +13,7 @@ import { ImageContextMenu } from './image-context-menu'
 import { Lightbox } from './lightbox'
 import { PromptEditor } from './prompt-editor'
 import { Button } from './ui/button'
+import { EditableCount } from './ui/editable-count'
 
 export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
   const select = useScenesStore((s) => s.select)
@@ -164,9 +165,14 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
           >
             <Minus size={14} />
           </button>
-          <span className="min-w-6 text-center text-[13px] font-semibold">
-            {scene.reserveCount}
-          </span>
+          <EditableCount
+            value={scene.reserveCount}
+            min={0}
+            max={9999}
+            onCommit={(n) => void update(scene.id, { reserveCount: n })}
+            className="min-w-6 text-center text-[13px] font-semibold"
+            inputClassName="w-10"
+          />
           <button
             className="grid size-6 place-items-center rounded-full text-muted hover:bg-paper"
             onClick={() => void adjustReserve(scene.id, 1)}

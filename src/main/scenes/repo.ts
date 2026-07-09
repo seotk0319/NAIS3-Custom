@@ -62,6 +62,15 @@ export function createPreset(name: string): number {
   )
 }
 
+/** 프리셋 이름 중복 시 " (1)", " (2)" 를 붙여 유일한 이름을 만든다 */
+export function uniquePresetName(base: string): string {
+  const existing = new Set(listPresets().map((p) => p.name))
+  if (!existing.has(base)) return base
+  let n = 1
+  while (existing.has(`${base} (${n})`)) n++
+  return `${base} (${n})`
+}
+
 export function renamePreset(id: number, name: string): void {
   getDb().prepare('UPDATE scene_presets SET name = ? WHERE id = ?').run(name, id)
 }
@@ -383,15 +392,21 @@ export async function exportScenesJson(presetId: number): Promise<boolean> {
   return true
 }
 
-export async function importScenesJson(presetId: number): Promise<number> {
+export async function importScenesJson(
+  presetId: number
+): Promise<{ count: number; presetId: number; presetName: string | null }> {
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   const result = await dialog.showOpenDialog(win, {
     title: '씬 불러오기',
     properties: ['openFile'],
     filters: [{ name: 'JSON', extensions: ['json'] }]
   })
-  if (result.canceled || result.filePaths.length === 0) return 0
+  if (result.canceled || result.filePaths.length === 0) {
+    return { count: 0, presetId, presetName: null }
+  }
   const parsed = JSON.parse(readFileSync(result.filePaths[0], 'utf-8')) as {
+    /** NAIS2 프리셋 내보내기(JSON)는 프리셋 이름을 담는다 → 새 프리셋으로 분리 */
+    name?: string
     scenes?: {
       name?: string
       prompt?: string
@@ -404,9 +419,18 @@ export async function importScenesJson(presetId: number): Promise<number> {
   }
   const scenes = parsed.scenes ?? []
   const db = getDb()
+  // 이름 있는 프리셋 파일(NAIS2)이면 그 이름으로 새 프리셋을 만들어 거기에 담는다.
+  // 이름 없는 NAIS3 자체 포맷이면 기존대로 현재 활성 프리셋 맨 뒤에 추가.
+  const rawName = typeof parsed.name === 'string' ? parsed.name.trim() : ''
+  let targetPresetId = presetId
+  let presetName: string | null = null
+  if (rawName) {
+    presetName = uniquePresetName(rawName)
+    targetPresetId = createPreset(presetName)
+  }
   const max = db
     .prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM gen_scenes WHERE preset_id = ?')
-    .get(presetId) as { m: number }
+    .get(targetPresetId) as { m: number }
   let order = max.m
   const stmt = db.prepare(
     'INSERT INTO gen_scenes (preset_id, name, prompt, negative_prompt, width, height, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -414,7 +438,7 @@ export async function importScenesJson(presetId: number): Promise<number> {
   db.transaction(() => {
     for (const s of scenes) {
       stmt.run(
-        presetId,
+        targetPresetId,
         s.name ?? '씬',
         s.prompt ?? s.scenePrompt ?? '', // NAIS2 파일은 scenePrompt
         s.negativePrompt ?? '',
@@ -424,7 +448,7 @@ export async function importScenesJson(presetId: number): Promise<number> {
       )
     }
   })()
-  return scenes.length
+  return { count: scenes.length, presetId: targetPresetId, presetName }
 }
 
 type ZipRow = { file_path: string; scene_name: string | null }

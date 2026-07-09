@@ -14,6 +14,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { estimateAnlas } from '@shared/anlas'
+import { removeComments } from '@shared/nai-presets'
 import { useCharactersStore } from '../stores/characters-store'
 import { useFragmentsStore } from '../stores/fragments-store'
 import { useGenerationStore } from '../stores/generation-store'
@@ -117,8 +118,11 @@ export function PromptPanel(): React.JSX.Element {
     [charItems]
   )
   useEffect(() => {
-    const posTexts = [request.prompt, ...enabledChars.map((c) => c.prompt)].filter((t) => t.trim())
-    const negTexts = [request.negativePrompt].filter((t) => t.trim())
+    // #주석은 토큰 합산에서 제외 (에디터 자체 카운터와 동일 규칙)
+    const posTexts = [request.prompt, ...enabledChars.map((c) => c.prompt)]
+      .map((t) => removeComments(t))
+      .filter((t) => t.trim())
+    const negTexts = [removeComments(request.negativePrompt)].filter((t) => t.trim())
     if (posTexts.length === 0 && negTexts.length === 0) {
       const timer = setTimeout(() => setTokenTotals({ pos: null, neg: null }))
       return () => clearTimeout(timer)

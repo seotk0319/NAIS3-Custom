@@ -175,13 +175,15 @@ function IconBtn({
   tip,
   active,
   disabled,
-  onClick
+  onClick,
+  color
 }: {
   icon: React.ReactNode
   tip: string
   active?: boolean
   disabled?: boolean
   onClick: () => void
+  color?: string
 }): React.JSX.Element {
   return (
     <Tooltip>
@@ -191,7 +193,9 @@ function IconBtn({
           disabled={disabled}
           className={cn(
             'grid size-8 place-items-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-35',
-            active ? 'bg-accent text-white' : 'text-muted hover:bg-surface-2 hover:text-fg'
+            active
+              ? 'bg-accent text-white'
+              : cn(color ?? 'text-muted', 'hover:bg-surface-2', color ? '' : 'hover:text-fg')
           )}
         >
           {icon}
@@ -261,10 +265,19 @@ function SceneGrid(): React.JSX.Element {
     await window.nais.invoke('scenes:exportJson', { presetId: activePresetId })
   }
   async function importJson(): Promise<void> {
-    const { count } = await window.nais.invoke('scenes:importJson', { presetId: activePresetId })
+    const { count, presetId, presetName } = await window.nais.invoke('scenes:importJson', {
+      presetId: activePresetId
+    })
     if (count > 0) {
-      toast(`씬 ${count}개 가져옴`, 'success')
-      void useScenesStore.getState().load()
+      if (presetName && presetId !== activePresetId) {
+        // 이름 있는 프리셋 파일(NAIS2) → 새 프리셋 생성 후 자동 전환
+        await useScenesStore.getState().loadPresets()
+        await useScenesStore.getState().setActivePreset(presetId)
+        toast(`'${presetName}' 프리셋으로 씬 ${count}개 가져옴`, 'success')
+      } else {
+        toast(`씬 ${count}개 가져옴`, 'success')
+        void useScenesStore.getState().load()
+      }
     } else {
       toast('가져올 씬이 없습니다', 'info')
     }
@@ -279,8 +292,18 @@ function SceneGrid(): React.JSX.Element {
       <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
         <PresetDropdown />
         <div className="mx-1 h-5 w-px bg-line" />
-        <IconBtn icon={<FileDown size={16} />} tip="JSON 내보내기" onClick={exportJson} />
-        <IconBtn icon={<FileUp size={16} />} tip="JSON 불러오기" onClick={importJson} />
+        <IconBtn
+          icon={<FileUp size={18} />}
+          tip="씬 JSON 내보내기"
+          color="text-sky-400"
+          onClick={exportJson}
+        />
+        <IconBtn
+          icon={<FileDown size={18} />}
+          tip="씬 JSON 불러오기"
+          color="text-emerald-400"
+          onClick={importJson}
+        />
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>

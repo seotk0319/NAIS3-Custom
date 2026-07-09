@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { removeComments } from '@shared/nai-presets'
 import { cn } from '../lib/utils'
 import { caretCoords } from '../lib/caret'
 import { highlightRanges } from '../lib/prompt-weights'
@@ -61,6 +62,7 @@ export function PromptEditor({
 }): React.JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mirrorRef = useRef<HTMLDivElement>(null)
+  const commentRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   // 검색 세대 — 이미 날아간(in-flight) 태그 검색의 스테일 결과가 뒤늦게 패널을 다시 여는 것 방지.
   // (패널이 남으면 Enter가 줄바꿈 대신 자동완성 삽입으로 먹혀 "줄바꿈이 안 된다"로 나타남)
@@ -72,18 +74,37 @@ export function PromptEditor({
 
   const ranges = useMemo(() => highlightRanges(value), [value])
 
+  // #주석 회색 글씨 표시용 세그먼트 — removeComments와 동일 규칙(줄의 첫 # 부터 줄 끝까지).
+  // textarea "앞"(위) 레이어로 얹어, 주석 글자만 회색으로 덮어 그린다(전송/토큰은 별도 제외).
+  const commentSegments = useMemo(() => {
+    const segs: { text: string; comment: boolean }[] = []
+    const lines = value.split('\n')
+    lines.forEach((line, idx) => {
+      const nl = idx < lines.length - 1 ? '\n' : ''
+      const hash = line.indexOf('#')
+      if (hash === -1) {
+        segs.push({ text: line + nl, comment: false })
+      } else {
+        if (hash > 0) segs.push({ text: line.slice(0, hash), comment: false })
+        segs.push({ text: line.slice(hash) + nl, comment: true })
+      }
+    })
+    return segs
+  }, [value])
+
   // 토큰 카운트 (V4.5 = T5, 한도 512 — NAI 웹과 동일: 원문 기준, 가중치 문법 제거 후)
   const [ownTokens, setOwnTokens] = useState<number | null>(null)
   const external = tokensOverride !== undefined
   useEffect(() => {
     if (external) return
-    if (!value.trim()) {
+    const active = removeComments(value)
+    if (!active.trim()) {
       setOwnTokens(null)
       return
     }
     const timer = setTimeout(() => {
       void window.nais
-        .invoke('tokens:count', { texts: [value] })
+        .invoke('tokens:count', { texts: [active] })
         .then(({ counts }) => setOwnTokens(counts[0]))
     }, 250)
     return () => clearTimeout(timer)
@@ -100,6 +121,11 @@ export function PromptEditor({
     if (ta && mirror) {
       mirror.scrollTop = ta.scrollTop
       mirror.scrollLeft = ta.scrollLeft
+    }
+    const comment = commentRef.current
+    if (ta && comment) {
+      comment.scrollTop = ta.scrollTop
+      comment.scrollLeft = ta.scrollLeft
     }
   }
   useEffect(syncScroll, [value])
@@ -255,6 +281,24 @@ export function PromptEditor({
           setTimeout(() => setSuggestions([]), 150)
         }}
       />
+
+      {/* #주석 회색 글씨 오버레이 — textarea 위에 얹어 주석 글자만 회색으로 덮어 그린다 */}
+      <div
+        ref={commentRef}
+        aria-hidden
+        className={cn(TYPO, 'pointer-events-none absolute inset-0 overflow-hidden text-transparent')}
+      >
+        {commentSegments.map((s, i) =>
+          s.comment ? (
+            <span key={i} className="text-faint">
+              {s.text}
+            </span>
+          ) : (
+            <span key={i}>{s.text}</span>
+          )
+        )}
+        {value.endsWith('\n') && '\u200b'}
+      </div>
 
       {tokens !== null && (
         <span

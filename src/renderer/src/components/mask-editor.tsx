@@ -1,4 +1,4 @@
-import { Eraser, Paintbrush, RotateCcw } from 'lucide-react'
+import { Eraser, PaintBucket, Paintbrush, RotateCcw } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog'
@@ -53,8 +53,9 @@ export function MaskEditor({
     // 붓 크기는 원본 해상도 기준으로 스케일 (화면에서 보이는 크기 유지)
     const r = (brush / dispW) * width
     ctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over'
-    ctx.strokeStyle = 'rgba(233, 94, 80, 0.7)'
-    ctx.fillStyle = 'rgba(233, 94, 80, 0.7)'
+    // 불투명 페인트 + 캔버스 CSS opacity로 균일 반투명 (알파 페인트는 겹칠 때마다 진해져서 불균일)
+    ctx.strokeStyle = 'rgb(233, 94, 80)'
+    ctx.fillStyle = 'rgb(233, 94, 80)'
     ctx.lineWidth = r * 2
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
@@ -74,6 +75,16 @@ export function MaskEditor({
   function clear(): void {
     const canvas = canvasRef.current
     if (canvas) canvas.getContext('2d')!.clearRect(0, 0, width, height)
+  }
+
+  /** 전체 영역 설정 — 캔버스 전체를 마스크로 채운 뒤 지우개로 필요한 부분만 지우는 흐름 */
+  function fillAll(): void {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.fillStyle = 'rgb(233, 94, 80)'
+    ctx.fillRect(0, 0, width, height)
   }
 
   /** 캔버스(원본 해상도) → 흑백 RGB PNG (칠한 곳=흰색). 업스케일 없음 */
@@ -117,7 +128,7 @@ export function MaskEditor({
               ref={canvasRef}
               width={width}
               height={height}
-              className="absolute inset-0 h-full w-full cursor-crosshair"
+              className="absolute inset-0 h-full w-full cursor-crosshair opacity-40"
               style={{ touchAction: 'none' }}
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId)
@@ -146,6 +157,9 @@ export function MaskEditor({
             </Button>
             <span className="ml-1 text-[12px] text-muted">붓 {brush}</span>
             <Slider className="w-36" min={8} max={120} step={2} value={[brush]} onValueChange={([v]) => setBrush(v)} />
+            <Button size="sm" variant="ghost" className="gap-1" onClick={fillAll}>
+              <PaintBucket size={13} /> 전체 영역 설정
+            </Button>
             <Button size="sm" variant="ghost" className="gap-1" onClick={clear}>
               <RotateCcw size={13} /> 초기화
             </Button>

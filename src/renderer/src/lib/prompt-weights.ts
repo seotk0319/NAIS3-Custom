@@ -93,9 +93,6 @@ export function weightBackground(weight: number): string | null {
 /** 조각 구문 <...> 하이라이트 (NAIS2의 녹색 계승) */
 const FRAGMENT_BG = 'rgba(92, 190, 125, 0.3)'
 
-/** 주석 줄(#로 시작) — 전송에서 제외됨을 회색 배경으로 표시 */
-const COMMENT_BG = 'rgba(128, 128, 136, 0.28)'
-
 /** #부터 그 줄 끝까지의 [시작, 끝) 구간 (removeComments와 동일 규칙) */
 function commentSpans(text: string): { start: number; end: number }[] {
   const spans: { start: number; end: number }[] = []
@@ -148,8 +145,10 @@ export function highlightRanges(text: string): HighlightRange[] {
   for (let i = 0; i < sorted.length - 1; i++) {
     const start = sorted[i]
     const end = sorted[i + 1]
+    // 주석 구간은 배경 없음(null) — 회색 글씨 오버레이(prompt-editor)가 표시를 담당한다.
+    // 주석 안에서는 가중치/조각 배경도 칠하지 않는다.
     const bg = inComment(start)
-      ? COMMENT_BG
+      ? null
       : inFragment(start)
         ? FRAGMENT_BG
         : weightBackground(weights.find((s) => s.start <= start && start < s.end)?.weight ?? 1)

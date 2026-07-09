@@ -491,7 +491,10 @@ export interface IpcInvokeMap {
   'scenes:openFolder': { req: { sceneId: number }; res: { ok: boolean } }
   /** 씬 JSON 내보내기/불러오기 (파일 다이얼로그, 활성 프리셋 기준) */
   'scenes:exportJson': { req: { presetId: number }; res: { saved: boolean } }
-  'scenes:importJson': { req: { presetId: number }; res: { count: number } }
+  'scenes:importJson': {
+    req: { presetId: number }
+    res: { count: number; presetId: number; presetName: string | null }
+  }
   /** 즐겨찾기 이미지 또는 각 씬 최상단 이미지를 ZIP으로 (파일 다이얼로그) */
   'scenes:exportZip': { req: { mode: 'favorites' | 'sceneTop' }; res: { count: number } }
   'vibes:list': { req: void; res: { folders: ListFolder[]; items: VibeItem[] } }

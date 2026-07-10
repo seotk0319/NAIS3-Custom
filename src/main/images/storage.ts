@@ -5,7 +5,7 @@ import sharp from 'sharp'
 import type { DirectorMethod, ImageMetadata } from '../../shared/types'
 import { getDb } from '../db'
 import { getSetting } from '../db/settings'
-import { stripImageMetadata } from './strip-metadata'
+import { sanitizeImageMetadata } from './strip-metadata'
 
 /**
  * 생성 이미지 저장 규칙 (P3의 핵심):
@@ -126,7 +126,7 @@ export async function saveGeneratedImage(input: {
     ext === 'png' && input.localMetadata && !stripExif
       ? injectNais3Params(input.png, input.localMetadata)
       : input.png
-  const fileBuffer = stripExif ? stripImageMetadata(metadataBuffer, ext) : metadataBuffer
+  const fileBuffer = stripExif ? await sanitizeImageMetadata(metadataBuffer, ext) : metadataBuffer
   writeFileSync(filePath, fileBuffer)
 
   // 썸네일: 카드가 커질 수 있어 640px로 (화질 열화 방지). webp q90

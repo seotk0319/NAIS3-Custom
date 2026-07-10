@@ -1,6 +1,6 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import { stripImageMetadata } from '../src/main/images/strip-metadata'
+import { sanitizeImageMetadata, stripImageMetadata } from '../src/main/images/strip-metadata'
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -45,6 +45,51 @@ function appendWebpChunks(webp: Buffer, chunks: Buffer[]): Buffer {
   const output = Buffer.concat([webp, ...chunks])
   output.writeUInt32LE(output.length - 8, 4)
   return output
+}
+
+function embedStealthMetadata(
+  rgba: Buffer,
+  width: number,
+  height: number,
+  payload: Buffer
+): Buffer {
+  const signature = Buffer.from('stealth_pngcomp', 'ascii')
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(payload.length * 8)
+  const hidden = Buffer.concat([signature, length, payload])
+  const output = Buffer.from(rgba)
+  let bitIndex = 0
+
+  for (const byte of hidden) {
+    for (let bit = 7; bit >= 0; bit--) {
+      const x = Math.floor(bitIndex / height)
+      const y = bitIndex % height
+      const offset = (y * width + x) * 4 + 3
+      output[offset] = (output[offset] & 0xfe) | ((byte >> bit) & 1)
+      bitIndex++
+    }
+  }
+  return output
+}
+
+async function readStealthSignature(image: Buffer): Promise<string> {
+  const { data, info } = await sharp(image)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  const bytes = Buffer.alloc(15)
+  for (let byteIndex = 0; byteIndex < bytes.length; byteIndex++) {
+    let value = 0
+    for (let bit = 0; bit < 8; bit++) {
+      const bitIndex = byteIndex * 8 + bit
+      const x = Math.floor(bitIndex / info.height)
+      const y = bitIndex % info.height
+      const offset = (y * info.width + x) * info.channels + 3
+      value = (value << 1) | (data[offset] & 1)
+    }
+    bytes[byteIndex] = value
+  }
+  return bytes.toString('ascii')
 }
 
 describe('stripImageMetadata', () => {
@@ -92,4 +137,41 @@ describe('stripImageMetadata', () => {
     expect(stripImageMetadata(malformed, 'png')).toBe(malformed)
     expect(stripImageMetadata(malformed, 'webp')).toBe(malformed)
   })
+
+  it.each(['png', 'webp'] as const)(
+    'removes NovelAI stealth metadata from opaque %s pixels',
+    async (format) => {
+      const width = 32
+      const height = 32
+      const rgba = Buffer.alloc(width * height * 4)
+      for (let offset = 0; offset < rgba.length; offset += 4) {
+        rgba[offset] = 180
+        rgba[offset + 1] = 90
+        rgba[offset + 2] = 210
+        rgba[offset + 3] = 255
+      }
+      const hidden = embedStealthMetadata(
+        rgba,
+        width,
+        height,
+        Buffer.from('{"Comment":{"prompt":"secret prompt"}}', 'utf8')
+      )
+      const tagged = await (format === 'png'
+        ? sharp(hidden, { raw: { width, height, channels: 4 } })
+            .png()
+            .toBuffer()
+        : sharp(hidden, { raw: { width, height, channels: 4 } })
+            .webp({ lossless: true })
+            .toBuffer())
+
+      expect(await readStealthSignature(tagged)).toBe('stealth_pngcomp')
+      const stripped = await sanitizeImageMetadata(tagged, format)
+      expect(await readStealthSignature(stripped)).not.toBe('stealth_pngcomp')
+      expect(stripped.includes(Buffer.from('secret prompt'))).toBe(false)
+
+      const originalRgb = await sharp(tagged).removeAlpha().raw().toBuffer()
+      const strippedRgb = await sharp(stripped).removeAlpha().raw().toBuffer()
+      expect(strippedRgb.equals(originalRgb)).toBe(true)
+    }
+  )
 })

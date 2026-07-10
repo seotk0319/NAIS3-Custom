@@ -21,6 +21,7 @@ import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
 import { useCharRefsStore, useVibesStore } from '../stores/refs-store'
 import { totalReserved, useScenesStore } from '../stores/scenes-store'
+import { useStorageSettingsStore } from '../stores/storage-settings-store'
 import { PromptEditor } from './prompt-editor'
 import { PromptPresetBar } from './prompt-preset-bar'
 import { CharacterOverlay } from './character-overlay'
@@ -31,6 +32,7 @@ import { SOURCE_BANNER_HEIGHT, SourceBanner } from './source-banner'
 import { Button } from './ui/button'
 import { EditableCount } from './ui/editable-count'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import { Switch } from './ui/switch'
 
 const TOKEN_LIMIT = 512
 
@@ -71,12 +73,19 @@ export function PromptPanel(): React.JSX.Element {
   const enabledCrefs = useCharRefsStore((s) => s.items.filter((c) => c.enabled).length)
   const source = useGenerationStore((s) => s.source)
   const [paramsOpen, setParamsOpen] = useState(false)
+  const stripExif = useStorageSettingsStore((s) => s.stripExif)
+  const loadStorageSettings = useStorageSettingsStore((s) => s.load)
+  const setStripExif = useStorageSettingsStore((s) => s.setStripExif)
 
   useEffect(() => {
     const openParams = (): void => setParamsOpen((v) => !v)
     window.addEventListener('shortcut:openParams', openParams)
     return () => window.removeEventListener('shortcut:openParams', openParams)
   }, [])
+
+  useEffect(() => {
+    void loadStorageSettings()
+  }, [loadStorageSettings])
 
   // 씬 모드: 생성은 예약된 씬들을 예약 수만큼 큐에 넣는다. 예약 0이면 생성 버튼 비활성.
   const centerMode = useLayoutStore((s) => s.centerMode)
@@ -379,6 +388,17 @@ export function PromptPanel(): React.JSX.Element {
             <Plus size={13} />
           </Button>
         </div>
+        <label
+          className="flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-line bg-paper px-2"
+          title="저장 이미지에서 EXIF와 프롬프트 메타데이터 제거"
+        >
+          <span className="text-[11px] font-medium text-muted">EXIF</span>
+          <Switch
+            aria-label="EXIF 자동 제거"
+            checked={stripExif}
+            onCheckedChange={(value) => void setStripExif(value)}
+          />
+        </label>
         {generating ? (
           <Button variant="danger" size="lg" className="flex-1" onClick={() => void cancelAll()}>
             <Square size={14} /> 취소 ({queueCount})

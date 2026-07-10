@@ -20,6 +20,7 @@ import { cn } from '../lib/utils'
 import { THEME_PRESETS } from '../lib/theme-presets'
 import { useGenerationStore } from '../stores/generation-store'
 import { useThemeStore } from '../stores/theme-store'
+import { useStorageSettingsStore } from '../stores/storage-settings-store'
 import { useCharactersStore } from '../stores/characters-store'
 import { useFragmentsStore } from '../stores/fragments-store'
 import { useVibesStore, useCharRefsStore } from '../stores/refs-store'
@@ -243,8 +244,12 @@ function StorageSection(): React.JSX.Element {
   const [autoSave, setAutoSave] = useState(true)
   const [format, setFormat] = useState('png')
   const [dateFolders, setDateFolders] = useState(true)
+  const stripExif = useStorageSettingsStore((s) => s.stripExif)
+  const loadStorageSettings = useStorageSettingsStore((s) => s.load)
+  const setStripExif = useStorageSettingsStore((s) => s.setStripExif)
 
   useEffect(() => {
+    void loadStorageSettings()
     void window.nais
       .invoke('settings:get', { key: 'auto_save' })
       .then(({ value }) => setAutoSave(value !== '0'))
@@ -254,7 +259,7 @@ function StorageSection(): React.JSX.Element {
     void window.nais
       .invoke('settings:get', { key: 'date_folders' })
       .then(({ value }) => setDateFolders(value !== '0'))
-  }, [])
+  }, [loadStorageSettings])
 
   return (
     <div className="flex flex-col gap-3">
@@ -276,6 +281,9 @@ function StorageSection(): React.JSX.Element {
               void window.nais.invoke('settings:set', { key: 'date_folders', value: v ? '1' : '0' })
             }}
           />
+        </Row>
+        <Row label="EXIF 자동 제거" hint="저장 이미지의 프롬프트·EXIF/XMP 메타데이터 제거">
+          <Switch checked={stripExif} onCheckedChange={(value) => void setStripExif(value)} />
         </Row>
         <Row label="이미지 포맷" hint="WEBP는 용량이 더 작음">
           <Select

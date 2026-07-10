@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { recordNav } from '../lib/nav-history'
 import type { GenerationRequest, Scene, SceneImage, ScenePreset } from '@shared/types'
+import { removeComments } from '@shared/nai-presets'
 import { enabledCharacters } from './characters-store'
 import { randomSeed, useGenerationStore } from './generation-store'
 
@@ -55,7 +56,7 @@ interface ScenesState {
   // 예약
   adjustReserve: (id: number, delta: number) => Promise<void>
   adjustReserveAll: (delta: number) => Promise<void>
-  clearReserveAll: () => Promise<void>
+  clearReserveAll: (forceAll?: boolean) => Promise<void>
 
   // 편집 모드 일괄
   bulkMove: (presetId: number) => Promise<void>
@@ -83,8 +84,8 @@ interface ScenesState {
 
 /** 씬 프롬프트를 기본 프롬프트 뒤에 이어붙임 (콤마 정리) */
 export function appendPrompt(base: string, add: string): string {
-  const b = base.trim().replace(/,\s*$/, '')
-  const a = add.trim().replace(/^,\s*/, '')
+  const b = removeComments(base).trim().replace(/,\s*$/, '')
+  const a = removeComments(add).trim().replace(/^,\s*/, '')
   if (!b) return a
   if (!a) return b
   return `${b}, ${a}`
@@ -286,10 +287,10 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
       ids
     })
   },
-  clearReserveAll: async () => {
+  clearReserveAll: async (forceAll = false) => {
     // 편집 모드에서 체크된 씬이 있으면 그 씬들만 취소, 아니면 전체
     const { editMode, selection } = get()
-    const ids = editMode && selection.size > 0 ? [...selection] : undefined
+    const ids = !forceAll && editMode && selection.size > 0 ? [...selection] : undefined
     set({
       scenes: get().scenes.map((s) => (!ids || selection.has(s.id) ? { ...s, reserveCount: 0 } : s))
     })

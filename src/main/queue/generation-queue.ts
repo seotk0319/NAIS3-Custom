@@ -14,6 +14,7 @@ export class GenerationQueue extends EventEmitter {
   private controllers = new Map<string, AbortController>()
   private running = false
   private delayMs = 600
+  private resetVersion = 0
 
   constructor(
     private readonly generate: (
@@ -61,6 +62,7 @@ export class GenerationQueue extends EventEmitter {
       const item = this.items.get(id)
       if (item && item.state === 'pending') {
         item.state = 'cancelled'
+        this.releaseHeavyFields(item)
       } else if (item && item.state === 'generating') {
         this.controllers.get(id)?.abort()
       }
@@ -69,9 +71,14 @@ export class GenerationQueue extends EventEmitter {
   }
 
   reset(): void {
+    this.resetVersion++
     for (const controller of this.controllers.values()) {
       controller.abort()
     }
+    for (const item of this.items.values()) {
+      this.releaseHeavyFields(item)
+    }
+    this.controllers.clear()
     this.items.clear()
     this.emitChanged()
   }
@@ -81,23 +88,31 @@ export class GenerationQueue extends EventEmitter {
   }
 
   status(): QueueStatus {
-    return { items: [...this.items.values()], running: this.running, delayMs: this.delayMs }
+    return {
+      items: [...this.items.values()].map((item) => this.toStatusItem(item)),
+      running: this.running,
+      delayMs: this.delayMs
+    }
   }
 
   private async run(): Promise<void> {
     if (this.running) return
     this.running = true
+    const version = this.resetVersion
     try {
       let next: QueueItem | undefined
-      while ((next = this.nextPending())) {
+      while (version === this.resetVersion && (next = this.nextPending())) {
         next.state = 'generating'
         const controller = new AbortController()
         this.controllers.set(next.id, controller)
         this.emitChanged()
         try {
-          next.filePath = await this.generate(next.request, next.id, controller.signal)
+          const filePath = await this.generate(next.request, next.id, controller.signal)
+          if (version !== this.resetVersion || !this.items.has(next.id)) break
+          next.filePath = filePath
           next.state = 'done'
         } catch (e) {
+          if (version !== this.resetVersion || !this.items.has(next.id)) break
           if (controller.signal.aborted || isAbortError(e)) {
             next.state = 'cancelled'
           } else {
@@ -107,14 +122,19 @@ export class GenerationQueue extends EventEmitter {
         } finally {
           this.controllers.delete(next.id)
         }
+        if (version !== this.resetVersion || !this.items.has(next.id)) break
+        this.releaseHeavyFields(next)
         this.emitChanged()
-        if (this.nextPending()) {
+        if (version === this.resetVersion && this.nextPending()) {
           await sleep(this.delayMs)
         }
       }
     } finally {
       this.running = false
       this.emitChanged()
+      if (this.nextPending()) {
+        void this.run()
+      }
     }
   }
 
@@ -127,6 +147,17 @@ export class GenerationQueue extends EventEmitter {
 
   private emitChanged(): void {
     this.emit('changed', this.status())
+  }
+
+  private toStatusItem(item: QueueItem): QueueItem {
+    const request = { ...item.request }
+    delete request.source
+    return { ...item, request }
+  }
+
+  private releaseHeavyFields(item: QueueItem): void {
+    delete item.request.source
+    delete item.request.extraCharRefs
   }
 }
 

@@ -34,6 +34,20 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 const TOKEN_LIMIT = 512
 
+function anlasTooltip(anlas: ReturnType<typeof estimateAnlas>, batchCount: number): string {
+  if (anlas.total === 0) return '무료 생성 (Opus · 1024² 이하 · 28스텝 이하)'
+
+  const lines = [`총 ${anlas.total} Anlas`]
+  if (anlas.generation > 0) {
+    lines.push(`생성 ${anlas.generation} Anlas (장당 ${anlas.perImage} × ${batchCount})`)
+  } else if (anlas.charRef > 0) {
+    lines.push('생성 0 Anlas')
+  }
+  if (anlas.charRef > 0) lines.push(`캐릭터 레퍼런스 ${anlas.charRef} Anlas`)
+  if (anlas.vibeEncoding > 0) lines.push(`바이브 인코딩 ${anlas.vibeEncoding} Anlas`)
+  return lines.join('\n')
+}
+
 export function PromptPanel(): React.JSX.Element {
   const request = useGenerationStore((s) => s.request)
   const patch = useGenerationStore((s) => s.patchRequest)
@@ -393,11 +407,7 @@ export function PromptPanel(): React.JSX.Element {
             variant="accent"
             size="lg"
             className="flex-1 gap-2"
-            title={
-              anlas.free
-                ? '무료 생성 (Opus · 1024² 이하 · 28스텝 이하)'
-                : `장당 ${anlas.perImage} Anlas × ${batchCount}`
-            }
+            title={anlasTooltip(anlas, batchCount)}
             onClick={() => void generate()}
           >
             생성

@@ -84,7 +84,7 @@ interface GenerationState {
   startInpaintFromPath: (filePath: string) => Promise<void>
   /** base64 이미지로 바로 인페인트 시작 (디렉터 등 파일 경로가 없는 소스용) */
   startInpaintFromImage: (base64: string, width: number, height: number) => void
-  confirmInpaint: (maskBase64: string) => void
+  confirmInpaint: (maskBase64: string, strength?: number) => void
   cancelInpaint: () => void
 }
 
@@ -258,12 +258,12 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   },
   startInpaintFromImage: (base64, width, height) =>
     set({ inpaintTarget: { base64, width, height } }),
-  confirmInpaint: (maskBase64) => {
+  confirmInpaint: (maskBase64, strength) => {
     const t = get().inpaintTarget
     if (!t) return
     // 인페인트 기본 strength 1.0 / noise 0 (NAI 웹)
     set({
-      request: { ...get().request, i2iStrength: 1, i2iNoise: 0 },
+      request: { ...get().request, i2iStrength: strength ?? 1, i2iNoise: 0 },
       source: { imageBase64: t.base64, maskBase64, width: t.width, height: t.height },
       inpaintTarget: null
     })
@@ -363,6 +363,13 @@ export function bindGenerationEvents(): () => void {
     }
   })
   const offProgress = window.nais.on('generation:progress', (e) => {
+    const active = useGenerationStore
+      .getState()
+      .queue?.items.some(
+        (item) => item.id === e.id && (item.state === 'pending' || item.state === 'generating')
+      )
+    if (!active) return
+
     useGenerationStore.setState({
       progress: { stepIx: e.stepIx, totalSteps: e.totalSteps },
       ...(e.previewPng ? { previewPng: e.previewPng } : {})

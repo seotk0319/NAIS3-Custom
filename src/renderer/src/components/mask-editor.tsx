@@ -1,8 +1,12 @@
-import { Eraser, PaintBucket, Paintbrush, RotateCcw } from 'lucide-react'
+import { Eraser, PaintBucket, Paintbrush, RotateCcw, Undo2 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
+import { toast } from '../stores/toast-store'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog'
 import { Slider } from './ui/slider'
+
+const MASK_COLOR = 'rgb(233,94,80)'
+const MAX_UNDO = 20
 
 /**
  * 인페인트 마스크 에디터 (NAIS2 방식):
@@ -14,17 +18,22 @@ export function MaskEditor({
   width,
   height,
   onConfirm,
-  onCancel
+  onCancel,
+  showStrength = false
 }: {
   imageBase64: string
   width: number
   height: number
-  onConfirm: (maskBase64: string) => void
+  onConfirm: (maskBase64: string, strength?: number) => void
   onCancel: () => void
+  showStrength?: boolean
 }): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [brush, setBrush] = useState(40)
   const [erasing, setErasing] = useState(false)
+  const [strength, setStrength] = useState(1)
+  const [undoDepth, setUndoDepth] = useState(0)
+  const undoStack = useRef<ImageData[]>([])
   const drawing = useRef(false)
   const last = useRef<{ x: number; y: number } | null>(null)
 
@@ -45,6 +54,25 @@ export function MaskEditor({
     }
   }
 
+  function pushSnapshot(): void {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    undoStack.current = [
+      ...undoStack.current.slice(-(MAX_UNDO - 1)),
+      ctx.getImageData(0, 0, width, height)
+    ]
+    setUndoDepth(undoStack.current.length)
+  }
+
+  function undo(): void {
+    const canvas = canvasRef.current
+    const snapshot = undoStack.current.pop()
+    if (!canvas || !snapshot) return
+    canvas.getContext('2d')!.putImageData(snapshot, 0, 0)
+    setUndoDepth(undoStack.current.length)
+  }
+
   function paint(e: React.PointerEvent): void {
     const canvas = canvasRef.current
     if (!canvas || !drawing.current) return
@@ -54,8 +82,8 @@ export function MaskEditor({
     const r = (brush / dispW) * width
     ctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over'
     // 불투명 페인트 + 캔버스 CSS opacity로 균일 반투명 (알파 페인트는 겹칠 때마다 진해져서 불균일)
-    ctx.strokeStyle = 'rgb(233, 94, 80)'
-    ctx.fillStyle = 'rgb(233, 94, 80)'
+    ctx.strokeStyle = MASK_COLOR
+    ctx.fillStyle = MASK_COLOR
     ctx.lineWidth = r * 2
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
@@ -74,17 +102,30 @@ export function MaskEditor({
 
   function clear(): void {
     const canvas = canvasRef.current
-    if (canvas) canvas.getContext('2d')!.clearRect(0, 0, width, height)
+    if (!canvas) return
+    pushSnapshot()
+    canvas.getContext('2d')!.clearRect(0, 0, width, height)
   }
 
   /** 전체 영역 설정 — 캔버스 전체를 마스크로 채운 뒤 지우개로 필요한 부분만 지우는 흐름 */
   function fillAll(): void {
     const canvas = canvasRef.current
     if (!canvas) return
+    pushSnapshot()
     const ctx = canvas.getContext('2d')!
     ctx.globalCompositeOperation = 'source-over'
-    ctx.fillStyle = 'rgb(233, 94, 80)'
+    ctx.fillStyle = MASK_COLOR
     ctx.fillRect(0, 0, width, height)
+  }
+
+  function hasMask(): boolean {
+    const canvas = canvasRef.current
+    if (!canvas) return false
+    const { data } = canvas.getContext('2d')!.getImageData(0, 0, width, height)
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 20) return true
+    }
+    return false
   }
 
   /** 캔버스(원본 해상도) → 흑백 RGB PNG (칠한 곳=흰색). 업스케일 없음 */
@@ -106,6 +147,14 @@ export function MaskEditor({
     }
     octx.putImageData(img, 0, 0)
     return out.toDataURL('image/png').split(',')[1]
+  }
+
+  function confirm(): void {
+    if (!hasMask()) {
+      toast('마스크 영역을 먼저 칠해 주세요', 'error')
+      return
+    }
+    onConfirm(exportMask(), showStrength ? strength : undefined)
   }
 
   return (
@@ -132,6 +181,7 @@ export function MaskEditor({
               style={{ touchAction: 'none' }}
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId)
+                pushSnapshot()
                 drawing.current = true
                 last.current = null
                 paint(e)
@@ -148,15 +198,54 @@ export function MaskEditor({
             />
           </div>
 
-          <div className="flex w-full items-center gap-2">
-            <Button size="sm" variant={erasing ? 'ghost' : 'default'} className="gap-1" onClick={() => setErasing(false)}>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={erasing ? 'ghost' : 'default'}
+              className="gap-1"
+              onClick={() => setErasing(false)}
+            >
               <Paintbrush size={14} /> 칠하기
             </Button>
-            <Button size="sm" variant={erasing ? 'default' : 'ghost'} className="gap-1" onClick={() => setErasing(true)}>
+            <Button
+              size="sm"
+              variant={erasing ? 'default' : 'ghost'}
+              className="gap-1"
+              onClick={() => setErasing(true)}
+            >
               <Eraser size={14} /> 지우기
             </Button>
             <span className="ml-1 text-[12px] text-muted">붓 {brush}</span>
-            <Slider className="w-36" min={8} max={120} step={2} value={[brush]} onValueChange={([v]) => setBrush(v)} />
+            <Slider
+              className="w-36"
+              min={8}
+              max={120}
+              step={2}
+              value={[brush]}
+              onValueChange={([v]) => setBrush(v)}
+            />
+            {showStrength && (
+              <>
+                <span className="ml-1 text-[12px] text-muted">강도 {strength.toFixed(2)}</span>
+                <Slider
+                  className="w-28"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={[strength]}
+                  onValueChange={([v]) => setStrength(Math.round(v * 100) / 100)}
+                />
+              </>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="gap-1"
+              disabled={undoDepth === 0}
+              onClick={undo}
+            >
+              <Undo2 size={13} /> 되돌리기
+            </Button>
             <Button size="sm" variant="ghost" className="gap-1" onClick={fillAll}>
               <PaintBucket size={13} /> 전체 영역 설정
             </Button>
@@ -167,7 +256,7 @@ export function MaskEditor({
             <Button variant="ghost" onClick={onCancel}>
               취소
             </Button>
-            <Button variant="accent" onClick={() => onConfirm(exportMask())}>
+            <Button variant="accent" onClick={confirm}>
               적용
             </Button>
           </div>

@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CharacterCard } from '@shared/types'
+import { removeComments } from '@shared/nai-presets'
 import { cn } from '../lib/utils'
 import { buildDisplayRows } from '../lib/folder-list'
 import { useCharactersStore, MAX_CHARACTERS } from '../stores/characters-store'
@@ -116,8 +117,8 @@ export function CharacterOverlay(): React.JSX.Element {
   const positiveTexts = useMemo(
     () =>
       [
-        basePrompt,
-        ...items.filter((c) => c.enabled && c.prompt.trim()).map((c) => c.prompt)
+        removeComments(basePrompt),
+        ...items.filter((c) => c.enabled && c.prompt.trim()).map((c) => removeComments(c.prompt))
       ].filter((t) => t.trim()),
     [basePrompt, items]
   )

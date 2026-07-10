@@ -96,7 +96,7 @@ interface ShortcutsState {
 
 export async function refreshWork(): Promise<void> {
   await window.nais.invoke('queue:reset', undefined)
-  await useScenesStore.getState().clearReserveAll()
+  await useScenesStore.getState().clearReserveAll(true)
   window.location.reload()
 }
 

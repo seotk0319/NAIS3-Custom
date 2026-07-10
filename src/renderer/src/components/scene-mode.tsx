@@ -31,7 +31,15 @@ import {
 } from '@dnd-kit/core'
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties
+} from 'react'
 import type { Scene } from '@shared/types'
 import { RESOLUTIONS, imageUrl } from '../lib/constants'
 import { useGenerationStore } from '../stores/generation-store'
@@ -46,7 +54,13 @@ import { SceneDetail } from './scene-detail'
 import { SortableList, SortableRow } from './sortable-list'
 import { Button } from './ui/button'
 import { EditableCount } from './ui/editable-count'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from './ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -96,7 +110,10 @@ function PresetDropdown(): React.JSX.Element {
       <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1">
         <div className="max-h-64 overflow-y-auto overflow-x-hidden no-scrollbar">
           {/* 드래그로 순서 변경 */}
-          <SortableList ids={presets.map((p) => p.id)} onReorder={(ids) => void reorderPresets(ids)}>
+          <SortableList
+            ids={presets.map((p) => p.id)}
+            onReorder={(ids) => void reorderPresets(ids)}
+          >
             {presets.map((p) => (
               <SortableRow key={p.id} id={p.id} className="group gap-1" onTap={() => choose(p.id)}>
                 <div
@@ -224,6 +241,7 @@ function SceneGrid(): React.JSX.Element {
   const selection = useScenesStore((s) => s.selection)
   const reorder = useScenesStore((s) => s.reorder)
   const [curationOpen, setCurationOpen] = useState(false)
+  const batchCount = useGenerationStore((s) => s.batchCount || 1)
   const queueBusy = useGenerationStore(
     (s) => s.queue?.items.some((i) => i.state === 'generating' || i.state === 'pending') ?? false
   )
@@ -329,7 +347,11 @@ function SceneGrid(): React.JSX.Element {
             <TooltipContent>ZIP 내보내기</TooltipContent>
           </Tooltip>
           <PopoverContent align="start" className="w-52 p-1">
-            <MenuItem icon={<Star size={13} />} label="즐겨찾기 이미지" onClick={() => void exportZip('favorites')} />
+            <MenuItem
+              icon={<Star size={13} />}
+              label="즐겨찾기 이미지"
+              onClick={() => void exportZip('favorites')}
+            />
             <MenuItem
               icon={<ImageOff size={13} />}
               label="각 씬 최상단 이미지"
@@ -354,20 +376,34 @@ function SceneGrid(): React.JSX.Element {
 
         <IconBtn
           icon={<CalendarPlus size={16} />}
-          tip={editMode && selection.size > 0 ? `선택 ${selection.size}개 예약 +1` : '전체 예약 +1'}
+          tip={
+            editMode && selection.size > 0
+              ? `선택 ${selection.size}개 예약 +${batchCount}`
+              : `전체 예약 +${batchCount}`
+          }
           onClick={() => void adjustReserveAll(1)}
         />
         <IconBtn
           icon={<CalendarX size={16} />}
-          tip={editMode && selection.size > 0 ? `선택 ${selection.size}개 예약 취소` : '전체 예약 취소'}
+          tip={
+            editMode && selection.size > 0 ? `선택 ${selection.size}개 예약 취소` : '전체 예약 취소'
+          }
           onClick={() => void clearReserveAll()}
         />
         <div className="mx-1 h-5 w-px bg-line" />
         {/* 카드 비율: 세로/가로 (해상도와 무관하게 고정) */}
         <IconBtn
-          icon={cardOrientation === 'portrait' ? <RectangleVertical size={16} /> : <RectangleHorizontal size={16} />}
+          icon={
+            cardOrientation === 'portrait' ? (
+              <RectangleVertical size={16} />
+            ) : (
+              <RectangleHorizontal size={16} />
+            )
+          }
           tip={cardOrientation === 'portrait' ? '세로 카드 (클릭: 가로)' : '가로 카드 (클릭: 세로)'}
-          onClick={() => setCardOrientation(cardOrientation === 'portrait' ? 'landscape' : 'portrait')}
+          onClick={() =>
+            setCardOrientation(cardOrientation === 'portrait' ? 'landscape' : 'portrait')
+          }
         />
         {/* 열 수 (2~5) */}
         <div className="flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5">
@@ -416,7 +452,10 @@ function SceneGrid(): React.JSX.Element {
           onDragCancel={() => setDragScene(null)}
           onDragEnd={onDragEnd}
         >
-          <SortableContext items={scenes.map((s) => `scene-${s.id}`)} strategy={rectSortingStrategy}>
+          <SortableContext
+            items={scenes.map((s) => `scene-${s.id}`)}
+            strategy={rectSortingStrategy}
+          >
             <div
               className="grid gap-3"
               style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
@@ -665,145 +704,173 @@ const SceneCard = memo(function SceneCard({
 
   return (
     <ContextMenu>
-    <ContextMenuTrigger asChild>
-    <div
-      ref={sortable.setNodeRef}
-      {...sortable.attributes}
-      {...sortable.listeners}
-      className={cn(
-        'group relative touch-none select-none overflow-hidden rounded-lg border bg-surface-2 transition',
-        editMode && checked ? 'border-accent ring-2 ring-accent/40' : 'border-line',
-        sortable.isDragging && 'shadow-xl'
-      )}
-      style={{ aspectRatio: CARD_ASPECT[cardOrientation], ...dndStyle(sortable) }}
-      onClick={(e) => (editMode ? toggleSelected(scene.id, e.shiftKey) : select(scene.id))}
-    >
-      {/* 배경 이미지 (생성 중이면 스트리밍 프리뷰) */}
-      {src ? (
-        <img src={src} className="h-full w-full cursor-pointer object-cover" draggable={false} alt="" />
-      ) : (
-        <div className="flex h-full w-full cursor-pointer items-center justify-center bg-paper text-faint">
-          <ImageOff size={26} strokeWidth={1.3} />
-        </div>
-      )}
+      <ContextMenuTrigger asChild>
+        <div
+          ref={sortable.setNodeRef}
+          {...sortable.attributes}
+          {...sortable.listeners}
+          className={cn(
+            'group relative touch-none select-none overflow-hidden rounded-lg border bg-surface-2 transition',
+            editMode && checked ? 'border-accent ring-2 ring-accent/40' : 'border-line',
+            sortable.isDragging && 'shadow-xl'
+          )}
+          style={{ aspectRatio: CARD_ASPECT[cardOrientation], ...dndStyle(sortable) }}
+          onClick={(e) => (editMode ? toggleSelected(scene.id, e.shiftKey) : select(scene.id))}
+        >
+          {/* 배경 이미지 (생성 중이면 스트리밍 프리뷰) */}
+          {src ? (
+            <img
+              src={src}
+              className="h-full w-full cursor-pointer object-cover"
+              draggable={false}
+              alt=""
+            />
+          ) : (
+            <div className="flex h-full w-full cursor-pointer items-center justify-center bg-paper text-faint">
+              <ImageOff size={26} strokeWidth={1.3} />
+            </div>
+          )}
 
-      {/* 생성 준비 중(프리뷰 뜨기 전) 스피너 */}
-      {generating && !live && (
-        <div className="absolute inset-0 grid place-items-center bg-black/40">
-          <Loader2 size={28} className="animate-spin text-white" strokeWidth={2} />
-        </div>
-      )}
+          {/* 생성 준비 중(프리뷰 뜨기 전) 스피너 */}
+          {generating && !live && (
+            <div className="absolute inset-0 grid place-items-center bg-black/40">
+              <Loader2 size={28} className="animate-spin text-white" strokeWidth={2} />
+            </div>
+          )}
 
-      {/* 예약 수 — 좌측 상단 붉은 원 */}
-      {scene.reserveCount > 0 && (
-        <span className="absolute left-1.5 top-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-danger px-1.5 text-[12px] font-bold text-white shadow">
-          {scene.reserveCount}
-        </span>
-      )}
+          {/* 예약 수 — 좌측 상단 붉은 원 */}
+          {scene.reserveCount > 0 && (
+            <span className="absolute left-1.5 top-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-danger px-1.5 text-[12px] font-bold text-white shadow">
+              {scene.reserveCount}
+            </span>
+          )}
 
-      {/* 우측 상단 — 잔여 장수 배지 + (편집 체크박스 / 3점 메뉴). flex라 폭 무관하게 안 겹침 */}
-      <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
-        {remaining > 0 && (
-          <span
-            className="grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1.5 text-[12px] font-bold text-white shadow"
-            title={`이 씬 큐 잔여 ${remaining}장`}
-          >
-            {remaining}
-          </span>
-        )}
-        {editMode ? (
-          <span
-            className={cn(
-              'grid size-5 place-items-center rounded border-2 transition',
-              checked ? 'border-accent bg-accent text-white' : 'border-white/80 bg-black/30'
+          {/* 우측 상단 — 잔여 장수 배지 + (편집 체크박스 / 3점 메뉴). flex라 폭 무관하게 안 겹침 */}
+          <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+            {remaining > 0 && (
+              <span
+                className="grid h-6 min-w-6 place-items-center rounded-full bg-accent px-1.5 text-[12px] font-bold text-white shadow"
+                title={`이 씬 큐 잔여 ${remaining}장`}
+              >
+                {remaining}
+              </span>
             )}
-          >
-            {checked && <span className="text-[11px] leading-none">✓</span>}
-          </span>
-        ) : (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className="grid size-6 place-items-center rounded-full bg-black/55 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100"
+            {editMode ? (
+              <span
+                className={cn(
+                  'grid size-5 place-items-center rounded border-2 transition',
+                  checked ? 'border-accent bg-accent text-white' : 'border-white/80 bg-black/30'
+                )}
+              >
+                {checked && <span className="text-[11px] leading-none">✓</span>}
+              </span>
+            ) : (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className="grid size-6 place-items-center rounded-full bg-black/55 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical size={14} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-40 p-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MenuItem
+                    icon={<Pencil size={13} />}
+                    label="이름 변경"
+                    onClick={() => void renameScene()}
+                  />
+                  <MenuItem
+                    icon={<Copy size={13} />}
+                    label="복제"
+                    onClick={() => void duplicate(scene.id)}
+                  />
+                  <MenuItem
+                    icon={<FolderOpen size={13} />}
+                    label="폴더 열기"
+                    onClick={() => void openFolder()}
+                  />
+                  <MenuItem
+                    icon={<Trash2 size={13} />}
+                    label="삭제"
+                    danger
+                    onClick={() => void removeScene()}
+                  />
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
+
+          {/* 하단 그라디언트 + 이름 + 예약 +/- */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-6">
+            <div className="pointer-events-auto flex items-end justify-between gap-1">
+              <div className="min-w-0">
+                {editMode ? (
+                  <input
+                    className="w-full truncate rounded bg-white/15 px-1 py-0.5 text-[13px] font-medium text-white outline-none placeholder:text-white/50 focus:bg-white/25"
+                    value={scene.name}
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onChange={(e) => void update(scene.id, { name: e.target.value })}
+                  />
+                ) : (
+                  <div className="truncate text-[13px] font-semibold text-white drop-shadow">
+                    {scene.name}
+                  </div>
+                )}
+              </div>
+              {/* 예약 +/- */}
+              <div
+                className="flex shrink-0 items-center gap-0.5 rounded-full bg-black/55 p-0.5"
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
               >
-                <MoreVertical size={14} />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-40 p-1" onClick={(e) => e.stopPropagation()}>
-              <MenuItem icon={<Pencil size={13} />} label="이름 변경" onClick={() => void renameScene()} />
-              <MenuItem icon={<Copy size={13} />} label="복제" onClick={() => void duplicate(scene.id)} />
-              <MenuItem icon={<FolderOpen size={13} />} label="폴더 열기" onClick={() => void openFolder()} />
-              <MenuItem icon={<Trash2 size={13} />} label="삭제" danger onClick={() => void removeScene()} />
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
-
-      {/* 하단 그라디언트 + 이름 + 예약 +/- */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-6">
-        <div className="pointer-events-auto flex items-end justify-between gap-1">
-          <div className="min-w-0">
-            {editMode ? (
-              <input
-                className="w-full truncate rounded bg-white/15 px-1 py-0.5 text-[13px] font-medium text-white outline-none placeholder:text-white/50 focus:bg-white/25"
-                value={scene.name}
-                onClick={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => void update(scene.id, { name: e.target.value })}
-              />
-            ) : (
-              <div className="truncate text-[13px] font-semibold text-white drop-shadow">{scene.name}</div>
-            )}
-          </div>
-          {/* 예약 +/- */}
-          <div
-            className="flex shrink-0 items-center gap-0.5 rounded-full bg-black/55 p-0.5"
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <button
-              className="grid size-5 place-items-center rounded-full text-white hover:bg-white/20 disabled:opacity-30"
-              disabled={scene.reserveCount === 0}
-              onClick={() => void adjustReserve(scene.id, -1)}
-            >
-              <Minus size={13} />
-            </button>
-            <EditableCount
-              value={scene.reserveCount}
-              min={0}
-              max={9999}
-              onCommit={(n) => void update(scene.id, { reserveCount: n })}
-              className="min-w-4 text-center text-[12px] font-medium text-white"
-              inputClassName="w-10"
-            />
-            <button
-              className="grid size-5 place-items-center rounded-full text-white hover:bg-white/20"
-              onClick={() => void adjustReserve(scene.id, 1)}
-            >
-              <Plus size={13} />
-            </button>
+                <button
+                  className="grid size-5 place-items-center rounded-full text-white hover:bg-white/20 disabled:opacity-30"
+                  disabled={scene.reserveCount === 0}
+                  onClick={() => void adjustReserve(scene.id, -1)}
+                >
+                  <Minus size={13} />
+                </button>
+                <EditableCount
+                  value={scene.reserveCount}
+                  min={0}
+                  max={9999}
+                  onCommit={(n) => void update(scene.id, { reserveCount: n })}
+                  className="min-w-4 text-center text-[12px] font-medium text-white"
+                  inputClassName="w-10"
+                />
+                <button
+                  className="grid size-5 place-items-center rounded-full text-white hover:bg-white/20"
+                  onClick={() => void adjustReserve(scene.id, 1)}
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-    </ContextMenuTrigger>
-    <ContextMenuContent>
-      <ContextMenuItem onSelect={() => void renameScene()}>
-        <Pencil size={13} /> 이름 변경
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void duplicate(scene.id)}>
-        <Copy size={13} /> 복제
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void openFolder()}>
-        <FolderOpen size={13} className="text-amber-400" /> 폴더 열기
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem danger onSelect={() => void removeScene()}>
-        <Trash2 size={13} /> 삭제
-      </ContextMenuItem>
-    </ContextMenuContent>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => void renameScene()}>
+          <Pencil size={13} /> 이름 변경
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void duplicate(scene.id)}>
+          <Copy size={13} /> 복제
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void openFolder()}>
+          <FolderOpen size={13} className="text-amber-400" /> 폴더 열기
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem danger onSelect={() => void removeScene()}>
+          <Trash2 size={13} /> 삭제
+        </ContextMenuItem>
+      </ContextMenuContent>
     </ContextMenu>
   )
 })

@@ -286,6 +286,12 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
       extraCharRefs = [{ filePath: reference.filePath, refType, strength: st, fidelity: fi }]
     }
 
+    const { hasToken } = await window.nais.invoke('nai:tokenStatus', undefined)
+    if (!hasToken) {
+      toast('설정에서 NAI 토큰을 먼저 입력하세요', 'error')
+      return
+    }
+
     const base = buildSceneRequest(scene)
     const metaRes = await window.nais.invoke('images:readMetadata', { filePath: inpaint.filePath })
     const meta = 'error' in metaRes ? null : metaRes.meta

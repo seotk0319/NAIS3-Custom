@@ -70,7 +70,9 @@ function createWindow(): void {
     ...(process.platform !== 'darwin' ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // 최소화 중에도 큐/진행 이벤트를 즉시 소비해 복원 시 업데이트가 한꺼번에 몰리지 않게 한다.
+      backgroundThrottling: false
     }
   })
 

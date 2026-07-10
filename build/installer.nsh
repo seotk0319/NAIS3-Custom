@@ -10,6 +10,18 @@
 Var Profile2Checkbox
 Var Profile2State
 
+!macro customInit
+  StrCpy $Profile2State 0
+  ; 기존 Custom 2 사용자라면 업데이트 설치에서도 두 번째 바로가기를 자동 복원한다.
+  ${If} ${FileExists} "$APPDATA\NAIS3-Custom-2\*.*"
+    StrCpy $Profile2State 1
+  ${ElseIf} ${FileExists} "$DESKTOP\NAIS3 Custom 2.lnk"
+    StrCpy $Profile2State 1
+  ${ElseIf} ${FileExists} "$SMPROGRAMS\NAIS3 Custom 2.lnk"
+    StrCpy $Profile2State 1
+  ${EndIf}
+!macroend
+
 Function ProfilePageCreate
   nsDialogs::Create 1018
   Pop $0
@@ -20,7 +32,10 @@ Function ProfilePageCreate
   Pop $0
   ${NSD_CreateCheckbox} 0 54u 100% 14u "NAIS3 Custom 2 (두 번째 프로필)도 함께 설치"
   Pop $Profile2Checkbox
-  ${NSD_CreateLabel} 0 80u 100% 40u "프로필끼리 데이터와 설정이 완전히 분리되어, 두 개를 동시에 켜서 서로 다른 작업을 할 수 있습니다."
+  ${If} $Profile2State == 1
+    ${NSD_Check} $Profile2Checkbox
+  ${EndIf}
+  ${NSD_CreateLabel} 0 80u 100% 40u "프로필끼리 데이터와 설정이 완전히 분리됩니다. 기존 버전 위에 설치해도 DB·설정·NAI 토큰은 그대로 유지됩니다."
   Pop $0
   nsDialogs::Show
 FunctionEnd

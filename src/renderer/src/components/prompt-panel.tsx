@@ -390,11 +390,15 @@ export function PromptPanel(): React.JSX.Element {
         </div>
         <label
           className="flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-line bg-paper px-2"
-          title="저장 이미지에서 EXIF와 프롬프트 메타데이터 제거"
+          title={
+            stripExif
+              ? '켜짐: 저장 이미지에서 EXIF와 프롬프트 메타데이터를 제거합니다'
+              : '꺼짐: 저장 이미지에 EXIF와 프롬프트 메타데이터를 유지합니다'
+          }
         >
-          <span className="text-[11px] font-medium text-muted">EXIF</span>
+          <span className="whitespace-nowrap text-[11px] font-medium text-muted">EXIF 제거</span>
           <Switch
-            aria-label="EXIF 자동 제거"
+            aria-label={`EXIF 자동 제거 ${stripExif ? '켜짐' : '꺼짐'}`}
             checked={stripExif}
             onCheckedChange={(value) => void setStripExif(value)}
           />

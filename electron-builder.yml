@@ -26,6 +26,8 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  # 업데이트/제거 과정에서 %APPDATA%의 Custom 1/2 DB·설정·토큰은 유지한다.
+  deleteAppDataOnUninstall: false
   # 기본 바로가기/설치 후 자동실행(=프로필 0)은 끄고, build/installer.nsh가
   # 프로필 선택 페이지 + Custom 1/2(--profile) 바로가기를 직접 만든다
   createDesktopShortcut: false

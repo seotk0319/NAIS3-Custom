@@ -273,6 +273,8 @@ export interface PromptPreset {
   negativePrompt: string
   /** 스텝·CFG 등 — 프리셋 전환 시 함께 복원 (구버전 프리셋은 null) */
   params: PresetParams | null
+  /** 3분할 조각 — 실질 분할일 때만 저장 (null = 병합 프롬프트만) */
+  promptParts: PromptParts | null
 }
 
 /** 씬 (미리 저장한 프롬프트+해상도. 예약 수만큼 생성) */
@@ -435,7 +437,9 @@ export interface IpcInvokeMap {
   'promptPresets:update': {
     req: {
       id: number
-      patch: Partial<Pick<PromptPreset, 'name' | 'prompt' | 'negativePrompt' | 'params'>>
+      patch: Partial<
+        Pick<PromptPreset, 'name' | 'prompt' | 'negativePrompt' | 'params' | 'promptParts'>
+      >
     }
     res: void
   }

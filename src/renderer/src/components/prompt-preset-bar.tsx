@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react'
-import { pickPresetParams, usePromptPresetsStore } from '../stores/prompt-presets-store'
+import {
+  normalizePresetParts,
+  partsForApply,
+  pickPresetParams,
+  shouldSyncPromptPreset,
+  splitPromptForPreset,
+  usePromptPresetsStore
+} from '../stores/prompt-presets-store'
 import { useGenerationStore } from '../stores/generation-store'
 import { askConfirm, askText } from '../stores/dialog-store'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -41,13 +48,26 @@ export function PromptPresetBar(): React.JSX.Element {
     syncTimer.current = setTimeout(() => {
       const p = usePromptPresetsStore.getState().presets.find((x) => x.id === activeId)
       if (!p) return
-      const params = pickPresetParams(useGenerationStore.getState().request)
+      const gen = useGenerationStore.getState()
+      const params = pickPresetParams(gen.request)
+      // 3분할 켜진 동안만 조각을 프리셋에 저장 — 꺼져 있으면 저장된 조각을 건드리지 않음
+      const promptParts = gen.promptSplitEnabled
+        ? normalizePresetParts(gen.request.promptParts)
+        : undefined
       if (
-        p.prompt !== currentPrompt ||
-        p.negativePrompt !== currentNegative ||
-        JSON.stringify(p.params) !== JSON.stringify(params)
+        shouldSyncPromptPreset(p, {
+          prompt: currentPrompt,
+          negativePrompt: currentNegative,
+          params,
+          promptParts
+        })
       ) {
-        void update(activeId, { prompt: currentPrompt, negativePrompt: currentNegative, params })
+        void update(activeId, {
+          prompt: currentPrompt,
+          negativePrompt: currentNegative,
+          params,
+          ...(promptParts !== undefined ? { promptParts } : {})
+        })
       }
     }, 500)
     return () => clearTimeout(syncTimer.current)
@@ -59,9 +79,16 @@ export function PromptPresetBar(): React.JSX.Element {
     const p = presets.find((x) => x.id === id)
     if (!p) return
     setOpen(false) // 먼저 닫기 (B9)
-    // 파라미터도 함께 복원 (구버전 프리셋은 params 없음 — 프롬프트만)
-    patch({ prompt: p.prompt, negativePrompt: p.negativePrompt, ...(p.params ?? {}) })
+    // 활성 프리셋을 먼저 바꿔야 이전 프리셋이 적용값으로 자동 저장되는 레이스가 없다.
     setActive(id)
+    // 파라미터도 함께 복원. 구버전 프리셋(params=null)은 프롬프트만 적용.
+    // 3분할 조각은 프리셋에 저장된 것을 복원 (없거나 낡았으면 prompt를 base로 재시드)
+    patch({
+      prompt: p.prompt,
+      promptParts: partsForApply(p),
+      negativePrompt: p.negativePrompt,
+      ...(p.params ?? {})
+    })
   }
 
   return (
@@ -130,8 +157,8 @@ export function PromptPresetBar(): React.JSX.Element {
               pickPresetParams(useGenerationStore.getState().request)
             )
             // 빈 칸으로 시작 — 이후 편집이 이 프리셋에 자동 저장
-            patch({ prompt: '', negativePrompt: '' })
             setActive(id)
+            patch({ prompt: '', promptParts: splitPromptForPreset(''), negativePrompt: '' })
             setOpen(false)
           }}
         >

@@ -151,15 +151,12 @@ export function deleteFragmentFolder(id: number): void {
   })()
 }
 
-/** content → 치환용 줄 목록. #부터 줄 끝까지 주석(프롬프트와 동일 규칙), 빈 줄 제외 */
+/** content → 치환용 줄 목록. #로 시작하는 줄만 주석(NAIS2·프롬프트와 동일 규칙), 빈 줄 제외 */
 export function contentToLines(content: string): string[] {
   return content
     .split('\n')
-    .map((l) => {
-      const i = l.indexOf('#')
-      return (i === -1 ? l : l.slice(0, i)).trim()
-    })
-    .filter((l) => l.length > 0)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('#'))
 }
 
 /** 치환기에 물릴 조회 소스 — 생성 시점마다 DB에서 신선하게 읽는다 */
@@ -169,9 +166,10 @@ export function fragmentSource(): FragmentSource {
   const byPath = new Map<string, string[]>()
   for (const f of items) {
     const lines = contentToLines(f.content)
-    byPath.set(f.name.toLowerCase(), lines)
+    // 참조 측(normalizePath)과 동일하게 trim — 이름/폴더에 공백이 섞여도 <이름>과 매칭되게
+    byPath.set(f.name.trim().toLowerCase(), lines)
     const folder = f.folderId != null ? folderName.get(f.folderId) : null
-    if (folder) byPath.set(`${folder}/${f.name}`.toLowerCase(), lines)
+    if (folder) byPath.set(`${folder.trim()}/${f.name.trim()}`.toLowerCase(), lines)
   }
   return { getLines: (path) => byPath.get(path) ?? null }
 }

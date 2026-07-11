@@ -126,10 +126,24 @@ app.whenReady().then(() => {
     const fragSource = fragmentSource()
     const sub = (text: string): string =>
       rawRequest.skipWildcards ? text : processWildcards(removeComments(text), fragSource)
+    // 3분할이면 각 조각을 개별 치환 후 병합 — 전송 프롬프트와 메타데이터(promptParts)가
+    // 같은 치환 결과를 공유한다 (병합본만 치환하면 메타데이터에 <조각> 원문이 남는 버그)
+    const subbedParts = rawRequest.promptParts
+      ? {
+          base: sub(rawRequest.promptParts.base),
+          additional: sub(rawRequest.promptParts.additional),
+          detail: sub(rawRequest.promptParts.detail)
+        }
+      : undefined
     let request = {
       ...rawRequest,
-      prompt: sub(rawRequest.prompt),
+      prompt: subbedParts
+        ? [subbedParts.base, subbedParts.additional, subbedParts.detail]
+            .filter((p) => p.trim())
+            .join(', ')
+        : sub(rawRequest.prompt),
       negativePrompt: sub(rawRequest.negativePrompt),
+      promptParts: subbedParts,
       characterPrompts: rawRequest.characterPrompts.map((c) => ({
         ...c,
         prompt: sub(c.prompt),

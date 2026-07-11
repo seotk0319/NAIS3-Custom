@@ -280,5 +280,17 @@ export const migrations: ((db: Database.Database) => void)[] = [
     if (!cols.includes('params_json')) {
       db.exec(`ALTER TABLE prompt_presets ADD COLUMN params_json TEXT;`)
     }
+  },
+
+  // v13: 프롬프트 프리셋에 3분할 조각 저장 (upstream v1.0.12의 v14 이식 — 커스텀 번호 체계는 v13).
+  // 프리셋 전환 후 복귀 시 가변/디테일이 고정으로 합쳐지지 않게 (null = 분할 없음/병합 프롬프트만).
+  // 다른 경로로 이미 컬럼이 생긴 DB에서도 안전하게 idempotent.
+  (db) => {
+    const cols = (
+      db.prepare(`PRAGMA table_info(prompt_presets)`).all() as { name: string }[]
+    ).map((c) => c.name)
+    if (!cols.includes('prompt_parts_json')) {
+      db.exec(`ALTER TABLE prompt_presets ADD COLUMN prompt_parts_json TEXT;`)
+    }
   }
 ]

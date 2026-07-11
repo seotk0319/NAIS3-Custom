@@ -25,6 +25,7 @@ import {
   deleteFragmentFolder,
   exportTxtFragment,
   exportAllFragmentsZip,
+  fragmentSource,
   importTxtFragments,
   listFragments,
   renameFragmentFolder,
@@ -33,7 +34,8 @@ import {
   setFragmentFolderColor,
   updateFragment
 } from './fragments/repo'
-import { resetSequentialCounters } from './fragments/processor'
+import { processWildcards, resetSequentialCounters } from './fragments/processor'
+import { removeComments } from '../shared/nai-presets'
 import {
   deleteNaiToken,
   getNaiToken,
@@ -376,7 +378,14 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
 
   handle('tags:search', ({ query, limit }) => ({ items: searchTags(query, limit) }))
-  handle('tokens:count', ({ texts }) => ({ counts: texts.map(countTokens) }))
+  handle('tokens:count', ({ texts }) => {
+    // 토큰 수는 실제 전송본 기준 — 조각(<이름>)·주석을 치환/제거한 결과로 센다.
+    // rng 고정(항상 첫 줄)이라 결정적이고, peek이라 <*이름> 순차 카운터를 소모하지 않는다.
+    const src = fragmentSource()
+    return {
+      counts: texts.map((t) => countTokens(processWildcards(removeComments(t), src, () => 0, true)))
+    }
+  })
 
   handle('images:showInFolder', ({ filePath }) => {
     if (isUnderImagesRoot(filePath)) shell.showItemInFolder(filePath)

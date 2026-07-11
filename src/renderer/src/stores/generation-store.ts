@@ -139,9 +139,11 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   },
   setPromptSplitEnabled: (promptSplitEnabled) => {
     const request = get().request
+    const existingParts = request.promptParts
     const promptParts =
-      request.promptParts ??
-      ({ base: request.prompt, additional: '', detail: '' } satisfies PromptParts)
+      existingParts && mergePromptParts(existingParts) === request.prompt
+        ? existingParts
+        : ({ base: request.prompt, additional: '', detail: '' } satisfies PromptParts)
     set({ promptSplitEnabled, request: { ...request, promptParts } })
     void window.nais.invoke('settings:set', {
       key: 'prompt_split_enabled',
@@ -181,9 +183,11 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   },
 
   generate: async () => {
-    const { request, seedLocked, batchCount } = get()
+    const { request, seedLocked, batchCount, promptSplitEnabled } = get()
     const seed = seedLocked && request.seed >= 0 ? request.seed : randomSeed()
     const baseRequest = withoutTransientSource({ ...request, seed })
+    // 3분할 꺼진 상태로 뽑은 이미지에 promptParts 메타데이터가 담기면 안 됨
+    if (!promptSplitEnabled) delete baseRequest.promptParts
     // 캐릭터는 라이브러리의 enabled 카드에서 구성 (리스트 순서 = v4 use_order 순서)
     const characterPrompts = enabledCharacters().map((c) => ({
       prompt: c.prompt,

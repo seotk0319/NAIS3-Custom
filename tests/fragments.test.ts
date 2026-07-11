@@ -74,4 +74,17 @@ describe('조각/와일드카드 치환 (NAIS2 이식)', () => {
       'https://example.com/a/b'
     )
   })
+
+  it('<폴더 / 이름> — 슬래시 주변 공백 허용 (경로 정규화)', () => {
+    expect(processWildcards('<의상 / casual>', source, first)).toBe('t-shirt, jeans')
+    expect(processWildcards('< 의상/casual >', source, first)).toBe('t-shirt, jeans')
+  })
+
+  it('peek 모드 — 순차 카운터를 소모하지 않는다 (토큰 카운트용)', () => {
+    resetSequentialCounters()
+    expect(processWildcards('<*hair>', source, first, true)).toBe('long hair')
+    expect(processWildcards('<*hair>', source, first, true)).toBe('long hair') // 여전히 첫 줄
+    expect(processWildcards('<*hair>', source, first)).toBe('long hair') // 실제 소비는 여기부터
+    expect(processWildcards('<*hair>', source, first)).toBe('short hair')
+  })
 })

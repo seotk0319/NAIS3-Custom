@@ -298,6 +298,10 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     set({
       scenes: get().scenes.map((s) => (!ids || selection.has(s.id) ? { ...s, reserveCount: 0 } : s))
     })
+    if (forceAll) {
+      await window.nais.invoke('scenes:clearAllReservations', undefined)
+      return
+    }
     await window.nais.invoke('scenes:setReserveAll', {
       presetId: get().activePresetId,
       count: 0,
@@ -420,9 +424,6 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
   generateReserved: async () => {
     const reserved = get().scenes.filter((s) => s.reserveCount > 0)
     if (reserved.length === 0) return
-    // 예약을 큐에 넣는 즉시 예약 수는 소진(0) — 예약이란 게 "뽑을 대기열"이므로
-    set({ scenes: get().scenes.map((s) => (s.reserveCount > 0 ? { ...s, reserveCount: 0 } : s)) })
-    void window.nais.invoke('scenes:setReserveAll', { presetId: get().activePresetId, count: 0 })
     // 모든 예약 장수를 한 배열로 모아 "한 번에" 큐에 넣는다. 항목마다 IPC를 왕복하며
     // 순차로 차오르지 않으므로, 생성 중 취소 1번으로 전부 정리되고 나머지가 이어붙지 않는다.
     const requests: GenerationRequest[] = []
@@ -434,6 +435,12 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
       }
     }
     await window.nais.invoke('queue:enqueueMany', { requests })
+    // 큐 등록 성공 뒤에만 예약을 소진한다. 요청 구성/IPC 실패 시 예약은 그대로 남는다.
+    set({ scenes: get().scenes.map((s) => (s.reserveCount > 0 ? { ...s, reserveCount: 0 } : s)) })
+    await window.nais.invoke('scenes:setReserveAll', {
+      presetId: get().activePresetId,
+      count: 0
+    })
   },
 
   generateOne: async (sceneId) => {

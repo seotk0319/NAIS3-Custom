@@ -269,28 +269,116 @@ export const migrations: ((db: Database.Database) => void)[] = [
     `)
   },
 
-  // v12: 커스텀 리베이스 정합 — 옛 커스텀 포크(1.0.3 기반)는 v10에서 prompt_presets에
-  // base_prompt를 추가했지만 upstream v10은 params_json을 추가했다. 옛 포크 DB(user_version=10)는
-  // 그 divergence로 params_json이 누락되므로 여기서 idempotent하게 보정한다.
-  // 신규 설치·정상 upstream DB는 이미 params_json이 있으므로 no-op이다.
+  // v12: upstream v1.0.12와 동일 — 큐레이션 라이브러리.
   (db) => {
-    const cols = (
-      db.prepare(`PRAGMA table_info(prompt_presets)`).all() as { name: string }[]
-    ).map((c) => c.name)
-    if (!cols.includes('params_json')) {
-      db.exec(`ALTER TABLE prompt_presets ADD COLUMN params_json TEXT;`)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS library_stacks (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS library_images (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        file_path TEXT NOT NULL,
+        thumbnail BLOB,
+        width INTEGER,
+        height INTEGER,
+        stack_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_library_images_stack ON library_images(stack_id, id DESC);
+    `)
+  },
+
+  // v13: upstream v1.0.12와 동일 — 라이브러리 드래그 정렬.
+  (db) => {
+    if (!hasColumn(db, 'library_images', 'sort_order')) {
+      db.exec(`
+        ALTER TABLE library_images ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+        UPDATE library_images SET sort_order = id;
+      `)
+    }
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_library_images_order ON library_images(sort_order DESC, id DESC)`
+    )
+  },
+
+  // v14: upstream v1.0.12와 같은 프롬프트 3분할 저장.
+  // 기존 Custom v13 DB에는 컬럼이 이미 있으므로 중복 추가를 피한다.
+  (db) => {
+    if (!hasColumn(db, 'prompt_presets', 'prompt_parts_json')) {
+      db.exec(`ALTER TABLE prompt_presets ADD COLUMN prompt_parts_json TEXT;`)
     }
   },
 
-  // v13: 프롬프트 프리셋에 3분할 조각 저장 (upstream v1.0.12의 v14 이식 — 커스텀 번호 체계는 v13).
-  // 프리셋 전환 후 복귀 시 가변/디테일이 고정으로 합쳐지지 않게 (null = 분할 없음/병합 프롬프트만).
-  // 다른 경로로 이미 컬럼이 생긴 DB에서도 안전하게 idempotent.
+  // v15: 기존 Custom v10~v13과 upstream v12~v14를 모두 현재 스키마로 수렴시키는 repair.
   (db) => {
-    const cols = (
-      db.prepare(`PRAGMA table_info(prompt_presets)`).all() as { name: string }[]
-    ).map((c) => c.name)
-    if (!cols.includes('prompt_parts_json')) {
+    if (!hasColumn(db, 'prompt_presets', 'params_json')) {
+      db.exec(`ALTER TABLE prompt_presets ADD COLUMN params_json TEXT;`)
+    }
+    if (!hasColumn(db, 'prompt_presets', 'base_prompt')) {
+      db.exec(`ALTER TABLE prompt_presets ADD COLUMN base_prompt TEXT NOT NULL DEFAULT '';`)
+    }
+    if (!hasColumn(db, 'prompt_presets', 'prompt_parts_json')) {
       db.exec(`ALTER TABLE prompt_presets ADD COLUMN prompt_parts_json TEXT;`)
     }
+    if (!hasTable(db, 'library_stacks')) {
+      db.exec(`
+        CREATE TABLE library_stacks (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `)
+    }
+    if (!hasTable(db, 'library_images')) {
+      db.exec(`
+        CREATE TABLE library_images (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL DEFAULT '',
+          file_path TEXT NOT NULL,
+          thumbnail BLOB,
+          width INTEGER,
+          height INTEGER,
+          stack_id INTEGER,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          sort_order INTEGER NOT NULL DEFAULT 0
+        );
+      `)
+    } else if (!hasColumn(db, 'library_images', 'sort_order')) {
+      db.exec(`
+        ALTER TABLE library_images ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+        UPDATE library_images SET sort_order = id;
+      `)
+    }
+    db.exec(`
+      DELETE FROM images
+        WHERE id NOT IN (SELECT MAX(id) FROM images GROUP BY file_path);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_images_file_path ON images(file_path);
+      CREATE INDEX IF NOT EXISTS idx_library_images_stack
+        ON library_images(stack_id, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_library_images_order
+        ON library_images(sort_order DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS nais3_schema (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT INTO nais3_schema (key, value) VALUES ('schema_flavor', 'nais3-custom')
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+    `)
   }
 ]
+
+function hasTable(db: Database.Database, table: string): boolean {
+  return Boolean(
+    db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table)
+  )
+}
+
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  if (!hasTable(db, table)) return false
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+    (entry) => entry.name === column
+  )
+}

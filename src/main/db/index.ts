@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'fs'
 import { join } from 'path'
 import { migrations } from './migrations'
 
 let db: Database.Database | null = null
+const CUSTOM_APPLICATION_ID = 0x4e414953
 
 export function getDb(): Database.Database {
   if (!db) throw new Error('DB not initialized — call initDb() first')
@@ -32,19 +33,49 @@ export function initDb(): { version: number; path: string } {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-  const current = db.pragma('user_version', { simple: true }) as number
+  const applicationId = db.pragma('application_id', { simple: true }) as number
+  if (applicationId !== 0 && applicationId !== CUSTOM_APPLICATION_ID) {
+    throw new Error('다른 애플리케이션의 데이터베이스라서 열 수 없습니다.')
+  }
+  if (hasTable(db, 'nais3_schema')) {
+    const flavor = db
+      .prepare(`SELECT value FROM nais3_schema WHERE key = 'schema_flavor'`)
+      .pluck()
+      .get() as string | undefined
+    if (flavor && flavor !== 'nais3-custom') {
+      throw new Error(`지원하지 않는 DB 스키마 종류입니다: ${flavor}`)
+    }
+  }
+
+  let current = db.pragma('user_version', { simple: true }) as number
   const target = migrations.length
 
+  // Custom 1.0.12의 v12/v13은 upstream과 번호 의미가 달랐다. 라이브러리 테이블이
+  // 없다면 v11부터 upstream v12~v14를 다시 적용하되, 각 migration은 기존 컬럼을 보존한다.
+  const legacyCustomVersion = (current === 12 || current === 13) && !hasTable(db, 'library_stacks')
+
   if (current < target) {
+    let backupPath: string | null = null
     if (current > 0 && existsSync(path)) {
-      backupBeforeMigration(path, current)
+      backupPath = backupBeforeMigration(current)
     }
-    for (let v = current; v < target; v++) {
-      const migrate = db.transaction(() => {
-        migrations[v](db!)
-        db!.pragma(`user_version = ${v + 1}`)
-      })
-      migrate()
+    if (legacyCustomVersion) {
+      current = 11
+      db.pragma('user_version = 11')
+    }
+    try {
+      for (let v = current; v < target; v++) {
+        const migrate = db.transaction(() => {
+          migrations[v](db!)
+          db!.pragma(`user_version = ${v + 1}`)
+        })
+        migrate()
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `DB migration 실패: ${detail}` + (backupPath ? `\n복구용 백업: ${backupPath}` : '')
+      )
     }
   } else if (current > target) {
     // 다운그레이드된 앱이 미래 버전 DB를 여는 상황 — 조용히 진행하면 데이터가 깨진다
@@ -54,22 +85,28 @@ export function initDb(): { version: number; path: string } {
     )
   }
 
+  db.pragma(`application_id = ${CUSTOM_APPLICATION_ID}`)
+
   return { version: target, path }
 }
 
-function backupBeforeMigration(path: string, fromVersion: number): void {
+function backupBeforeMigration(fromVersion: number): string {
   const backupDir = join(app.getPath('userData'), 'backups')
   mkdirSync(backupDir, { recursive: true })
-  copyFileSync(path, join(backupDir, `pre-migration-v${fromVersion}.db`))
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const dest = join(backupDir, `pre-migration-v${fromVersion}-${stamp}.db`)
+  db!.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`)
   pruneBackups(backupDir, 10)
+  return dest
 }
 
 function pruneBackups(backupDir: string, keep: number): void {
   const files = readdirSync(backupDir)
     .filter((f) => f.endsWith('.db'))
-    .sort()
+    .map((name) => ({ name, mtimeMs: statSync(join(backupDir, name)).mtimeMs }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
   for (const f of files.slice(0, Math.max(0, files.length - keep))) {
-    rmSync(join(backupDir, f))
+    rmSync(join(backupDir, f.name))
   }
 }
 
@@ -87,4 +124,10 @@ export function backupNow(): string {
 export function closeDb(): void {
   db?.close()
   db = null
+}
+
+function hasTable(database: Database.Database, table: string): boolean {
+  return Boolean(
+    database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table)
+  )
 }

@@ -1,10 +1,12 @@
 import { History, Trash2 } from 'lucide-react'
+import { useEffect } from 'react'
 import { cn } from '../lib/utils'
 import { KindBadge } from '../lib/kind-icon'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
 import { askConfirm } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
+import { useStorageSettingsStore } from '../stores/storage-settings-store'
 import { ImageContextMenu } from './image-context-menu'
 
 export function HistoryPanel(): React.JSX.Element {
@@ -14,24 +16,47 @@ export function HistoryPanel(): React.JSX.Element {
   const view = useGenerationStore((s) => s.view)
   const refreshHistory = useGenerationStore((s) => s.refreshHistory)
   const setCenterMode = useLayoutStore((s) => s.setCenterMode)
+  const historyDeleteFile = useStorageSettingsStore((s) => s.historyDeleteFile)
+  const loadStorageSettings = useStorageSettingsStore((s) => s.load)
+
+  useEffect(() => {
+    void loadStorageSettings()
+  }, [loadStorageSettings])
 
   const deleteOne = async (id: number, filePath: string): Promise<void> => {
-    await window.nais.invoke('images:delete', { id })
+    if (historyDeleteFile) {
+      const ok = await askConfirm('파일까지 영구 삭제', {
+        message: '히스토리 기록과 저장된 이미지 파일을 함께 삭제합니다.',
+        confirmLabel: '영구 삭제',
+        danger: true
+      })
+      if (!ok) return
+    }
+    await window.nais.invoke('images:delete', { id, deleteFile: historyDeleteFile })
     if (viewingFilePath === filePath) view(null)
     void refreshHistory()
   }
 
   const clearAll = async (): Promise<void> => {
     const ok = await askConfirm('히스토리 전체 비우기', {
-      message: `생성 기록 ${historyTotal.toLocaleString()}개를 비웁니다 (씬 갤러리 포함). 저장 폴더의 이미지 파일은 삭제되지 않습니다.`,
+      message: historyDeleteFile
+        ? `생성 기록 ${historyTotal.toLocaleString()}개와 저장된 이미지 파일을 모두 영구 삭제합니다.`
+        : `생성 기록 ${historyTotal.toLocaleString()}개를 비웁니다. 저장 폴더의 이미지 파일은 보존됩니다.`,
       confirmLabel: '전체 비우기',
       danger: true
     })
     if (!ok) return
-    const { count } = await window.nais.invoke('images:clearAll', undefined)
+    const { count } = await window.nais.invoke('images:clearAll', {
+      deleteFiles: historyDeleteFile
+    })
     view(null)
     void refreshHistory()
-    toast(`기록 ${count.toLocaleString()}개 비움 (파일은 보존)`, 'success')
+    toast(
+      historyDeleteFile
+        ? `기록과 파일 ${count.toLocaleString()}개 삭제`
+        : `기록 ${count.toLocaleString()}개 비움 (파일은 보존)`,
+      'success'
+    )
   }
 
   return (
@@ -62,6 +87,7 @@ export function HistoryPanel(): React.JSX.Element {
                 key={item.id}
                 filePath={item.filePath}
                 onDelete={() => void deleteOne(item.id, item.filePath)}
+                deleteLabel={historyDeleteFile ? '파일까지 영구 삭제' : '기록에서 제거'}
               >
                 <button
                   className={cn(
@@ -88,11 +114,11 @@ export function HistoryPanel(): React.JSX.Element {
                     />
                   )}
                   <KindBadge kind={item.kind} />
-                  {/* 호버 삭제 — 기록만 삭제 (파일 보존) */}
+                  {/* 호버 삭제 — 저장 설정의 실제 삭제 정책을 그대로 표시 */}
                   <span
                     role="button"
                     className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-danger group-hover:opacity-100"
-                    title="기록에서 삭제 (파일은 보존)"
+                    title={historyDeleteFile ? '파일까지 영구 삭제' : '기록에서 제거'}
                     onClick={(e) => {
                       e.stopPropagation()
                       void deleteOne(item.id, item.filePath)

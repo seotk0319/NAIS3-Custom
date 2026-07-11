@@ -133,8 +133,7 @@ export function reorderPresets(ids: number[]): void {
 /** 씬 저장 폴더 계층용 프리셋 이름 */
 export function getPresetName(id: number): string | null {
   const r = getDb().prepare('SELECT name FROM scene_presets WHERE id = ?').get(id) as
-    | { name: string }
-    | undefined
+    { name: string } | undefined
   return r?.name ?? null
 }
 
@@ -267,7 +266,9 @@ export function bulkDelete(ids: number[]): void {
 export function bulkSetResolution(ids: number[], width: number, height: number): void {
   if (ids.length === 0) return
   getDb()
-    .prepare(`UPDATE gen_scenes SET width = ?, height = ? WHERE id IN (${placeholders(ids.length)})`)
+    .prepare(
+      `UPDATE gen_scenes SET width = ?, height = ? WHERE id IN (${placeholders(ids.length)})`
+    )
     .run(width, height, ...ids)
 }
 
@@ -306,9 +307,9 @@ export function sceneImages(
   const db = getDb()
   const fav = favoritesOnly ? ' AND favorite = 1' : ''
   const total = (
-    db
-      .prepare(`SELECT COUNT(*) AS c FROM images WHERE scene_id = ?${fav}`)
-      .get(sceneId) as { c: number }
+    db.prepare(`SELECT COUNT(*) AS c FROM images WHERE scene_id = ?${fav}`).get(sceneId) as {
+      c: number
+    }
   ).c
   const rows = db
     .prepare(
@@ -369,13 +370,28 @@ function unlinkIfInternal(filePath: string): void {
   }
 }
 
-/** 히스토리 전체 비우기 — 기록만 삭제, 파일 보존 (내부 라이브러리 파일은 정리) */
-export function clearAllImages(): number {
+/** 히스토리 전체 비우기 — deleteFiles가 아니면 외부 저장 파일을 보존한다. */
+export function clearAllImages(deleteFiles: boolean): number {
   const db = getDb()
   const rows = db.prepare('SELECT file_path FROM images').all() as { file_path: string }[]
   db.prepare('DELETE FROM images').run()
-  for (const r of rows) unlinkIfInternal(r.file_path)
+  for (const r of rows) {
+    if (deleteFiles) {
+      try {
+        unlinkSync(r.file_path)
+      } catch {
+        // 이미 없는 파일은 무시한다.
+      }
+    } else {
+      unlinkIfInternal(r.file_path)
+    }
+  }
   return rows.length
+}
+
+/** 모든 프리셋의 예약 수를 초기화한다 (F5 작업 초기화 전용). */
+export function clearAllReservations(): void {
+  getDb().prepare('UPDATE gen_scenes SET reserve_count = 0').run()
 }
 
 /**
@@ -386,8 +402,7 @@ export function clearAllImages(): number {
 export function deleteImage(id: number, deleteFile: boolean): void {
   const db = getDb()
   const r = db.prepare('SELECT file_path FROM images WHERE id = ?').get(id) as
-    | { file_path: string }
-    | undefined
+    { file_path: string } | undefined
   db.prepare('DELETE FROM images WHERE id = ?').run(id)
   if (!r) return
   if (deleteFile) {
@@ -514,8 +529,7 @@ function sceneZipSources(sceneIds: number[]): SceneZipSource[] {
   const sources: SceneZipSource[] = []
   for (const sceneId of sceneIds) {
     const scene = db.prepare('SELECT name FROM gen_scenes WHERE id = ?').get(sceneId) as
-      | { name: string }
-      | undefined
+      { name: string } | undefined
     if (!scene) continue
     const favoritePaths = (
       db

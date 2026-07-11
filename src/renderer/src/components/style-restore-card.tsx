@@ -1,5 +1,6 @@
 import { RefreshCw, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
+import type { GenerationRequest } from '@shared/types'
 import { useGenerationStore } from '../stores/generation-store'
 import { fileToBase64, imageDimensions, requestFromMetadata } from '../lib/metadata-request'
 import { toast } from '../stores/toast-store'
@@ -63,6 +64,8 @@ export function StyleRestoreCard(): React.JSX.Element {
 
     setReading(true)
     const next: RestoreItem[] = []
+    const requests: GenerationRequest[] = []
+    const requestItemIndexes: number[] = []
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
@@ -83,8 +86,9 @@ export function StyleRestoreCard(): React.JSX.Element {
             noise: STYLE_RESTORE_NOISE,
             useCoords: (meta.characterPrompts ?? []).length > 0
           })
-          const { ids } = await window.nais.invoke('queue:enqueue', { request, count: 1 })
-          next.push({ key, fileName: file.name, queueId: ids[0] ?? null })
+          next.push({ key, fileName: file.name, queueId: null })
+          requestItemIndexes.push(next.length - 1)
+          requests.push(request)
         } catch (e) {
           next.push({
             key,
@@ -92,6 +96,19 @@ export function StyleRestoreCard(): React.JSX.Element {
             queueId: null,
             error: e instanceof Error ? e.message : String(e)
           })
+        }
+        setItems([...next])
+      }
+      if (requests.length > 0) {
+        try {
+          const { ids } = await window.nais.invoke('queue:enqueueMany', { requests })
+          requestItemIndexes.forEach((itemIndex, index) => {
+            next[itemIndex].queueId = ids[index] ?? null
+            if (!ids[index]) next[itemIndex].error = '큐 등록 실패'
+          })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          for (const itemIndex of requestItemIndexes) next[itemIndex].error = message
         }
         setItems([...next])
       }
@@ -106,7 +123,7 @@ export function StyleRestoreCard(): React.JSX.Element {
   function statusOf(item: RestoreItem): { label: string; cls: string } {
     if (!item.queueId) return { label: item.error ?? '실패', cls: 'text-danger' }
     const q = queue?.items.find((i) => i.id === item.queueId)
-    if (!q) return { label: '준비', cls: 'text-muted' }
+    if (!q) return { label: '큐 등록됨', cls: 'text-muted' }
     switch (q.state) {
       case 'pending':
         return { label: '대기', cls: 'text-muted' }

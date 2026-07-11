@@ -1,11 +1,13 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'fs'
+import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { isAbsolute, join, relative } from 'path'
 import sharp from 'sharp'
 import type { DirectorMethod, ImageMetadata } from '../../shared/types'
 import { getDb } from '../db'
 import { getSetting } from '../db/settings'
 import { sanitizeImageMetadata } from './strip-metadata'
+import { resolveInside, sanitizePathSegment } from './safe-path'
 
 /**
  * 생성 이미지 저장 규칙 (P3의 핵심):
@@ -44,10 +46,16 @@ export function libraryRoot(): string {
   return join(app.getPath('userData'), 'library')
 }
 
-/** 씬 이미지 폴더 경로 — 씬루트/<프리셋>/<씬 이름>/ (저장·폴더 열기 공용) */
-export function sceneDir(presetName: string | null, sceneName: string, sceneId?: number): string {
-  const safe = (s: string): string => s.replace(/[/\\:*?"<>|]/g, '_').trim()
-  return join(scenesRoot(), safe(presetName ?? '') || '기본', safe(sceneName) || `씬-${sceneId}`)
+/** 씬 이미지 폴더 경로 — 이름 충돌/변경과 경로 이탈을 막기 위해 ID를 정체성으로 사용한다. */
+export function sceneDir(
+  presetName: string | null,
+  sceneName: string,
+  sceneId?: number,
+  presetId?: number
+): string {
+  const preset = `preset-${presetId ?? 0}-${sanitizePathSegment(presetName ?? '', '기본')}`
+  const scene = `scene-${sceneId ?? 0}-${sanitizePathSegment(sceneName, `씬-${sceneId ?? 0}`)}`
+  return resolveInside(scenesRoot(), preset, scene)
 }
 
 /**
@@ -61,12 +69,20 @@ function isInside(parent: string, child: string): boolean {
 }
 
 export function isUnderImagesRoot(filePath: string): boolean {
-  return (
+  if (
     isInside(imagesRoot(), filePath) ||
     isInside(scenesRoot(), filePath) ||
     isInside(defaultImagesRoot(), filePath) ||
     isInside(libraryRoot(), filePath)
-  )
+  ) {
+    return true
+  }
+  // 저장 폴더를 바꾼 뒤에도 DB에 등록된 과거 이미지는 계속 열 수 있다.
+  try {
+    return Boolean(getDb().prepare('SELECT 1 FROM images WHERE file_path = ?').get(filePath))
+  } catch {
+    return false
+  }
 }
 
 export async function saveGeneratedImage(input: {
@@ -82,6 +98,8 @@ export async function saveGeneratedImage(input: {
   sceneName?: string
   /** 씬이 속한 프리셋 이름 (프리셋 간 동명 씬 충돌 방지) */
   scenePresetName?: string
+  /** 씬 프리셋 ID — 저장 폴더의 안정적인 정체성 */
+  scenePresetId?: number
   /** 전송 payload에는 없는 NAIS3 전용 왕복 메타데이터 */
   localMetadata?: Pick<ImageMetadata, 'promptParts'>
 }): Promise<SavedImage> {
@@ -94,7 +112,7 @@ export async function saveGeneratedImage(input: {
   let monthDir: string
   if (input.sceneName) {
     monthDir = autoSave
-      ? sceneDir(input.scenePresetName ?? null, input.sceneName, input.sceneId)
+      ? sceneDir(input.scenePresetName ?? null, input.sceneName, input.sceneId, input.scenePresetId)
       : join(libraryRoot(), 'scene')
   } else {
     const out = autoSave ? imagesRoot() : libraryRoot()
@@ -106,10 +124,17 @@ export async function saveGeneratedImage(input: {
   mkdirSync(monthDir, { recursive: true })
 
   const ext = input.format ?? 'png'
-  let filePath: string
+  let filePath = ''
+  const stripExif = getSetting('strip_exif') === '1'
+  const metadataBuffer =
+    ext === 'png' && input.localMetadata && !stripExif
+      ? injectNais3Params(input.png, input.localMetadata)
+      : input.png
+  const fileBuffer = stripExif ? await sanitizeImageMetadata(metadataBuffer, ext) : metadataBuffer
+
   if (input.sceneName) {
     // 씬 이미지는 첫 장은 씬 이름 그대로, 중복부터 씬 이름_2, _3 ...
-    const safeName = input.sceneName.replace(/[/\\:*?"<>|]/g, '_').trim() || `씬-${input.sceneId}`
+    const safeName = sanitizePathSegment(input.sceneName, `씬-${input.sceneId ?? 0}`)
     let max = 0
     const escaped = safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const firstRe = new RegExp(`^${escaped}\\.`)
@@ -119,43 +144,73 @@ export async function saveGeneratedImage(input: {
       const m = numberedRe.exec(f)
       if (m) max = Math.max(max, Number(m[1]))
     }
-    filePath = join(monthDir, max === 0 ? `${safeName}.${ext}` : `${safeName}_${max + 1}.${ext}`)
-    while (existsSync(filePath)) {
-      max++
-      filePath = join(monthDir, `${safeName}_${max + 1}.${ext}`)
+    for (;;) {
+      const name = max === 0 ? `${safeName}.${ext}` : `${safeName}_${max + 1}.${ext}`
+      filePath = resolveInside(monthDir, name)
+      try {
+        writeFileSync(filePath, fileBuffer, { flag: 'wx' })
+        break
+      } catch (error) {
+        if (!isFileExistsError(error)) throw error
+        max++
+      }
     }
   } else {
-    const stamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    filePath = join(monthDir, `NAIS3_${stamp}_${input.seed}.${ext}`)
+    const stamp = now.toISOString().replace(/[:.]/g, '-')
+    filePath = resolveInside(
+      monthDir,
+      `NAIS3_${stamp}_${input.seed}_${randomUUID().slice(0, 8)}.${ext}`
+    )
+    writeFileSync(filePath, fileBuffer, { flag: 'wx' })
   }
-  const stripExif = getSetting('strip_exif') === '1'
-  const metadataBuffer =
-    ext === 'png' && input.localMetadata && !stripExif
-      ? injectNais3Params(input.png, input.localMetadata)
-      : input.png
-  const fileBuffer = stripExif ? await sanitizeImageMetadata(metadataBuffer, ext) : metadataBuffer
-  writeFileSync(filePath, fileBuffer)
 
-  // 썸네일: 카드가 커질 수 있어 640px로 (화질 열화 방지). webp q90
-  const thumbnail = await sharp(input.png)
-    .resize(640, 640, { fit: 'inside' })
-    .webp({ quality: 90 })
-    .toBuffer()
+  try {
+    // 썸네일: 카드가 커질 수 있어 640px로 (화질 열화 방지). webp q90
+    const thumbnail = await sharp(input.png)
+      .resize(640, 640, { fit: 'inside' })
+      .webp({ quality: 90 })
+      .toBuffer()
 
-  const result = getDb()
-    .prepare(
+    const insert = getDb().prepare(
       'INSERT INTO images (file_path, thumbnail, kind, seed, payload_json, scene_id) VALUES (?, ?, ?, ?, ?, ?)'
     )
-    .run(
+    const values = [
       filePath,
       thumbnail,
       input.kind,
       input.seed,
-      payloadWithLocalMetadata(input.sentPayload, input.localMetadata),
-      input.sceneId ?? null
-    )
+      payloadWithLocalMetadata(input.sentPayload, input.localMetadata)
+    ] as const
+    let result
+    try {
+      result = insert.run(...values, input.sceneId ?? null)
+    } catch (error) {
+      // 생성 완료 직전에 씬이 삭제된 경우 이미지는 일반 히스토리로 보존한다.
+      if (!input.sceneId || !isForeignKeyError(error)) throw error
+      result = insert.run(...values, null)
+    }
+    return { id: Number(result.lastInsertRowid), filePath }
+  } catch (error) {
+    try {
+      unlinkSync(filePath)
+    } catch {
+      // 저장 실패 cleanup 중 이미 없어진 파일은 무시한다.
+    }
+    throw error
+  }
+}
 
-  return { id: Number(result.lastInsertRowid), filePath }
+function isFileExistsError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST')
+}
+
+function isForeignKeyError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY'
+  )
 }
 
 function payloadWithLocalMetadata(

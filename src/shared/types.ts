@@ -113,6 +113,7 @@ export interface QueueStatus {
   items: QueueItem[]
   running: boolean
   delayMs: number
+  counts: Record<QueueItemState, number>
 }
 
 export interface SubscriptionInfo {
@@ -480,6 +481,8 @@ export interface IpcInvokeMap {
   'scenes:reorder': { req: { ids: number[] }; res: void }
   /** 예약: 전체 취소(count=0 등 절대값 설정) */
   'scenes:setReserveAll': { req: { presetId: number; count: number; ids?: number[] }; res: void }
+  /** F5 작업 초기화: 모든 프리셋 예약을 전역 초기화 */
+  'scenes:clearAllReservations': { req: void; res: void }
   /** 예약: 전체 씬 예약 수를 delta만큼 증감 (최소 0) */
   'scenes:adjustReserveAll': { req: { presetId: number; delta: number; ids?: number[] }; res: void }
   /** 편집 모드 일괄 작업 (선택 씬 대상) */
@@ -497,10 +500,10 @@ export interface IpcInvokeMap {
   /** 씬의 즐겨찾기 제외 전체 삭제 (파일 포함) */
   'scenes:deleteNonFavorites': { req: { sceneId: number }; res: { deleted: number } }
   'images:setFavorite': { req: { id: number; favorite: boolean }; res: void }
-  /** 이미지 삭제 — deleteFile=true면 파일까지(씬 상세), 아니면 기록만(히스토리, 파일 보존) */
-  'images:delete': { req: { id: number; deleteFile?: boolean }; res: void }
-  /** 히스토리 전체 비우기 (레코드+파일, 씬 이미지 포함) */
-  'images:clearAll': { req: void; res: { count: number } }
+  /** 이미지 삭제 — 호출자가 파일 삭제 여부를 반드시 명시한다. */
+  'images:delete': { req: { id: number; deleteFile: boolean }; res: void }
+  /** 히스토리 전체 비우기 — 호출자가 파일 삭제 여부를 반드시 명시한다. */
+  'images:clearAll': { req: { deleteFiles: boolean }; res: { count: number } }
   /** 씬 이미지 폴더 열기 (NAIS3_scene/<프리셋>/<씬>) */
   'scenes:openFolder': { req: { sceneId: number }; res: { ok: boolean } }
   /** 씬 JSON 내보내기/불러오기 (파일 다이얼로그, 활성 프리셋 기준) */

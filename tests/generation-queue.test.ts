@@ -198,4 +198,41 @@ describe('GenerationQueue', () => {
     expect(generationOrder).toEqual(ids)
     expect(queue.status().items.map((item) => item.filePath)).toEqual(ids.map((id) => `${id}.png`))
   })
+
+  it('cancels pending and generating items for deleted scenes only', async () => {
+    const active = deferred<string>()
+    let activeSignal: AbortSignal | undefined
+    const queue = new GenerationQueue((_request, _id, signal) => {
+      activeSignal = signal
+      return active.promise
+    })
+    const [generating, pendingSameScene, untouched] = queue.enqueueMany([
+      request({ sceneId: 7 }),
+      request({ sceneId: 7 }),
+      request({ sceneId: 8 })
+    ])
+    await vi.waitFor(() => expect(activeSignal).toBeDefined())
+
+    queue.cancelScenes([7])
+
+    expect(activeSignal?.aborted).toBe(true)
+    expect(queue.status().items.find((item) => item.id === pendingSameScene)?.state).toBe(
+      'cancelled'
+    )
+    expect(queue.status().items.find((item) => item.id === untouched)?.state).toBe('pending')
+    expect(queue.status().items.find((item) => item.id === generating)?.state).toBe('generating')
+  })
+
+  it('bounds retained terminal items while preserving cumulative counts', async () => {
+    const queue = new GenerationQueue(async (_request, id) => `${id}.png`)
+    queue.setDelayMs(0)
+    queue.enqueueMany(Array.from({ length: 600 }, (_, seed) => request({ seed })))
+
+    await vi.waitFor(() => expect(queue.status().counts.done).toBe(600), { timeout: 10_000 })
+
+    const status = queue.status()
+    expect(status.items).toHaveLength(500)
+    expect(status.items.every((item) => item.state === 'done')).toBe(true)
+    expect(status.counts).toMatchObject({ done: 600, pending: 0, generating: 0 })
+  })
 })

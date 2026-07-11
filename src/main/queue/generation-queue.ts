@@ -10,11 +10,13 @@ import type { GenerationRequest, QueueItem, QueueStatus } from '../../shared/typ
  * - 씬 모드에서 생성 지연시간 미적용 → 지연은 큐 루프 한 곳에서만 적용
  */
 export class GenerationQueue extends EventEmitter {
+  private static readonly MAX_TERMINAL_ITEMS = 500
   private items = new Map<string, QueueItem>()
   private controllers = new Map<string, AbortController>()
   private running = false
   private delayMs = 600
   private resetVersion = 0
+  private terminalCounts = { done: 0, failed: 0, cancelled: 0 }
 
   constructor(
     private readonly generate: (
@@ -61,13 +63,24 @@ export class GenerationQueue extends EventEmitter {
     for (const id of ids) {
       const item = this.items.get(id)
       if (item && item.state === 'pending') {
-        item.state = 'cancelled'
+        this.markTerminal(item, 'cancelled')
         this.releaseHeavyFields(item)
       } else if (item && item.state === 'generating') {
         this.controllers.get(id)?.abort()
       }
     }
+    this.pruneTerminalItems()
     this.emitChanged()
+  }
+
+  /** 삭제되는 씬에 연결된 pending/generating 항목을 한 번에 취소한다. */
+  cancelScenes(sceneIds: number[]): void {
+    if (sceneIds.length === 0) return
+    const targets = new Set(sceneIds)
+    const ids = [...this.items.values()]
+      .filter((item) => item.request.sceneId !== undefined && targets.has(item.request.sceneId))
+      .map((item) => item.id)
+    this.cancel(ids)
   }
 
   reset(): void {
@@ -80,6 +93,7 @@ export class GenerationQueue extends EventEmitter {
     }
     this.controllers.clear()
     this.items.clear()
+    this.terminalCounts = { done: 0, failed: 0, cancelled: 0 }
     this.emitChanged()
   }
 
@@ -88,10 +102,17 @@ export class GenerationQueue extends EventEmitter {
   }
 
   status(): QueueStatus {
+    let pending = 0
+    let generating = 0
+    for (const item of this.items.values()) {
+      if (item.state === 'pending') pending++
+      else if (item.state === 'generating') generating++
+    }
     return {
       items: [...this.items.values()].map((item) => this.toStatusItem(item)),
       running: this.running,
-      delayMs: this.delayMs
+      delayMs: this.delayMs,
+      counts: { pending, generating, ...this.terminalCounts }
     }
   }
 
@@ -110,20 +131,21 @@ export class GenerationQueue extends EventEmitter {
           const filePath = await this.generate(next.request, next.id, controller.signal)
           if (version !== this.resetVersion || !this.items.has(next.id)) break
           next.filePath = filePath
-          next.state = 'done'
+          this.markTerminal(next, 'done')
         } catch (e) {
           if (version !== this.resetVersion || !this.items.has(next.id)) break
           if (controller.signal.aborted || isAbortError(e)) {
-            next.state = 'cancelled'
+            this.markTerminal(next, 'cancelled')
           } else {
-            next.state = 'failed'
             next.error = e instanceof Error ? e.message : String(e)
+            this.markTerminal(next, 'failed')
           }
         } finally {
           this.controllers.delete(next.id)
         }
         if (version !== this.resetVersion || !this.items.has(next.id)) break
         this.releaseHeavyFields(next)
+        this.pruneTerminalItems()
         this.emitChanged()
         if (version === this.resetVersion && this.nextPending()) {
           await sleep(this.delayMs)
@@ -158,6 +180,26 @@ export class GenerationQueue extends EventEmitter {
   private releaseHeavyFields(item: QueueItem): void {
     delete item.request.source
     delete item.request.extraCharRefs
+  }
+
+  private markTerminal(item: QueueItem, state: 'done' | 'failed' | 'cancelled'): void {
+    if (item.state === 'done' || item.state === 'failed' || item.state === 'cancelled') return
+    item.state = state
+    this.terminalCounts[state]++
+  }
+
+  private pruneTerminalItems(): void {
+    let terminal = 0
+    for (const item of this.items.values()) {
+      if (item.state === 'done' || item.state === 'failed' || item.state === 'cancelled') terminal++
+    }
+    let remove = terminal - GenerationQueue.MAX_TERMINAL_ITEMS
+    if (remove <= 0) return
+    for (const [id, item] of this.items) {
+      if (item.state !== 'done' && item.state !== 'failed' && item.state !== 'cancelled') continue
+      this.items.delete(id)
+      if (--remove === 0) break
+    }
   }
 }
 

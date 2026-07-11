@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HistoryItem } from '@shared/types'
 import { cn } from '../lib/utils'
 import { useGenerationStore } from '../stores/generation-store'
+import { useStorageSettingsStore } from '../stores/storage-settings-store'
+import { askConfirm } from '../stores/dialog-store'
 import { ImageContextMenu } from './image-context-menu'
 import { Lightbox } from './lightbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -27,11 +29,17 @@ export function LibraryView(): React.JSX.Element {
 
   // 새 이미지가 생성되면(historyTotal 변화) 첫 화면을 다시 불러와 최신본을 위에 반영
   const historyTotal = useGenerationStore((s) => s.historyTotal)
+  const historyDeleteFile = useStorageSettingsStore((s) => s.historyDeleteFile)
+  const loadStorageSettings = useStorageSettingsStore((s) => s.load)
 
   const itemsRef = useRef<HistoryItem[]>([])
-  itemsRef.current = items
   const loadingRef = useRef(false)
+  const reloadSeq = useRef(0)
   const sentinelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
 
   const setColsPersist = (n: number): void => {
     setCols(n)
@@ -47,28 +55,44 @@ export function LibraryView(): React.JSX.Element {
     if (loadingRef.current) return
     loadingRef.current = true
     setLoading(true)
-    const offset = itemsRef.current.length
-    const res = await window.nais.invoke('images:list', { limit: PAGE, offset })
-    setTotal(res.total)
-    setItems((prev) => {
-      const seen = new Set(prev.map((i) => i.id))
-      return [...prev, ...res.items.filter((i) => !seen.has(i.id))]
-    })
-    loadingRef.current = false
-    setLoading(false)
+    try {
+      const offset = itemsRef.current.length
+      const res = await window.nais.invoke('images:list', { limit: PAGE, offset })
+      setTotal(res.total)
+      setItems((prev) => {
+        const seen = new Set(prev.map((i) => i.id))
+        return [...prev, ...res.items.filter((i) => !seen.has(i.id))]
+      })
+    } finally {
+      loadingRef.current = false
+      setLoading(false)
+    }
   }, [])
 
-  // 첫 페이지(또는 현재까지 로드한 범위)를 다시 로드 — 최신 이미지가 위에 오도록
+  // 첫 페이지만 갱신해 새 이미지를 prepend — 이미 로드한 수천 장을 매번 재요청하지 않는다.
   const reload = useCallback(async (): Promise<void> => {
-    const limit = Math.max(PAGE, itemsRef.current.length)
-    const res = await window.nais.invoke('images:list', { limit, offset: 0 })
+    const seq = ++reloadSeq.current
+    const res = await window.nais.invoke('images:list', { limit: PAGE, offset: 0 })
+    if (seq !== reloadSeq.current) return
     setTotal(res.total)
-    setItems(res.items)
+    setItems((previous) => {
+      if (previous.length === 0) return res.items
+      if (res.total < previous.length) return res.items
+      const latest = new Set(res.items.map((item) => item.id))
+      return [...res.items, ...previous.filter((item) => !latest.has(item.id))].slice(
+        0,
+        Math.max(PAGE, previous.length)
+      )
+    })
   }, [])
 
   useEffect(() => {
     void reload()
   }, [historyTotal, reload])
+
+  useEffect(() => {
+    void loadStorageSettings()
+  }, [loadStorageSettings])
 
   // 바닥 근처 도달 시 다음 페이지
   useEffect(() => {
@@ -87,7 +111,15 @@ export function LibraryView(): React.JSX.Element {
   }, [total, loadMore])
 
   const onDelete = async (id: number): Promise<void> => {
-    await window.nais.invoke('images:delete', { id })
+    if (historyDeleteFile) {
+      const ok = await askConfirm('파일까지 영구 삭제', {
+        message: '라이브러리 기록과 저장된 이미지 파일을 함께 삭제합니다.',
+        confirmLabel: '영구 삭제',
+        danger: true
+      })
+      if (!ok) return
+    }
+    await window.nais.invoke('images:delete', { id, deleteFile: historyDeleteFile })
     setItems((prev) => prev.filter((i) => i.id !== id))
     setTotal((t) => Math.max(0, t - 1))
     void useGenerationStore.getState().refreshHistory()
@@ -153,6 +185,7 @@ export function LibraryView(): React.JSX.Element {
                 key={item.id}
                 filePath={item.filePath}
                 onDelete={() => void onDelete(item.id)}
+                deleteLabel={historyDeleteFile ? '파일까지 영구 삭제' : '기록에서 제거'}
               >
                 <button
                   className="mb-2 block w-full overflow-hidden rounded-lg border border-line bg-paper transition-all [break-inside:avoid] hover:ring-2 hover:ring-accent/60"
@@ -183,6 +216,7 @@ export function LibraryView(): React.JSX.Element {
                 key={item.id}
                 filePath={item.filePath}
                 onDelete={() => void onDelete(item.id)}
+                deleteLabel={historyDeleteFile ? '파일까지 영구 삭제' : '기록에서 제거'}
               >
                 <button
                   className="relative aspect-square overflow-hidden rounded-lg border border-line bg-paper transition-all hover:ring-2 hover:ring-accent/60"

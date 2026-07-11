@@ -308,10 +308,11 @@ function StorageSection(): React.JSX.Element {
   const [autoSave, setAutoSave] = useState(true)
   const [format, setFormat] = useState('png')
   const [dateFolders, setDateFolders] = useState(true)
-  const [historyDeleteFile, setHistoryDeleteFile] = useState(false)
   const stripExif = useStorageSettingsStore((s) => s.stripExif)
+  const historyDeleteFile = useStorageSettingsStore((s) => s.historyDeleteFile)
   const loadStorageSettings = useStorageSettingsStore((s) => s.load)
   const setStripExif = useStorageSettingsStore((s) => s.setStripExif)
+  const setHistoryDeleteFile = useStorageSettingsStore((s) => s.setHistoryDeleteFile)
 
   useEffect(() => {
     void loadStorageSettings()
@@ -324,9 +325,6 @@ function StorageSection(): React.JSX.Element {
     void window.nais
       .invoke('settings:get', { key: 'date_folders' })
       .then(({ value }) => setDateFolders(value !== '0'))
-    void window.nais
-      .invoke('settings:get', { key: 'history_delete_file' })
-      .then(({ value }) => setHistoryDeleteFile(value === '1'))
   }, [loadStorageSettings])
 
   return (
@@ -357,11 +355,7 @@ function StorageSection(): React.JSX.Element {
           <Switch
             checked={historyDeleteFile}
             onCheckedChange={(v) => {
-              setHistoryDeleteFile(v)
-              void window.nais.invoke('settings:set', {
-                key: 'history_delete_file',
-                value: v ? '1' : '0'
-              })
+              void setHistoryDeleteFile(v)
             }}
           />
         </Row>

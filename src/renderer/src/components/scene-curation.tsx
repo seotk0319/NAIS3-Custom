@@ -236,12 +236,10 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
       toast('삭제할 이미지가 없습니다', 'info')
       return true
     }
-    for (const t of targets) {
-      await window.nais.invoke('images:delete', { id: t.id, deleteFile: true })
-    }
+    const { deleted } = await window.nais.invoke('scenes:deleteNonFavorites', { sceneId })
     await reload(sceneId, true)
     void useScenesStore.getState().load()
-    toast(`${targets.length}장 삭제됨 (선별 ${favorites.length}장 유지)`, 'success')
+    toast(`${deleted}장 삭제됨 (선별 ${favorites.length}장 유지)`, 'success')
     return true
   }
 

@@ -13,19 +13,14 @@ import { removeComments } from '../shared/nai-presets'
 import { fragmentSource } from './fragments/repo'
 import { isUnderImagesRoot, saveGeneratedImage } from './images/storage'
 import { broadcast, registerIpcHandlers } from './ipc'
-import { setupUpdater } from './updater'
 import { logBalance } from './nai/anlas-log'
 import { fetchAnlasBalance, generateImageStream, generateImageZip } from './nai/client'
+import { snapNaiResolution } from './nai/resolution'
 import { prepareCharRefs, prepareExtraCharRefs, prepareVibes } from './refs/prepare'
-import {
-  APP_TITLE,
-  APP_USER_MODEL_ID,
-  PROFILE,
-  SHOULD_INVERT_ICON,
-  initProfilePaths
-} from './profile'
+import { APP_TITLE, APP_USER_MODEL_ID, SHOULD_INVERT_ICON, initProfilePaths } from './profile'
 import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
+import { isAllowedExternalUrl } from './ipc-validation'
 
 // Custom 프로필이면 userData를 먼저 분리 (단일 인스턴스 잠금·DB보다 앞서야 함)
 initProfilePaths()
@@ -70,7 +65,7 @@ function createWindow(): void {
     ...(process.platform !== 'darwin' ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       // 최소화 중에도 큐/진행 이벤트를 즉시 소비해 복원 시 업데이트가 한꺼번에 몰리지 않게 한다.
       backgroundThrottling: false
     }
@@ -81,8 +76,13 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedExternalUrl(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const current = mainWindow.webContents.getURL()
+    if (url !== current) event.preventDefault()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -233,6 +233,7 @@ app.whenReady().then(() => {
       format: imageFormat,
       sceneName: scene?.name,
       scenePresetName: scene ? (getPresetName(scene.presetId) ?? undefined) : undefined,
+      scenePresetId: scene?.presetId,
       localMetadata: request.promptParts
         ? {
             promptParts: {
@@ -272,8 +273,6 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) app.dock.setIcon(appIcon)
 
   createWindow()
-  if (PROFILE === 0) setupUpdater() // 커스텀 프로필은 원본 릴리스 자동 업데이트를 사용하지 않음
-
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -294,20 +293,6 @@ app.on('quit', () => {
  * 원본(소스 이미지) 해상도로 순수 이진화(흰=재생성). 서버가 이 마스크로 깨끗이 합성한다.
  * 클라이언트 합성/erode/blur 불필요 — 오히려 경계 심을 만든다.
  */
-/** 소스 해상도를 유효 NAI 해상도로 스냅 — 64 배수, 픽셀 상한 내에서 비율 최대한 보존 */
-function snapNaiResolution(w: number, h: number): { width: number; height: number } {
-  const MAX_PIXELS = 1216 * 1216 // 안전 상한 — 넘으면 비율 유지 축소
-  let ww = w
-  let hh = h
-  if (ww * hh > MAX_PIXELS) {
-    const s = Math.sqrt(MAX_PIXELS / (ww * hh))
-    ww *= s
-    hh *= s
-  }
-  const snap = (n: number): number => Math.max(64, Math.round(n / 64) * 64)
-  return { width: snap(ww), height: snap(hh) }
-}
-
 async function normalizeInpaintMask(
   maskBase64: string,
   width: number,

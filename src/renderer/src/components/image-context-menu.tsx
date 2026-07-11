@@ -1,4 +1,13 @@
-import { Copy, Download, FileText, FolderOpen, ImageIcon, Layers, Trash2, Wand2 } from 'lucide-react'
+import {
+  Copy,
+  Download,
+  FileText,
+  FolderOpen,
+  ImageIcon,
+  Layers,
+  Trash2,
+  Wand2
+} from 'lucide-react'
 import { toast } from '../stores/toast-store'
 import { openInDirector } from '../stores/director-store'
 import { setI2iSource, useGenerationStore } from '../stores/generation-store'
@@ -18,11 +27,13 @@ import {
 export function ImageContextMenu({
   filePath,
   onDelete,
+  deleteLabel = '삭제',
   children
 }: {
   filePath: string
   /** 지정 시 메뉴에 '삭제' 표시 — 호스트가 삭제+목록 갱신을 처리 */
   onDelete?: () => void
+  deleteLabel?: string
   children: React.ReactNode
 }): React.JSX.Element {
   const startInpaint = useGenerationStore((s) => s.startInpaintFromPath)
@@ -64,7 +75,7 @@ export function ImageContextMenu({
           <>
             <ContextMenuSeparator />
             <ContextMenuItem danger onSelect={onDelete}>
-              <Trash2 size={13} /> 삭제
+              <Trash2 size={13} /> {deleteLabel}
             </ContextMenuItem>
           </>
         )}

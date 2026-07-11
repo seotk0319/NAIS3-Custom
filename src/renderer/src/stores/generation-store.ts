@@ -373,11 +373,11 @@ export function bindGenerationEvents(): () => void {
     const prevActive =
       prev?.items.some((i) => i.state === 'pending' || i.state === 'generating') ?? false
     if (!prevActive && stillActive) {
-      batchBaseDone = queue.items.filter((i) => i.state === 'done').length
-      batchBaseFailed = queue.items.filter((i) => i.state === 'failed').length
+      batchBaseDone = queue.counts.done
+      batchBaseFailed = queue.counts.failed
     } else if (prevActive && !stillActive) {
-      const done = queue.items.filter((i) => i.state === 'done').length - batchBaseDone
-      const failed = queue.items.filter((i) => i.state === 'failed').length - batchBaseFailed
+      const done = queue.counts.done - batchBaseDone
+      const failed = queue.counts.failed - batchBaseFailed
       if (done + failed > 0) void queueDoneAlert(done, failed)
     }
   })

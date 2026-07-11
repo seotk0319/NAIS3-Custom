@@ -2,6 +2,7 @@ import {
   ChevronRight,
   Droplets,
   Eraser,
+  Grid3x3,
   ImageIcon,
   Layers,
   Loader2,
@@ -18,7 +19,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { directorToolCost } from '@shared/anlas'
+import { directorAugmentCost, directorToolCost } from '@shared/anlas'
 import { EMOTIONS, type DirectorMethod } from '@shared/types'
 import { openInDirector, useDirectorStore } from '../stores/director-store'
 import { useGenerationStore } from '../stores/generation-store'
@@ -26,6 +27,7 @@ import { useLayoutStore } from '../stores/layout-store'
 import { cn } from '../lib/utils'
 import { isLeavingDropZone, useDragEndCleanup } from '../lib/drop-zone'
 import { DropOverlay } from './drop-overlay'
+import { MosaicEditor } from './mosaic-editor'
 import { StyleRestoreCard } from './style-restore-card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -61,8 +63,13 @@ export function DirectorMode(): React.JSX.Element {
   const loading = useDirectorStore((s) => s.loading)
   const error = useDirectorStore((s) => s.error)
   const setSource = useDirectorStore((s) => s.setSource)
+  const applyLocal = useDirectorStore((s) => s.applyLocal)
   const undo = useDirectorStore((s) => s.undo)
   const clear = useDirectorStore((s) => s.clear)
+  // 모자이크 편집기 — 열 때의 이미지·해상도 고정 (편집 중 스택 변화와 무관)
+  const [mosaic, setMosaic] = useState<{ base64: string; width: number; height: number } | null>(
+    null
+  )
 
   const source = stack.length > 0 ? stack[stack.length - 1] : null
   const isResult = stack.length > 1 // 툴이 한 번 이상 적용된 상태
@@ -70,17 +77,27 @@ export function DirectorMode(): React.JSX.Element {
   const [dragOver, setDragOver] = useState(false)
   useDragEndCleanup(() => setDragOver(false))
 
-  // 예상 Anlas — 현재 이미지 해상도의 픽셀 버킷 요금 (Opus는 409600px 이하 무료)
+  // 예상 Anlas — 업스케일과 augment-image 디렉터 툴은 서로 다른 공식 계산식을 쓴다.
   const tier = useGenerationStore((s) => s.subscriptionTier)
-  const [toolCost, setToolCost] = useState<number | null>(null)
+  const [toolCosts, setToolCosts] = useState<{
+    upscale: number
+    backgroundRemoval: number
+    standardAugment: number
+  } | null>(null)
   useEffect(() => {
     if (!source) {
-      setToolCost(null)
+      setToolCosts(null)
       return
     }
     let alive = true
     void imageDims(source).then(({ width, height }) => {
-      if (alive) setToolCost(directorToolCost(width, height, tier === 'opus'))
+      if (!alive) return
+      const isOpus = tier === 'opus'
+      setToolCosts({
+        upscale: directorToolCost(width, height, isOpus),
+        backgroundRemoval: directorAugmentCost('bg-removal', width, height, isOpus),
+        standardAugment: directorAugmentCost('lineart', width, height, isOpus)
+      })
     })
     return () => {
       alive = false
@@ -251,14 +268,49 @@ export function DirectorMode(): React.JSX.Element {
             onRun={() => sendToMain('inpaint')}
           />
           <div className="!my-3 h-px bg-line" />
-          <UpscaleCard disabled={!source || loading} cost={toolCost} />
+          <UpscaleCard disabled={!source || loading} cost={toolCosts?.upscale ?? null} />
           {TOOLS.map((tool) => (
-            <ToolCard key={tool.method} tool={tool} disabled={!source || loading} cost={toolCost} />
+            <ToolCard
+              key={tool.method}
+              tool={tool}
+              disabled={!source || loading}
+              cost={
+                tool.method === 'bg-removal'
+                  ? (toolCosts?.backgroundRemoval ?? null)
+                  : (toolCosts?.standardAugment ?? null)
+              }
+            />
           ))}
+          <div className="!my-3 h-px bg-line" />
+          {/* 로컬 툴 — API/Anlas 안 씀 */}
+          <SendToMainCard
+            icon={Grid3x3}
+            color="text-orange-400"
+            label="모자이크"
+            desc="브러시로 칠해 픽셀화 (로컬·무료)"
+            disabled={!source || loading}
+            onRun={() => {
+              if (!source) return
+              void imageDims(source).then((dims) => setMosaic({ base64: source, ...dims }))
+            }}
+          />
           <div className="!my-3 h-px bg-line" />
           <StyleRestoreCard />
         </div>
       </div>
+
+      {mosaic && (
+        <MosaicEditor
+          imageBase64={mosaic.base64}
+          width={mosaic.width}
+          height={mosaic.height}
+          onConfirm={(b64) => {
+            setMosaic(null)
+            void applyLocal(b64, 'mosaic')
+          }}
+          onCancel={() => setMosaic(null)}
+        />
+      )}
     </div>
   )
 }

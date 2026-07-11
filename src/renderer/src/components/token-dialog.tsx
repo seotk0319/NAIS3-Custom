@@ -16,9 +16,11 @@ import {
 import { useEffect, useState } from 'react'
 import discordSvg from '../assets/discord.svg'
 import nais3Logo from '../assets/nais3-logo.svg'
+import { playChime } from '../lib/completion-alert'
 import { cn } from '../lib/utils'
 import { THEME_PRESETS } from '../lib/theme-presets'
 import { useGenerationStore } from '../stores/generation-store'
+import { useLayoutStore, type CenterMode } from '../stores/layout-store'
 import { useThemeStore } from '../stores/theme-store'
 import { useStorageSettingsStore } from '../stores/storage-settings-store'
 import { useCharactersStore } from '../stores/characters-store'
@@ -133,6 +135,41 @@ function AppearanceSection(): React.JSX.Element {
           onValueChange={([v]) => setPromptSize(v)}
         />
       </Row>
+      <Row label="표시할 탭" hint="끈 탭은 상단에서 숨김 (메인은 항상 표시)">
+        <PageToggles />
+      </Row>
+    </div>
+  )
+}
+
+const TOGGLABLE_PAGES: { id: CenterMode; label: string }[] = [
+  { id: 'scene', label: '씬' },
+  { id: 'director', label: '디렉터' },
+  { id: 'library', label: '라이브러리' }
+]
+
+function PageToggles(): React.JSX.Element {
+  const hiddenPages = useLayoutStore((s) => s.hiddenPages)
+  const setPageHidden = useLayoutStore((s) => s.setPageHidden)
+  return (
+    <div className="flex gap-1">
+      {TOGGLABLE_PAGES.map((p) => {
+        const on = !hiddenPages.includes(p.id)
+        return (
+          <button
+            key={p.id}
+            onClick={() => setPageHidden(p.id, on)}
+            className={cn(
+              'rounded-full border px-2.5 py-1 text-[12px] transition-colors',
+              on
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-line text-faint hover:text-ink'
+            )}
+          >
+            {p.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -140,6 +177,8 @@ function AppearanceSection(): React.JSX.Element {
 function GenerationSection(): React.JSX.Element {
   const [streaming, setStreaming] = useState(true)
   const [delay, setDelay] = useState(600)
+  const [alertSound, setAlertSound] = useState(false)
+  const [alertNative, setAlertNative] = useState(false)
   const promptSplitEnabled = useGenerationStore((s) => s.promptSplitEnabled)
   const setPromptSplitEnabled = useGenerationStore((s) => s.setPromptSplitEnabled)
 
@@ -149,6 +188,12 @@ function GenerationSection(): React.JSX.Element {
     })
     void window.nais.invoke('settings:get', { key: 'gen_delay_ms' }).then(({ value }) => {
       if (value != null && value !== '') setDelay(Number(value))
+    })
+    void window.nais.invoke('settings:get', { key: 'alert_sound' }).then(({ value }) => {
+      setAlertSound(value === '1')
+    })
+    void window.nais.invoke('settings:get', { key: 'alert_native' }).then(({ value }) => {
+      setAlertNative(value === '1')
     })
   }, [])
 
@@ -175,6 +220,25 @@ function GenerationSection(): React.JSX.Element {
           value={[delay]}
           onValueChange={([v]) => setDelay(v)}
           onValueCommit={([v]) => void window.nais.invoke('gen:setDelay', { ms: v })}
+        />
+      </Row>
+      <Row label="완료 알림음" hint="큐가 다 끝나면 알림음 재생">
+        <Switch
+          checked={alertSound}
+          onCheckedChange={(v) => {
+            setAlertSound(v)
+            void window.nais.invoke('settings:set', { key: 'alert_sound', value: v ? '1' : '0' })
+            if (v) playChime() // 미리 듣기
+          }}
+        />
+      </Row>
+      <Row label="완료 알림 (시스템)" hint="다른 창을 보고 있을 때 macOS/Windows 알림 표시">
+        <Switch
+          checked={alertNative}
+          onCheckedChange={(v) => {
+            setAlertNative(v)
+            void window.nais.invoke('settings:set', { key: 'alert_native', value: v ? '1' : '0' })
+          }}
         />
       </Row>
     </div>
@@ -244,6 +308,7 @@ function StorageSection(): React.JSX.Element {
   const [autoSave, setAutoSave] = useState(true)
   const [format, setFormat] = useState('png')
   const [dateFolders, setDateFolders] = useState(true)
+  const [historyDeleteFile, setHistoryDeleteFile] = useState(false)
   const stripExif = useStorageSettingsStore((s) => s.stripExif)
   const loadStorageSettings = useStorageSettingsStore((s) => s.load)
   const setStripExif = useStorageSettingsStore((s) => s.setStripExif)
@@ -259,6 +324,9 @@ function StorageSection(): React.JSX.Element {
     void window.nais
       .invoke('settings:get', { key: 'date_folders' })
       .then(({ value }) => setDateFolders(value !== '0'))
+    void window.nais
+      .invoke('settings:get', { key: 'history_delete_file' })
+      .then(({ value }) => setHistoryDeleteFile(value === '1'))
   }, [loadStorageSettings])
 
   return (
@@ -284,6 +352,18 @@ function StorageSection(): React.JSX.Element {
         </Row>
         <Row label="EXIF 자동 제거" hint="저장 이미지의 프롬프트·EXIF/XMP 메타데이터 제거">
           <Switch checked={stripExif} onCheckedChange={(value) => void setStripExif(value)} />
+        </Row>
+        <Row label="히스토리 삭제 시 파일도 삭제" hint="끄면 기록만 지우고 저장된 파일은 보존">
+          <Switch
+            checked={historyDeleteFile}
+            onCheckedChange={(v) => {
+              setHistoryDeleteFile(v)
+              void window.nais.invoke('settings:set', {
+                key: 'history_delete_file',
+                value: v ? '1' : '0'
+              })
+            }}
+          />
         </Row>
         <Row label="이미지 포맷" hint="WEBP는 용량이 더 작음">
           <Select

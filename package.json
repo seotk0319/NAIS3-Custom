@@ -1,11 +1,15 @@
 {
   "name": "nais3-custom",
-  "version": "1.0.7",
+  "version": "1.0.12",
   "description": "NAIS3 Custom - NovelAI Image Studio 3 (커스텀 개조판)",
   "main": "./out/main/index.js",
   "author": "sunanakgo",
   "license": "GPL-3.0",
-  "homepage": "https://github.com/sunanakgo/NAIS3",
+  "homepage": "https://github.com/seotk0319/NAIS3-Custom",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seotk0319/NAIS3-Custom.git"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",

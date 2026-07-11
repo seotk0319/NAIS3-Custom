@@ -2,6 +2,10 @@ appId: com.sunanakgo.nais3custom
 productName: NAIS3 Custom
 directories:
   buildResources: build
+publish:
+  provider: github
+  owner: seotk0319
+  repo: NAIS3-Custom
 files:
   - '!**/.vscode/*'
   - '!src/*'

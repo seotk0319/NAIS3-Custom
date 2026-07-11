@@ -294,6 +294,8 @@ export interface Scene {
   thumbnailPath: string
   /** 이 씬으로 생성된 이미지 수 */
   imageCount: number
+  /** 즐겨찾기 이미지 보유 여부 — 카드 썸네일 고정(즐겨찾기 우선) 판정용 */
+  hasFavorite: boolean
 }
 
 /** 씬 상세의 생성 이미지 (페이지네이션 단위) */
@@ -500,8 +502,8 @@ export interface IpcInvokeMap {
     req: { presetId: number }
     res: { count: number; presetId: number; presetName: string | null }
   }
-  /** 즐겨찾기 이미지 또는 각 씬 최상단 이미지를 ZIP으로 (파일 다이얼로그) */
-  'scenes:exportZip': { req: { mode: 'favorites' | 'sceneTop' }; res: { count: number } }
+  /** 활성 프리셋의 씬들을 ZIP으로 — 씬별 즐겨찾기 전부, 없으면 최상단 1장 (파일 다이얼로그) */
+  'scenes:exportZip': { req: { presetId: number }; res: { count: number } }
   'vibes:list': { req: void; res: { folders: ListFolder[]; items: VibeItem[] } }
   /** 파일 다이얼로그(다중)로 추가 */
   'vibes:add': { req: { folderId: number | null }; res: { count: number } }

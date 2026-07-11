@@ -1,10 +1,17 @@
 import { BrowserWindow, dialog } from 'electron'
 import { readFileSync, unlinkSync, writeFileSync } from 'fs'
-import { basename, extname, isAbsolute, relative } from 'path'
+import { isAbsolute, relative } from 'path'
 import JSZip from 'jszip'
 import type { Scene, SceneImage, ScenePreset } from '../../shared/types'
 import { getDb } from '../db'
 import { libraryRoot } from '../images/storage'
+import {
+  planSceneZipEntries,
+  sanitizeZipName,
+  uniqueZipName,
+  type SceneZipSource,
+  type ZipEntry
+} from './zip-plan'
 
 interface Row {
   id: number
@@ -18,7 +25,12 @@ interface Row {
 }
 
 function toScene(
-  r: Row & { image_count: number; thumb?: Buffer | null; thumb_path?: string | null }
+  r: Row & {
+    image_count: number
+    thumb?: Buffer | null
+    thumb_path?: string | null
+    has_favorite?: number
+  }
 ): Scene {
   return {
     id: r.id,
@@ -31,7 +43,8 @@ function toScene(
     reserveCount: r.reserve_count,
     thumbnail: r.thumb ? r.thumb.toString('base64') : '',
     thumbnailPath: r.thumb_path ?? '',
-    imageCount: r.image_count
+    imageCount: r.image_count,
+    hasFavorite: r.has_favorite === 1
   }
 }
 
@@ -89,15 +102,22 @@ export function deletePreset(id: number): void {
 // ── 씬 ──────────────────────────────────────────────────
 /** 프리셋별 목록 (썸네일은 씬당 1장만 조인 — 수만 장이어도 가벼움) */
 export function listScenes(presetId: number): Scene[] {
+  // 카드 썸네일: 즐겨찾기가 있으면 최상단(최신) 즐겨찾기, 없으면 최신 이미지 (NAIS2 방식)
   const rows = getDb()
     .prepare(
       `SELECT s.id, s.preset_id, s.name, s.prompt, s.negative_prompt, s.width, s.height, s.reserve_count,
               (SELECT COUNT(*) FROM images WHERE scene_id = s.id) AS image_count,
-              (SELECT thumbnail FROM images WHERE scene_id = s.id ORDER BY id DESC LIMIT 1) AS thumb,
-              (SELECT file_path FROM images WHERE scene_id = s.id ORDER BY id DESC LIMIT 1) AS thumb_path
+              (SELECT thumbnail FROM images WHERE scene_id = s.id ORDER BY favorite DESC, id DESC LIMIT 1) AS thumb,
+              (SELECT file_path FROM images WHERE scene_id = s.id ORDER BY favorite DESC, id DESC LIMIT 1) AS thumb_path,
+              EXISTS(SELECT 1 FROM images WHERE scene_id = s.id AND favorite = 1) AS has_favorite
        FROM gen_scenes s WHERE s.preset_id = ? ORDER BY s.sort_order, s.id`
     )
-    .all(presetId) as (Row & { image_count: number; thumb: Buffer | null; thumb_path: string | null })[]
+    .all(presetId) as (Row & {
+    image_count: number
+    thumb: Buffer | null
+    thumb_path: string | null
+    has_favorite: number
+  })[]
   return rows.map(toScene)
 }
 
@@ -465,10 +485,8 @@ export async function importScenesJson(
   return { count: scenes.length, presetId: targetPresetId, presetName }
 }
 
-type ZipRow = { file_path: string; scene_name: string | null }
-
-async function zipFiles(rows: ZipRow[], defaultName: string): Promise<number> {
-  if (rows.length === 0) return 0
+async function zipFiles(entries: ZipEntry[], defaultName: string): Promise<number> {
+  if (entries.length === 0) return 0
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   const result = await dialog.showSaveDialog(win, {
     title: 'ZIP 내보내기',
@@ -478,22 +496,10 @@ async function zipFiles(rows: ZipRow[], defaultName: string): Promise<number> {
   if (result.canceled || !result.filePath) return 0
   const zip = new JSZip()
   const used = new Set<string>()
-  const counters = new Map<string, number>() // 씬별 연번
-  for (const r of rows) {
+  for (const e of entries) {
     try {
-      // 씬 이미지는 씬 이름_N 으로 (NAIS2 방식), 씬 없는 이미지는 원본 파일명
-      let name: string
-      if (r.scene_name) {
-        const safe = r.scene_name.replace(/[/\\:*?"<>|]/g, '_').trim() || '씬'
-        const n = (counters.get(safe) ?? 0) + 1
-        counters.set(safe, n)
-        name = `${safe}_${n}${extname(r.file_path) || '.png'}`
-      } else {
-        name = basename(r.file_path)
-      }
-      while (used.has(name)) name = `_${name}`
-      used.add(name)
-      zip.file(name, readFileSync(r.file_path))
+      const data = readFileSync(e.filePath) // 파일이 없으면 이름 확정 전에 건너뜀
+      zip.file(uniqueZipName(e.name, used), data)
     } catch {
       // 파일 없으면 건너뜀
     }
@@ -502,37 +508,43 @@ async function zipFiles(rows: ZipRow[], defaultName: string): Promise<number> {
   return used.size
 }
 
-/** 즐겨찾기 이미지 또는 각 씬 최상단(최신) 이미지를 ZIP으로 */
-export async function exportZip(mode: 'favorites' | 'sceneTop'): Promise<number> {
+/** 씬별 내보내기 원천 수집 — 선정/이름 규칙은 zip-plan(순수)에서 계산 */
+function sceneZipSources(sceneIds: number[]): SceneZipSource[] {
   const db = getDb()
-  const rows =
-    mode === 'favorites'
-      ? (db
-          .prepare(
-            `SELECT i.file_path, s.name AS scene_name FROM images i
-             LEFT JOIN gen_scenes s ON s.id = i.scene_id
-             WHERE i.favorite = 1 ORDER BY i.id DESC`
-          )
-          .all() as ZipRow[])
-      : (db
-          .prepare(
-            `SELECT i.file_path, s.name AS scene_name FROM images i
-             LEFT JOIN gen_scenes s ON s.id = i.scene_id
-             WHERE i.id IN (SELECT MAX(id) FROM images WHERE scene_id IS NOT NULL GROUP BY scene_id)`
-          )
-          .all() as ZipRow[])
-  return zipFiles(rows, mode === 'favorites' ? 'nais3-favorites.zip' : 'nais3-scenes.zip')
+  const sources: SceneZipSource[] = []
+  for (const sceneId of sceneIds) {
+    const scene = db.prepare('SELECT name FROM gen_scenes WHERE id = ?').get(sceneId) as
+      | { name: string }
+      | undefined
+    if (!scene) continue
+    const favoritePaths = (
+      db
+        .prepare(
+          'SELECT file_path FROM images WHERE scene_id = ? AND favorite = 1 ORDER BY id DESC'
+        )
+        .all(sceneId) as { file_path: string }[]
+    ).map((r) => r.file_path)
+    const top = db
+      .prepare('SELECT file_path FROM images WHERE scene_id = ? ORDER BY id DESC LIMIT 1')
+      .get(sceneId) as { file_path: string } | undefined
+    sources.push({ sceneId, name: scene.name, favoritePaths, topPath: top?.file_path ?? null })
+  }
+  return sources
 }
 
-/** 선택한 씬들의 모든 이미지를 ZIP으로 */
+/** 활성 프리셋의 씬들을 ZIP으로 (NAIS2 방식 — 즐겨찾기 전부, 없으면 최상단 1장) */
+export async function exportZip(presetId: number): Promise<number> {
+  const sceneIds = (
+    getDb()
+      .prepare('SELECT id FROM gen_scenes WHERE preset_id = ? ORDER BY sort_order, id')
+      .all(presetId) as { id: number }[]
+  ).map((r) => r.id)
+  const presetName = sanitizeZipName(getPresetName(presetId) ?? '', '씬')
+  return zipFiles(planSceneZipEntries(sceneZipSources(sceneIds)), `${presetName}_${Date.now()}.zip`)
+}
+
+/** 선택한 씬들을 ZIP으로 — 선정/이름 규칙은 전체 내보내기와 동일 */
 export async function bulkExportZip(ids: number[]): Promise<number> {
   if (ids.length === 0) return 0
-  const rows = getDb()
-    .prepare(
-      `SELECT i.file_path, s.name AS scene_name FROM images i
-       LEFT JOIN gen_scenes s ON s.id = i.scene_id
-       WHERE i.scene_id IN (${placeholders(ids.length)}) ORDER BY i.id DESC`
-    )
-    .all(...ids) as ZipRow[]
-  return zipFiles(rows, 'nais3-scenes-selected.zip')
+  return zipFiles(planSceneZipEntries(sceneZipSources(ids)), `scenes_${Date.now()}.zip`)
 }

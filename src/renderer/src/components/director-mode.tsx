@@ -20,10 +20,12 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { directorToolCost } from '@shared/anlas'
 import { EMOTIONS, type DirectorMethod } from '@shared/types'
-import { useDirectorStore } from '../stores/director-store'
+import { openInDirector, useDirectorStore } from '../stores/director-store'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
 import { cn } from '../lib/utils'
+import { isLeavingDropZone, useDragEndCleanup } from '../lib/drop-zone'
+import { DropOverlay } from './drop-overlay'
 import { StyleRestoreCard } from './style-restore-card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -66,6 +68,7 @@ export function DirectorMode(): React.JSX.Element {
   const isResult = stack.length > 1 // 툴이 한 번 이상 적용된 상태
   const fileRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
+  useDragEndCleanup(() => setDragOver(false))
 
   // 예상 Anlas — 현재 이미지 해상도의 픽셀 버킷 요금 (Opus는 409600px 이하 무료)
   const tier = useGenerationStore((s) => s.subscriptionTier)
@@ -116,13 +119,26 @@ export function DirectorMode(): React.JSX.Element {
           dragOver ? 'border-accent' : 'border-line'
         )}
         onDragOver={(e) => {
-          e.preventDefault()
-          if (e.dataTransfer.types.includes('Files')) setDragOver(true)
+          // 외부 파일 또는 히스토리 썸네일(내부 드래그) 둘 다 허용
+          if (
+            e.dataTransfer.types.includes('Files') ||
+            e.dataTransfer.types.includes('nais/file-path')
+          ) {
+            e.preventDefault()
+            setDragOver(true)
+          }
         }}
-        onDragLeave={() => setDragOver(false)}
+        onDragLeave={(e) => {
+          if (isLeavingDropZone(e)) setDragOver(false)
+        }}
         onDrop={(e) => {
           e.preventDefault()
           setDragOver(false)
+          const internalPath = e.dataTransfer.getData('nais/file-path')
+          if (internalPath) {
+            void openInDirector(internalPath)
+            return
+          }
           const file = e.dataTransfer.files?.[0]
           if (file?.type.startsWith('image/')) loadFile(file)
         }}
@@ -183,6 +199,14 @@ export function DirectorMode(): React.JSX.Element {
             <span className="text-[13px]">처리 중…</span>
           </div>
         )}
+
+        {/* 이미지가 이미 있을 때의 드롭 안내 (없을 땐 점선 박스가 하이라이트됨) */}
+        <DropOverlay
+          show={dragOver && !!shown}
+          icon={Wand2}
+          label="여기 놓으면 이 이미지로 교체합니다"
+          sub="디렉터 툴로 새 이미지 열기"
+        />
 
         <input
           ref={fileRef}

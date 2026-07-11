@@ -308,7 +308,7 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('images:clearAll', () => ({ count: clearAllImages() }))
   handle('scenes:exportJson', async ({ presetId }) => ({ saved: await exportScenesJson(presetId) }))
   handle('scenes:importJson', ({ presetId }) => importScenesJson(presetId))
-  handle('scenes:exportZip', async ({ mode }) => ({ count: await exportZip(mode) }))
+  handle('scenes:exportZip', async ({ presetId }) => ({ count: await exportZip(presetId) }))
 
   handle('settings:get', ({ key }) => ({ value: getSetting(key) }))
   handle('settings:set', ({ key, value }) => {

@@ -18,7 +18,7 @@ interface ScenesState {
   selection: Set<number> // 편집 모드 체크된 씬들
   selectionAnchor: number | null // shift 범위선택 기준점(마지막 단일 클릭 씬)
   columns: number // 2~5
-  cardOrientation: 'portrait' | 'landscape' // 카드 비율 고정 (해상도 무관)
+  cardOrientation: 'portrait' | 'landscape' | 'square' // 카드 비율 고정 (해상도 무관)
 
   // 상세 이미지 (페이지네이션)
   images: SceneImage[]
@@ -40,7 +40,7 @@ interface ScenesState {
   select: (id: number | null) => void
   setEditMode: (v: boolean) => void
   setColumns: (n: number) => void
-  setCardOrientation: (o: 'portrait' | 'landscape') => void
+  setCardOrientation: (o: 'portrait' | 'landscape' | 'square') => void
   toggleSelected: (id: number, shift?: boolean) => void
   selectAll: () => void
   clearSelection: () => void
@@ -141,7 +141,8 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
   selectionAnchor: null,
   columns: Number(localStorage.getItem('scene_columns')) || 3,
   cardOrientation:
-    (localStorage.getItem('scene_orientation') as 'portrait' | 'landscape') || 'portrait',
+    (localStorage.getItem('scene_orientation') as 'portrait' | 'landscape' | 'square') ||
+    'portrait',
   images: [],
   imagesTotal: 0,
   imagesLoading: false,
@@ -335,10 +336,13 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
 
   setSceneThumb: (sceneId, filePath) =>
     set({
-      // thumbnail(base64) 비우고 thumbnailPath로 → 카드가 새 원본을 즉시 표시
+      // thumbnail(base64) 비우고 thumbnailPath로 → 카드가 새 원본을 즉시 표시.
+      // 즐겨찾기가 있는 씬은 즐겨찾기가 썸네일 고정이라 교체하지 않는다 (개수만 갱신)
       scenes: get().scenes.map((s) =>
         s.id === sceneId
-          ? { ...s, thumbnail: '', thumbnailPath: filePath, imageCount: s.imageCount + 1 }
+          ? s.hasFavorite
+            ? { ...s, imageCount: s.imageCount + 1 }
+            : { ...s, thumbnail: '', thumbnailPath: filePath, imageCount: s.imageCount + 1 }
           : s
       )
     }),
@@ -365,8 +369,24 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     const img = get().images.find((i) => i.id === imageId)
     if (!img) return
     const favorite = !img.favorite
-    set({ images: get().images.map((i) => (i.id === imageId ? { ...i, favorite } : i)) })
+    const images = get().images.map((i) => (i.id === imageId ? { ...i, favorite } : i))
+    // 카드 썸네일 낙관 반영 — 즐겨찾기 우선 규칙(최신 즐겨찾기, 없으면 최신)을 로드된
+    // 이미지 기준으로 즉시 적용. 페이지네이션 밖 이미지는 아래 load()가 서버 기준으로 재동기화
+    const favs = images.filter((i) => i.favorite)
+    const pick = favs.length > 0 ? favs[0] : images[0]
+    set({
+      images,
+      scenes: get().scenes.map((s) =>
+        s.id === get().selectedId
+          ? pick
+            ? { ...s, hasFavorite: favs.length > 0, thumbnail: '', thumbnailPath: pick.filePath }
+            : { ...s, hasFavorite: favs.length > 0 }
+          : s
+      )
+    })
     await window.nais.invoke('images:setFavorite', { id: imageId, favorite })
+    // 카드 썸네일이 즐겨찾기 우선이라 목록도 갱신 (낙관 반영의 최종 정합)
+    await get().load()
   },
   deleteImage: async (imageId) => {
     const target = get().images.find((i) => i.id === imageId)

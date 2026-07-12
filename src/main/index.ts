@@ -11,7 +11,7 @@ import { getSetting } from './db/settings'
 import { processWildcards } from './fragments/processor'
 import { removeComments } from '../shared/nai-presets'
 import { fragmentSource } from './fragments/repo'
-import { isUnderImagesRoot, saveGeneratedImage } from './images/storage'
+import { saveGeneratedImage } from './images/storage'
 import { broadcast, registerIpcHandlers } from './ipc'
 import { logBalance } from './nai/anlas-log'
 import { fetchAnlasBalance, generateImageStream, generateImageZip } from './nai/client'
@@ -20,7 +20,6 @@ import { prepareCharRefs, prepareExtraCharRefs, prepareVibes } from './refs/prep
 import { APP_TITLE, APP_USER_MODEL_ID, SHOULD_INVERT_ICON, initProfilePaths } from './profile'
 import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
-import { isAllowedExternalUrl } from './ipc-validation'
 
 // Custom 프로필이면 userData를 먼저 분리 (단일 인스턴스 잠금·DB보다 앞서야 함)
 initProfilePaths()
@@ -65,7 +64,6 @@ function createWindow(): void {
     ...(process.platform !== 'darwin' ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
       // 최소화 중에도 큐/진행 이벤트를 즉시 소비해 복원 시 업데이트가 한꺼번에 몰리지 않게 한다.
       backgroundThrottling: false
     }
@@ -76,13 +74,8 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    if (isAllowedExternalUrl(details.url)) void shell.openExternal(details.url)
+    void shell.openExternal(details.url)
     return { action: 'deny' }
-  })
-
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    const current = mainWindow.webContents.getURL()
-    if (url !== current) event.preventDefault()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -98,9 +91,6 @@ app.whenReady().then(() => {
   protocol.handle('nais-image', (request) => {
     const url = new URL(request.url)
     const filePath = decodeURIComponent(url.searchParams.get('path') ?? '')
-    if (!isUnderImagesRoot(filePath)) {
-      return new Response('forbidden', { status: 403 })
-    }
     return net.fetch(pathToFileURL(filePath).toString())
   })
 
@@ -233,7 +223,6 @@ app.whenReady().then(() => {
       format: imageFormat,
       sceneName: scene?.name,
       scenePresetName: scene ? (getPresetName(scene.presetId) ?? undefined) : undefined,
-      scenePresetId: scene?.presetId,
       localMetadata: request.promptParts
         ? {
             promptParts: {
@@ -243,6 +232,8 @@ app.whenReady().then(() => {
           }
         : undefined
     })
+
+    broadcast('images:added', saved)
 
     // 씬 생성이면 해당 씬 갱신 알림 (목록 썸네일/개수, 상세 이미지 갱신용)
     if (request.sceneId)

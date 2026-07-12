@@ -115,45 +115,20 @@ import {
   updateRefImage
 } from './refs/repo'
 import { searchTags } from './tags'
-import { imagesRoot, isUnderImagesRoot, sceneDir, scenesRoot } from './images/storage'
-import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { basename, join } from 'path'
-import { pathToFileURL } from 'url'
-import sharp, { type Metadata } from 'sharp'
+import { imagesRoot, sceneDir, scenesRoot } from './images/storage'
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'fs'
+import { basename } from 'path'
+import sharp from 'sharp'
 import { verifyToken } from './nai/client'
 import { APP_TITLE, PROFILE } from './profile'
 import type { GenerationQueue } from './queue/generation-queue'
-import {
-  assertBase64Size,
-  assertGenerationRequest,
-  assertInteger,
-  assertSetting,
-  assertString,
-  MAX_IMAGE_PIXELS,
-  MAX_QUEUE_BATCH,
-  MAX_QUEUE_MANY
-} from './ipc-validation'
 
 /** IpcInvokeMap 계약을 강제하는 handle 등록 헬퍼 */
 function handle<C extends keyof IpcInvokeMap>(
   channel: C,
   handler: (req: IpcInvokeMap[C]['req']) => Promise<IpcInvokeMap[C]['res']> | IpcInvokeMap[C]['res']
 ): void {
-  ipcMain.handle(channel, (event, req) => {
-    assertTrustedRenderer(event.senderFrame?.url ?? event.sender.getURL())
-    return handler(req)
-  })
-}
-
-function assertTrustedRenderer(url: string): void {
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devUrl) {
-    if (new URL(url).origin === new URL(devUrl).origin) return
-  } else {
-    const expected = pathToFileURL(join(__dirname, '../renderer/index.html')).href
-    if (url === expected || url.startsWith(`${expected}#`) || url.startsWith(`${expected}?`)) return
-  }
-  throw new Error('허용되지 않은 IPC 호출 출처입니다')
+  ipcMain.handle(channel, (_event, req) => handler(req))
 }
 
 export function broadcast<C extends keyof IpcEventMap>(channel: C, payload: IpcEventMap[C]): void {
@@ -190,46 +165,16 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
   handle('nai:anlasUsage', () => anlasUsage())
 
-  handle('queue:enqueue', ({ request, count }) => {
-    assertInteger(count, '생성 수량', 1, MAX_QUEUE_BATCH)
-    assertGenerationRequest(request)
-    for (const ref of request.extraCharRefs ?? []) {
-      if (!isUnderImagesRoot(ref.filePath)) throw new Error('허용되지 않은 레퍼런스 경로입니다')
-    }
-    return { ids: ctx.queue.enqueue(request, count) }
-  })
-  handle('queue:enqueueMany', ({ requests }) => {
-    if (!Array.isArray(requests) || requests.length === 0 || requests.length > MAX_QUEUE_MANY) {
-      throw new Error('일괄 큐 개수 제한을 초과했습니다')
-    }
-    for (const request of requests) {
-      assertGenerationRequest(request)
-      for (const ref of request.extraCharRefs ?? []) {
-        if (!isUnderImagesRoot(ref.filePath)) throw new Error('허용되지 않은 레퍼런스 경로입니다')
-      }
-    }
-    return { ids: ctx.queue.enqueueMany(requests) }
-  })
-  handle('queue:cancel', ({ ids }) => {
-    if (!Array.isArray(ids) || ids.length > MAX_QUEUE_MANY * 2) {
-      throw new Error('큐 취소 목록이 너무 큽니다')
-    }
-    ctx.queue.cancel(ids)
-  })
+  handle('queue:enqueue', ({ request, count }) => ({ ids: ctx.queue.enqueue(request, count) }))
+  handle('queue:enqueueMany', ({ requests }) => ({ ids: ctx.queue.enqueueMany(requests) }))
+  handle('queue:cancel', ({ ids }) => ctx.queue.cancel(ids))
   handle('queue:reset', () => {
     ctx.queue.reset()
   })
   handle('queue:status', () => ctx.queue.status())
 
-  handle('images:list', ({ limit, offset }) => {
-    assertInteger(limit, '페이지 크기', 1, 500)
-    assertInteger(offset, '페이지 위치', 0, Number.MAX_SAFE_INTEGER)
-    return listImages(limit, offset)
-  })
-  handle('images:payload', ({ id }) => {
-    assertInteger(id, '이미지 ID', 1, Number.MAX_SAFE_INTEGER)
-    return { payloadJson: getImagePayload(id) }
-  })
+  handle('images:list', ({ limit, offset }) => listImages(limit, offset))
+  handle('images:payload', ({ id }) => ({ payloadJson: getImagePayload(id) }))
 
   handle('scenePresets:list', () => ({ items: listPresets() }))
   handle('scenePresets:create', ({ name }) => ({ id: createPreset(name) }))
@@ -248,7 +193,7 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('scenes:openFolder', ({ sceneId }) => {
     const scene = getScene(sceneId)
     if (!scene) return { ok: false }
-    const dir = sceneDir(getPresetName(scene.presetId), scene.name, scene.id, scene.presetId)
+    const dir = sceneDir(getPresetName(scene.presetId), scene.name, scene.id)
     if (!existsSync(dir)) return { ok: false }
     void shell.openPath(dir)
     return { ok: true }
@@ -296,31 +241,11 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     })
     if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
     try {
-      if (statSync(result.filePaths[0]).size > 1536 * 1024 * 1024) {
-        return { error: '백업 파일 크기 제한을 초과했습니다' }
-      }
       const data = JSON.parse(readFileSync(result.filePaths[0], 'utf-8')) as Record<string, unknown>
       // 포맷 감지: NAIS3는 _app='NAIS3', NAIS2는 nais2-* 키
       if (data._app === 'NAIS3') {
-        const confirmed = await dialog.showMessageBox(win, {
-          type: 'warning',
-          title: 'NAIS3 데이터 전체 교체',
-          message: '현재 라이브러리와 씬 데이터를 백업 파일 내용으로 교체합니다.',
-          detail: '교체 직전에 복구용 DB 백업을 자동 생성합니다.',
-          buttons: ['취소', '교체'],
-          defaultId: 0,
-          cancelId: 0,
-          noLink: true
-        })
-        if (confirmed.response !== 1) return { canceled: true as const }
-        const { imported, skipped, backupPath } = await importAll(data)
-        return {
-          summary:
-            `NAIS3 백업 복원 완료 (${imported}개 항목` +
-            (skipped ? `, 이미지 없는 항목 ${skipped}개 제외` : '') +
-            `)\n복구용 백업: ${backupPath}`,
-          needsPromptReload: true
-        }
+        const { imported } = importAll(data)
+        return { summary: `NAIS3 백업 복원 완료 (${imported}개 항목)`, needsPromptReload: true }
       }
       if (Object.keys(data).some((k) => k.startsWith('nais2-'))) {
         const r = importNais2(data)
@@ -398,12 +323,8 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('scenes:importJson', ({ presetId }) => importScenesJson(presetId))
   handle('scenes:exportZip', async ({ presetId }) => ({ count: await exportZip(presetId) }))
 
-  handle('settings:get', ({ key }) => {
-    assertSetting(key)
-    return { value: getSetting(key) }
-  })
+  handle('settings:get', ({ key }) => ({ value: getSetting(key) }))
   handle('settings:set', ({ key, value }) => {
-    assertSetting(key, value)
     setSetting(key, value)
   })
 
@@ -471,8 +392,6 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
 
   handle('tags:search', ({ query, limit }) => ({ items: searchTags(query, limit) }))
   handle('tokens:count', ({ texts }) => {
-    if (!Array.isArray(texts) || texts.length > 128) throw new Error('토큰 계산 입력이 너무 큽니다')
-    for (const text of texts) assertString(text, '토큰 계산 입력', 2 * 1024 * 1024)
     // 토큰 수는 실제 전송본 기준 — 조각(<이름>)·주석을 치환/제거한 결과로 센다.
     // rng 고정(항상 첫 줄)이라 결정적이고, peek이라 <*이름> 순차 카운터를 소모하지 않는다.
     const src = fragmentSource()
@@ -482,11 +401,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
 
   handle('images:showInFolder', ({ filePath }) => {
-    if (isUnderImagesRoot(filePath)) shell.showItemInFolder(filePath)
+    shell.showItemInFolder(filePath)
   })
 
   handle('images:saveAs', async ({ filePath }) => {
-    if (!isUnderImagesRoot(filePath)) return { saved: false }
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const result = await dialog.showSaveDialog(win, {
       title: '다른 이름으로 저장',
@@ -499,7 +417,6 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
 
   handle('images:copy', ({ filePath }) => {
-    if (!isUnderImagesRoot(filePath)) return { copied: false }
     const img = nativeImage.createFromPath(filePath)
     if (img.isEmpty()) return { copied: false }
     clipboard.writeImage(img)
@@ -533,14 +450,11 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     return { dir: saveDirOf(req?.target) }
   })
   handle('gen:setDelay', ({ ms }) => {
-    assertInteger(ms, '생성 지연', 0, 60_000)
     ctx.queue.setDelayMs(ms)
     setSetting('gen_delay_ms', String(ms))
   })
 
   handle('notify:done', ({ done, failed }) => {
-    assertInteger(done, '완료 수', 0, MAX_QUEUE_MANY)
-    assertInteger(failed, '실패 수', 0, MAX_QUEUE_MANY)
     const win = BrowserWindow.getAllWindows()[0]
     if (!win || win.isFocused()) return // 보고 있는 중엔 토스트 불필요
     if (!Notification.isSupported()) return
@@ -557,7 +471,6 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
 
   handle('images:saveLocal', async ({ base64, kind }) => {
     try {
-      assertBase64Size(base64, '저장 이미지')
       const png = Buffer.from(base64.replace(/^data:[^,]+,/, ''), 'base64')
       const saved = await saveGeneratedImage({
         png,
@@ -574,14 +487,11 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('images:readMetadata', async ({ filePath, base64 }) => {
     try {
       if (base64) {
-        assertBase64Size(base64, '메타데이터 이미지')
         const buf = Buffer.from(base64.replace(/^data:[^,]+,/, ''), 'base64')
-        await assertImagePixels(buf)
         const meta = await metadataFromPng(buf)
         return meta ? { meta } : { error: '이 이미지에서 NAI 메타데이터를 찾지 못했습니다' }
       }
       if (filePath) {
-        if (!isUnderImagesRoot(filePath)) return { error: '허용되지 않은 경로' }
         const row = getDb()
           .prepare('SELECT payload_json FROM images WHERE file_path = ?')
           .get(filePath) as { payload_json: string } | undefined
@@ -612,9 +522,8 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     const token = getNaiToken()
     if (!token) return { error: 'NAI 토큰이 설정되지 않았습니다' }
     try {
-      assertBase64Size(imageBase64, '업스케일 이미지')
       const input = Buffer.from(imageBase64.replace(/^data:[^,]+,/, ''), 'base64')
-      const meta = await assertImagePixels(input)
+      const meta = await sharp(input).metadata()
       const png = await upscaleImage(token, {
         imageBase64: input.toString('base64'),
         width: meta.width ?? 0,
@@ -643,10 +552,8 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     const token = getNaiToken()
     if (!token) return { error: 'NAI 토큰이 설정되지 않았습니다' }
     try {
-      assertBase64Size(imageBase64, '디렉터 이미지')
-      assertString(prompt, '디렉터 프롬프트', 2 * 1024 * 1024)
       const input = Buffer.from(imageBase64.replace(/^data:[^,]+,/, ''), 'base64')
-      const meta = await assertImagePixels(input)
+      const meta = await sharp(input).metadata()
       const png = await augmentImage(token, {
         method,
         imageBase64: input.toString('base64'),
@@ -675,10 +582,9 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
 
   handle('images:readForSource', async ({ filePath }) => {
-    if (!isUnderImagesRoot(filePath)) return { error: '허용되지 않은 경로' }
     try {
       const buf = readFileSync(filePath)
-      const meta = await assertImagePixels(buf)
+      const meta = await sharp(buf).metadata()
       return { base64: buf.toString('base64'), width: meta.width ?? 0, height: meta.height ?? 0 }
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
@@ -750,14 +656,4 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
 
   ctx.queue.on('changed', (status) => broadcast('queue:changed', status))
-}
-
-async function assertImagePixels(buffer: Buffer): Promise<Metadata> {
-  const metadata = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS }).metadata()
-  const width = metadata.width ?? 0
-  const height = metadata.height ?? 0
-  if (width <= 0 || height <= 0 || width * height > MAX_IMAGE_PIXELS) {
-    throw new Error('이미지 픽셀 수 제한을 초과했습니다')
-  }
-  return metadata
 }

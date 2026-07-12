@@ -27,7 +27,7 @@ interface ScenesState {
   /** 씬 상세 "즐겨찾기만 보기" 필터 (N4) */
   favoritesOnly: boolean
 
-  loadPresets: () => Promise<void>
+  loadPresets: (loadScenes?: boolean) => Promise<void>
   setActivePreset: (id: number) => Promise<void>
   createPreset: (name: string) => Promise<void>
   renamePreset: (id: number, name: string) => Promise<void>
@@ -148,13 +148,13 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
   imagesLoading: false,
   favoritesOnly: false,
 
-  loadPresets: async () => {
+  loadPresets: async (loadScenes = true) => {
     const { items } = await window.nais.invoke('scenePresets:list', undefined)
     set({ presets: items })
     if (!items.some((p) => p.id === get().activePresetId) && items[0]) {
       set({ activePresetId: items[0].id })
     }
-    await get().load()
+    if (loadScenes) await get().load()
   },
   setActivePreset: async (id) => {
     set({ activePresetId: id, selectedId: null, selection: new Set(), selectionAnchor: null })
@@ -480,7 +480,6 @@ export function bindSceneEvents(): () => void {
     clearTimeout(timer)
     timer = setTimeout(() => {
       const s = useScenesStore.getState()
-      void s.load()
       if (reloadSelected && s.selectedId != null) void s.loadImages(s.selectedId, true)
       reloadSelected = false
     }, 300)

@@ -302,7 +302,7 @@ function SceneGrid(): React.JSX.Element {
     if (count > 0) {
       if (presetName && presetId !== activePresetId) {
         // 이름 있는 프리셋 파일(NAIS2) → 새 프리셋 생성 후 자동 전환
-        await useScenesStore.getState().loadPresets()
+        await useScenesStore.getState().loadPresets(false)
         await useScenesStore.getState().setActivePreset(presetId)
         toast(`'${presetName}' 프리셋으로 씬 ${count}개 가져옴`, 'success')
       } else {

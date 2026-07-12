@@ -27,7 +27,6 @@ interface Row {
 function toScene(
   r: Row & {
     image_count: number
-    thumb?: Buffer | null
     thumb_path?: string | null
     has_favorite?: number
   }
@@ -41,7 +40,7 @@ function toScene(
     width: r.width,
     height: r.height,
     reserveCount: r.reserve_count,
-    thumbnail: r.thumb ? r.thumb.toString('base64') : '',
+    thumbnail: '',
     thumbnailPath: r.thumb_path ?? '',
     imageCount: r.image_count,
     hasFavorite: r.has_favorite === 1
@@ -107,14 +106,12 @@ export function listScenes(presetId: number): Scene[] {
     .prepare(
       `SELECT s.id, s.preset_id, s.name, s.prompt, s.negative_prompt, s.width, s.height, s.reserve_count,
               (SELECT COUNT(*) FROM images WHERE scene_id = s.id) AS image_count,
-              (SELECT thumbnail FROM images WHERE scene_id = s.id ORDER BY favorite DESC, id DESC LIMIT 1) AS thumb,
               (SELECT file_path FROM images WHERE scene_id = s.id ORDER BY favorite DESC, id DESC LIMIT 1) AS thumb_path,
               EXISTS(SELECT 1 FROM images WHERE scene_id = s.id AND favorite = 1) AS has_favorite
        FROM gen_scenes s WHERE s.preset_id = ? ORDER BY s.sort_order, s.id`
     )
     .all(presetId) as (Row & {
     image_count: number
-    thumb: Buffer | null
     thumb_path: string | null
     has_favorite: number
   })[]

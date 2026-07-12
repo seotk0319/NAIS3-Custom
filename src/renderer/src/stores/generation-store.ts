@@ -362,7 +362,6 @@ export function bindGenerationEvents(): () => void {
           ? { previewPng: null, progress: null }
           : { viewingFilePath: newlyDone.filePath, previewPng: null, progress: null }
       )
-      void useGenerationStore.getState().refreshHistory()
     }
     // 큐가 다 끝나면 고정 해제
     const stillActive = queue.items.some((i) => i.state === 'pending' || i.state === 'generating')
@@ -394,6 +393,13 @@ export function bindGenerationEvents(): () => void {
       ...(e.previewPng ? { previewPng: e.previewPng } : {})
     })
   })
+  const offImage = window.nais.on('images:added', (item) => {
+    const state = useGenerationStore.getState()
+    useGenerationStore.setState({
+      history: [item, ...state.history.filter((old) => old.id !== item.id)].slice(0, 60),
+      historyTotal: state.historyTotal + 1
+    })
+  })
   const offAnlas = window.nais.on('anlas:balance', ({ anlas }) => {
     useGenerationStore.setState({ anlasBalance: anlas })
   })
@@ -404,6 +410,7 @@ export function bindGenerationEvents(): () => void {
   return () => {
     offQueue()
     offProgress()
+    offImage()
     offAnlas()
     offVibes()
   }

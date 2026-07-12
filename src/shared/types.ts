@@ -561,6 +561,8 @@ export interface IpcEventMap {
     /** 중간 미리보기 PNG base64 (없을 수 있음) */
     previewPng?: string
   }
+  /** 전체 히스토리를 다시 읽지 않고 새 이미지 한 장만 추가한다. */
+  'images:added': HistoryItem
   /** 씬에 새 이미지가 생성됨 (목록/상세 갱신). filePath로 카드 즉시 낙관적 갱신 */
   'scenes:changed': { sceneId: number; filePath: string }
   /** 바이브 인코딩 완료 — 카드의 인코딩 표시 갱신용 */

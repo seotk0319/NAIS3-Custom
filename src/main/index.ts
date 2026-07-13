@@ -1,4 +1,5 @@
 import { app, shell, BrowserWindow, dialog, net, protocol } from 'electron'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -88,10 +89,16 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId(APP_USER_MODEL_ID)
 
-  protocol.handle('nais-image', (request) => {
-    const url = new URL(request.url)
-    const filePath = decodeURIComponent(url.searchParams.get('path') ?? '')
-    return net.fetch(pathToFileURL(filePath).toString())
+  protocol.handle('nais-image', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const filePath = decodeURIComponent(url.searchParams.get('path') ?? '')
+      if (!filePath || !existsSync(filePath)) return new Response(null, { status: 404 })
+      return await net.fetch(pathToFileURL(filePath).toString())
+    } catch {
+      // 파일이 이동·삭제되어도 썸네일 요청 실패가 메인 프로세스 예외로 번지지 않게 한다.
+      return new Response(null, { status: 404 })
+    }
   })
 
   let dbVersion: number

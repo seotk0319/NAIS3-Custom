@@ -2,6 +2,7 @@ import { History, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { cn } from '../lib/utils'
 import { KindBadge } from '../lib/kind-icon'
+import { setImagePathDrag } from '../lib/image-drag'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
 import { askConfirm } from '../stores/dialog-store'
@@ -107,8 +108,8 @@ export function HistoryPanel(): React.JSX.Element {
                       // 프리뷰로 드래그해서 메타데이터 열기
                       draggable
                       onDragStart={(e) => {
+                        setImagePathDrag(e, item.filePath)
                         e.dataTransfer.setData('nais/file-path', item.filePath)
-                        e.dataTransfer.effectAllowed = 'copy'
                       }}
                       alt=""
                     />

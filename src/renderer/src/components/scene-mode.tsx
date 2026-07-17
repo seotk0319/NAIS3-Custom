@@ -316,11 +316,23 @@ function SceneGrid(): React.JSX.Element {
   async function exportZip(): Promise<void> {
     await window.nais.invoke('scenes:exportZip', { presetId: activePresetId })
   }
+  async function openPresetFolder(): Promise<void> {
+    const { ok } = await window.nais.invoke('scenePresets:openFolder', { id: activePresetId })
+    if (!ok) toast('활성 씬 프리셋 폴더를 열 수 없습니다', 'error')
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface">
       {/* 툴바 — 한 행: 프리셋 드롭다운 + 아이콘(툴팁) */}
       <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+        <IconBtn
+          icon={<FolderOpen size={17} />}
+          tip="활성 씬 프리셋 이미지 폴더 열기"
+          color="text-amber-400"
+          onClick={() => void openPresetFolder()}
+        />
+        <span className="mr-1 shrink-0 text-[13px] font-semibold">씬 모드</span>
+        <div className="mx-1 h-5 w-px bg-line" />
         <PresetDropdown />
         <div className="mx-1 h-5 w-px bg-line" />
         <IconBtn

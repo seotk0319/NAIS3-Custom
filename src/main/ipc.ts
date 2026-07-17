@@ -103,6 +103,7 @@ import { startUpdateDownload } from './updater'
 import { countTokens } from './nai/tokenizer'
 import {
   addRefImages,
+  addRefImagePaths,
   collapseRefFolder,
   colorRefFolder,
   createRefFolder,
@@ -115,13 +116,29 @@ import {
   updateRefImage
 } from './refs/repo'
 import { searchTags } from './tags'
-import { imagesRoot, sceneDir, scenesRoot } from './images/storage'
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'fs'
+import {
+  imagesRoot,
+  libraryRoot,
+  sceneDir,
+  scenePresetDir,
+  scenesRoot
+} from './images/storage'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
 import sharp from 'sharp'
 import { verifyToken } from './nai/client'
 import { APP_TITLE, PROFILE } from './profile'
 import type { GenerationQueue } from './queue/generation-queue'
+import {
+  assignLibraryEntries,
+  collapseLibraryFolder,
+  createLibraryFolder,
+  deleteLibraryFolder,
+  listLibraryDates,
+  listLibraryFolders,
+  moveLibraryFolder,
+  renameLibraryFolder
+} from './library/repo'
 
 /** IpcInvokeMap 계약을 강제하는 handle 등록 헬퍼 */
 function handle<C extends keyof IpcInvokeMap>(
@@ -173,8 +190,35 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
   handle('queue:status', () => ctx.queue.status())
 
-  handle('images:list', ({ limit, offset }) => listImages(limit, offset))
+  handle('images:list', ({ limit, offset, date, virtualFolderId, unfiledOnly }) =>
+    listImages(limit, offset, { date, virtualFolderId, unfiledOnly })
+  )
   handle('images:payload', ({ id }) => ({ payloadJson: getImagePayload(id) }))
+  handle('library:dates', () => ({ items: listLibraryDates() }))
+  handle('library:folders', () => listLibraryFolders())
+  handle('library:folderCreate', ({ name, parentId }) => ({
+    id: createLibraryFolder(name, parentId)
+  }))
+  handle('library:folderRename', ({ id, name }) => {
+    renameLibraryFolder(id, name)
+  })
+  handle('library:folderCollapse', ({ id, collapsed }) => {
+    collapseLibraryFolder(id, collapsed)
+  })
+  handle('library:folderMove', ({ id, parentId }) => ({
+    moved: moveLibraryFolder(id, parentId)
+  }))
+  handle('library:folderDelete', ({ id }) => {
+    deleteLibraryFolder(id)
+  })
+  handle('library:assign', (input) => {
+    assignLibraryEntries(input)
+  })
+  handle('library:openStorageFolder', async () => {
+    const dir = getSetting('auto_save') === '0' ? libraryRoot() : imagesRoot()
+    mkdirSync(dir, { recursive: true })
+    return { ok: (await shell.openPath(dir)) === '', dir }
+  })
 
   handle('scenePresets:list', () => ({ items: listPresets() }))
   handle('scenePresets:create', ({ name }) => ({ id: createPreset(name) }))
@@ -189,6 +233,13 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
   handle('scenePresets:setDefaultResolution', ({ id, width, height }) => {
     setPresetDefaultResolution(id, width, height)
+  })
+  handle('scenePresets:openFolder', async ({ id }) => {
+    const preset = listPresets().find((item) => item.id === id)
+    if (!preset) return { ok: false }
+    const dir = scenePresetDir(preset.name)
+    mkdirSync(dir, { recursive: true })
+    return { ok: (await shell.openPath(dir)) === '' }
   })
   handle('scenes:openFolder', ({ sceneId }) => {
     const scene = getScene(sceneId)
@@ -594,6 +645,9 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   // 바이브 / 캐릭터 레퍼런스 라이브러리 (공용 저장소, kind로 분기)
   handle('vibes:list', () => listVibes())
   handle('vibes:add', async ({ folderId }) => ({ count: await addRefImages('vibe', folderId) }))
+  handle('vibes:addPaths', async ({ filePaths, folderId }) => ({
+    count: await addRefImagePaths('vibe', filePaths, folderId)
+  }))
   handle('vibes:update', ({ id, patch }) => {
     updateRefImage('vibe', id, patch)
   })
@@ -619,6 +673,9 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
 
   handle('crefs:list', () => listCharRefs())
   handle('crefs:add', async ({ folderId }) => ({ count: await addRefImages('charref', folderId) }))
+  handle('crefs:addPaths', async ({ filePaths, folderId }) => ({
+    count: await addRefImagePaths('charref', filePaths, folderId)
+  }))
   handle('crefs:update', ({ id, patch }) => {
     updateRefImage('charref', id, patch)
   })

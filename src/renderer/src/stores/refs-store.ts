@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { create, type StoreApi, type UseBoundStore } from 'zustand'
 import type { CharRefItem, CharRefType, ListFolder, VibeItem } from '@shared/types'
 import { canonicalize, moveRow, toOrderEntries } from '../lib/folder-list'
 
@@ -16,6 +16,7 @@ interface RefsState<T extends { id: number; folderId: number | null }> {
   setOverlayOpen: (open: boolean) => void
   load: () => Promise<void>
   add: (folderId: number | null) => Promise<void>
+  addPaths: (filePaths: string[], folderId: number | null) => Promise<number>
   update: (id: number, patch: Record<string, unknown>) => void
   remove: (id: number) => void
   createFolder: (name: string) => Promise<void>
@@ -26,10 +27,13 @@ interface RefsState<T extends { id: number; folderId: number | null }> {
   move: (activeKey: string, overKey: string) => void
 }
 
-function makeRefsStore<T extends { id: number; folderId: number | null }>(ns: string) {
+function makeRefsStore<T extends { id: number; folderId: number | null }>(
+  ns: string
+): UseBoundStore<StoreApi<RefsState<T>>> {
   const ch = {
     list: `${ns}:list`,
     add: `${ns}:add`,
+    addPaths: `${ns}:addPaths`,
     update: `${ns}:update`,
     delete: `${ns}:delete`,
     reorder: `${ns}:reorder`,
@@ -67,6 +71,11 @@ function makeRefsStore<T extends { id: number; folderId: number | null }>(ns: st
     add: async (folderId) => {
       const { count } = await window.nais.invoke(ch.add, { folderId })
       if (count > 0) await get().load()
+    },
+    addPaths: async (filePaths, folderId) => {
+      const { count } = await window.nais.invoke(ch.addPaths, { filePaths, folderId })
+      if (count > 0) await get().load()
+      return count
     },
     update: (id, patch) => {
       set({ items: get().items.map((c) => (c.id === id ? { ...c, ...patch } : c)) })

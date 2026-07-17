@@ -10,6 +10,7 @@ import { useCharactersStore } from '../stores/characters-store'
 import { askConfirm } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
 import { cn } from '../lib/utils'
+import { setImagePathDrag } from '../lib/image-drag'
 import { ImageContextMenu } from './image-context-menu'
 import { Lightbox } from './lightbox'
 import { PromptEditor } from './prompt-editor'
@@ -330,7 +331,8 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
                     src={imageUrl(img.filePath)}
                     className="h-full w-full cursor-pointer object-cover"
                     loading="lazy"
-                    draggable={false}
+                    draggable
+                    onDragStart={(e) => setImagePathDrag(e, img.filePath)}
                     onClick={() => setLightboxIdx(newTop ? i + 1 : i)}
                     alt=""
                   />

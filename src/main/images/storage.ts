@@ -42,17 +42,23 @@ export function libraryRoot(): string {
   return join(app.getPath('userData'), 'library')
 }
 
+function cleanStorageSegment(value: string, fallback: string): string {
+  return value.replace(/[/\\:*?"<>|]/g, '_').trim() || fallback
+}
+
+/** 활성 씬 프리셋 이미지 폴더 경로 */
+export function scenePresetDir(presetName: string | null): string {
+  return join(scenesRoot(), cleanStorageSegment(presetName ?? '', '기본'))
+}
+
 /** 씬 이미지 폴더 경로: 프리셋명/씬명 */
 export function sceneDir(
   presetName: string | null,
   sceneName: string,
   sceneId?: number
 ): string {
-  const clean = (value: string, fallback: string): string =>
-    value.replace(/[/\\:*?"<>|]/g, '_').trim() || fallback
-  const preset = clean(presetName ?? '', '기본')
-  const scene = clean(sceneName, `씬-${sceneId ?? 0}`)
-  return join(scenesRoot(), preset, scene)
+  const scene = cleanStorageSegment(sceneName, `씬-${sceneId ?? 0}`)
+  return join(scenePresetDir(presetName), scene)
 }
 
 export async function saveGeneratedImage(input: {
@@ -75,7 +81,7 @@ export async function saveGeneratedImage(input: {
   // 자동 저장 OFF면 저장 폴더 대신 앱 내부 라이브러리에 보관 (히스토리엔 남지만
   // 유저가 지정한 저장 폴더/NAIS3_output에는 안 감). 씬·일반·디렉터·업스케일 모두 여기서 판정.
   const autoSave = getSetting('auto_save') !== '0'
-  // 구조: 메인 = 메인폴더/[YYYY-MM/] (날짜 폴더는 설정으로 on/off),
+  // 구조: 메인 = 메인폴더/[YYYY-MM-DD/] (날짜 폴더는 설정으로 on/off),
   //       씬 = 씬루트/<프리셋>/<씬 이름>/
   let monthDir: string
   if (input.sceneName) {
@@ -86,7 +92,10 @@ export async function saveGeneratedImage(input: {
     const out = autoSave ? imagesRoot() : libraryRoot()
     monthDir =
       getSetting('date_folders') !== '0'
-        ? join(out, `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+        ? join(
+            out,
+            `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+          )
         : out
   }
   mkdirSync(monthDir, { recursive: true })
@@ -160,7 +169,8 @@ export async function saveGeneratedImage(input: {
       thumbnail: thumbnail.toString('base64'),
       kind: input.kind,
       seed: input.seed,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      virtualFolderId: null
     }
   } catch (error) {
     try {
@@ -238,21 +248,41 @@ function injectNais3Params(png: Buffer, meta: Pick<ImageMetadata, 'promptParts'>
   return Buffer.concat([png.subarray(0, ihdrEnd), chunk, png.subarray(ihdrEnd)])
 }
 
-export function listImages(limit: number, offset: number): { items: HistoryItem[]; total: number } {
+export function listImages(
+  limit: number,
+  offset: number,
+  filter?: { date?: string; virtualFolderId?: number; unfiledOnly?: boolean }
+): { items: HistoryItem[]; total: number } {
   const db = getDb()
-  const total = (db.prepare('SELECT COUNT(*) AS c FROM images').get() as { c: number }).c
+  const where: string[] = []
+  const values: (string | number)[] = []
+  if (filter?.date) {
+    where.push("date(created_at, 'localtime') = ?")
+    values.push(filter.date)
+  }
+  if (filter?.unfiledOnly) {
+    where.push('library_folder_id IS NULL')
+  } else if (filter?.virtualFolderId != null) {
+    where.push('library_folder_id = ?')
+    values.push(filter.virtualFolderId)
+  }
+  const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
+  const total = (db.prepare(`SELECT COUNT(*) AS c FROM images${clause}`).get(...values) as {
+    c: number
+  }).c
   const rows = db
     .prepare(
-      `SELECT id, file_path, thumbnail, kind, seed, created_at
-       FROM images ORDER BY id DESC LIMIT ? OFFSET ?`
+      `SELECT id, file_path, thumbnail, kind, seed, created_at, library_folder_id
+       FROM images${clause} ORDER BY id DESC LIMIT ? OFFSET ?`
     )
-    .all(limit, offset) as {
+    .all(...values, limit, offset) as {
     id: number
     file_path: string
     thumbnail: Buffer | null
     kind: string
     seed: number | null
     created_at: string
+    library_folder_id: number | null
   }[]
 
   return {
@@ -263,7 +293,8 @@ export function listImages(limit: number, offset: number): { items: HistoryItem[
       thumbnail: r.thumbnail ? r.thumbnail.toString('base64') : '',
       kind: r.kind,
       seed: r.seed,
-      createdAt: r.created_at
+      createdAt: r.created_at,
+      virtualFolderId: r.library_folder_id
     }))
   }
 }

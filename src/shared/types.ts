@@ -180,6 +180,31 @@ export interface HistoryItem {
   kind: string
   seed: number | null
   createdAt: string
+  /** 실제 파일 경로와 무관한 라이브러리 가상 폴더 소속 */
+  virtualFolderId: number | null
+}
+
+/** 라이브러리 가상 폴더 — parentId로 중첩하며 실제 이미지 경로는 바꾸지 않는다. */
+export interface LibraryVirtualFolder {
+  id: number
+  name: string
+  parentId: number | null
+  collapsed: boolean
+  sortOrder: number
+}
+
+/** 기존 큐레이션 스택의 가상 폴더 탐색용 요약 */
+export interface LibraryStackSummary {
+  id: number
+  name: string
+  thumbnail: string
+  imageCount: number
+  virtualFolderId: number | null
+}
+
+export interface LibraryDateGroup {
+  date: string
+  count: number
 }
 
 /** 디렉터 툴 (augment-image req_type) */
@@ -335,7 +360,13 @@ export interface IpcInvokeMap {
   'queue:reset': { req: void; res: void }
   'queue:status': { req: void; res: QueueStatus }
   'images:list': {
-    req: { limit: number; offset: number }
+    req: {
+      limit: number
+      offset: number
+      date?: string
+      virtualFolderId?: number
+      unfiledOnly?: boolean
+    }
     res: { items: HistoryItem[]; total: number }
   }
   'images:payload': { req: { id: number }; res: { payloadJson: string | null } }
@@ -404,6 +435,28 @@ export interface IpcInvokeMap {
   }
   'settings:pickSaveDir': { req: { target?: 'main' | 'scene' } | void; res: { dir: string | null } }
   'settings:resetSaveDir': { req: { target?: 'main' | 'scene' } | void; res: { dir: string } }
+  /** 현재 실제 이미지 저장 폴더를 만들고 파일 탐색기로 연다. */
+  'library:openStorageFolder': { req: void; res: { ok: boolean; dir: string } }
+  /** 라이브러리 날짜 탐색/가상 폴더 트리 */
+  'library:dates': { req: void; res: { items: LibraryDateGroup[] } }
+  'library:folders': {
+    req: void
+    res: { folders: LibraryVirtualFolder[]; stacks: LibraryStackSummary[] }
+  }
+  'library:folderCreate': {
+    req: { name: string; parentId: number | null }
+    res: { id: number }
+  }
+  'library:folderRename': { req: { id: number; name: string }; res: void }
+  'library:folderCollapse': { req: { id: number; collapsed: boolean }; res: void }
+  'library:folderMove': { req: { id: number; parentId: number | null }; res: { moved: boolean } }
+  /** 삭제 시 내용/하위 폴더는 상위 폴더, 루트면 미분류로 이동한다. */
+  'library:folderDelete': { req: { id: number }; res: void }
+  /** 이미지/스택 분류만 변경하며 실제 파일은 이동하지 않는다. */
+  'library:assign': {
+    req: { imageIds?: number[]; stackIds?: number[]; folderId: number | null }
+    res: void
+  }
   /** 생성 지연 시간(ms) 설정 — 큐에 즉시 반영 + 영속 */
   'gen:setDelay': { req: { ms: number }; res: void }
   /** 디렉터 툴 실행 — 결과를 히스토리에 저장하고 파일 경로 + 결과 base64 반환 */
@@ -438,6 +491,8 @@ export interface IpcInvokeMap {
     req: { id: number; width: number; height: number }
     res: void
   }
+  /** 활성 씬 프리셋의 이미지 폴더를 만들고 연다. */
+  'scenePresets:openFolder': { req: { id: number }; res: { ok: boolean } }
   'promptPresets:reorder': { req: { ids: number[] }; res: void }
   'promptPresets:list': { req: void; res: { items: PromptPreset[] } }
   'promptPresets:create': {
@@ -517,6 +572,11 @@ export interface IpcInvokeMap {
   'vibes:list': { req: void; res: { folders: ListFolder[]; items: VibeItem[] } }
   /** 파일 다이얼로그(다중)로 추가 */
   'vibes:add': { req: { folderId: number | null }; res: { count: number } }
+  /** 라이브러리/파일 드롭 경로로 추가 */
+  'vibes:addPaths': {
+    req: { filePaths: string[]; folderId: number | null }
+    res: { count: number }
+  }
   'vibes:update': {
     req: {
       id: number
@@ -533,6 +593,10 @@ export interface IpcInvokeMap {
   'vibes:folderDelete': { req: { id: number }; res: void }
   'crefs:list': { req: void; res: { folders: ListFolder[]; items: CharRefItem[] } }
   'crefs:add': { req: { folderId: number | null }; res: { count: number } }
+  'crefs:addPaths': {
+    req: { filePaths: string[]; folderId: number | null }
+    res: { count: number }
+  }
   'crefs:update': {
     req: {
       id: number

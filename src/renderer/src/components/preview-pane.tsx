@@ -5,6 +5,7 @@ import { useGenerationStore } from '../stores/generation-store'
 import { useMetadataStore } from '../stores/metadata-store'
 import { cn } from '../lib/utils'
 import { isLeavingDropZone, useDragEndCleanup } from '../lib/drop-zone'
+import { setImagePathDrag } from '../lib/image-drag'
 import { DropOverlay } from './drop-overlay'
 import { ImageContextMenu } from './image-context-menu'
 
@@ -108,7 +109,8 @@ export function PreviewPane(): React.JSX.Element {
             <img
               src={src}
               className="h-full w-full rounded-md object-contain"
-              draggable={false}
+              draggable
+              onDragStart={(e) => setImagePathDrag(e, viewingFilePath)}
               // 파일이 밖에서 지워진 경우 깨진 이미지 대신 빈 상태로 (B8)
               onError={() => view(null)}
               alt=""

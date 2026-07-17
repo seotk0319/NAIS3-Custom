@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog } from 'electron'
-import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { randomUUID } from 'crypto'
 import sharp from 'sharp'
@@ -105,6 +105,21 @@ export async function addRefImages(kind: Kind, folderId: number | null): Promise
   })
   if (result.canceled) return 0
 
+  return addRefImagePaths(kind, result.filePaths, folderId)
+}
+
+/** 라이브러리/Windows 파일 드롭 → refs/로 안전하게 복사 + 썸네일 생성 + 행 삽입 */
+export async function addRefImagePaths(
+  kind: Kind,
+  filePaths: string[],
+  folderId: number | null
+): Promise<number> {
+  const supported = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+  const sources = [
+    ...new Set(filePaths.filter((path) => existsSync(path) && supported.has(extname(path).toLowerCase())))
+  ]
+  if (sources.length === 0) return 0
+
   const db = getDb()
   const table = TABLES[kind].items
   const max = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM ${table}`).get() as {
@@ -112,19 +127,29 @@ export async function addRefImages(kind: Kind, folderId: number | null): Promise
   }
   let order = max.m
 
-  for (const src of result.filePaths) {
+  let count = 0
+  for (const src of sources) {
     const dest = join(refsDir(), `${randomUUID()}${extname(src)}`)
-    copyFileSync(src, dest)
-    const thumbnail = await sharp(readFileSync(src))
-      .resize(192, 192, { fit: 'cover' })
-      .webp({ quality: 82 })
-      .toBuffer()
-    db.prepare(
-      `INSERT INTO ${table} (name, file_path, thumbnail, folder_id, sort_order, enabled)
-       VALUES (?, ?, ?, ?, ?, 1)`
-    ).run(basename(src, extname(src)), dest, thumbnail, folderId, ++order)
+    try {
+      const thumbnail = await sharp(readFileSync(src))
+        .resize(192, 192, { fit: 'cover' })
+        .webp({ quality: 82 })
+        .toBuffer()
+      copyFileSync(src, dest)
+      db.prepare(
+        `INSERT INTO ${table} (name, file_path, thumbnail, folder_id, sort_order, enabled)
+         VALUES (?, ?, ?, ?, ?, 1)`
+      ).run(basename(src, extname(src)), dest, thumbnail, folderId, ++order)
+      count++
+    } catch {
+      try {
+        rmSync(dest)
+      } catch {
+        // 복사 전 실패했거나 이미 정리된 파일은 무시
+      }
+    }
   }
-  return result.filePaths.length
+  return count
 }
 
 const VIBE_FIELDS: Record<string, string> = {

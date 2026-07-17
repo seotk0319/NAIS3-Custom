@@ -1,6 +1,6 @@
 {
   "name": "nais3-custom",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "NAIS3 Custom - NovelAI Image Studio 3 (커스텀 개조판)",
   "main": "./out/main/index.js",
   "author": "sunanakgo",

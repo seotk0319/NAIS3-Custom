@@ -367,6 +367,36 @@ export const migrations: ((db: Database.Database) => void)[] = [
       INSERT INTO nais3_schema (key, value) VALUES ('schema_flavor', 'nais3-custom')
         ON CONFLICT(key) DO UPDATE SET value = excluded.value;
     `)
+  },
+
+  // v16: 라이브러리 중첩 가상 폴더. 분류값만 DB에 저장하고 실제 이미지 파일은 이동하지 않는다.
+  (db) => {
+    db.exec(`
+      CREATE TABLE library_virtual_folders (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_id INTEGER REFERENCES library_virtual_folders(id) ON DELETE SET NULL,
+        collapsed INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_library_virtual_folders_parent
+        ON library_virtual_folders(parent_id, sort_order, id);
+    `)
+    if (!hasColumn(db, 'images', 'library_folder_id')) {
+      db.exec(
+        `ALTER TABLE images ADD COLUMN library_folder_id INTEGER REFERENCES library_virtual_folders(id) ON DELETE SET NULL;`
+      )
+    }
+    if (!hasColumn(db, 'library_stacks', 'folder_id')) {
+      db.exec(
+        `ALTER TABLE library_stacks ADD COLUMN folder_id INTEGER REFERENCES library_virtual_folders(id) ON DELETE SET NULL;`
+      )
+    }
+    db.exec(`
+      CREATE INDEX idx_images_library_folder ON images(library_folder_id, id DESC);
+      CREATE INDEX idx_library_stacks_folder ON library_stacks(folder_id, id DESC);
+    `)
   }
 ]
 

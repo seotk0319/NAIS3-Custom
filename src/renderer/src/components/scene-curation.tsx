@@ -23,6 +23,7 @@ import type { CharRefType, ExtraCharRef, GenerationRequest, SceneImage } from '@
 import { imageUrl } from '../lib/constants'
 import { requestFromMetadata } from '../lib/metadata-request'
 import { cn } from '../lib/utils'
+import { setImagePathDrag } from '../lib/image-drag'
 import { randomSeed } from '../stores/generation-store'
 import { useMetadataStore } from '../stores/metadata-store'
 import { buildSceneRequest, useScenesStore } from '../stores/scenes-store'
@@ -338,7 +339,7 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
 
   return (
     // no-drag: 커스텀 타이틀바의 창 드래그 영역과 겹치는 상단부에서도 클릭이 먹게 한다
-    <div className="no-drag fixed inset-0 z-50 flex flex-col bg-black/60 p-3 backdrop-blur-sm">
+    <div className="no-drag fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col bg-black/60 p-3 backdrop-blur-sm">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-2xl">
         {/* 헤더 — 제목 + 레퍼 설정 행(한 줄 유지, 좁으면 줄바꿈) + 선별 외 삭제 + 닫기 */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-3 py-2">
@@ -626,6 +627,7 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
                       key={img.id}
                       draggable
                       onDragStart={(e) => {
+                        setImagePathDrag(e, img.filePath)
                         e.dataTransfer.effectAllowed = 'copy'
                         e.dataTransfer.setData(
                           DRAG_MIME,

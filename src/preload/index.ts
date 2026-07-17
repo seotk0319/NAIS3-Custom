@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcEventMap, IpcInvokeMap } from '../shared/types'
 
 /**
@@ -20,6 +20,10 @@ const api = {
       listener(payload)
     ipcRenderer.on(channel, wrapped)
     return () => ipcRenderer.removeListener(channel, wrapped)
+  },
+  /** Electron 32+에서 제거된 File.path 대신 OS 드롭 파일의 실제 경로를 안전하게 얻는다. */
+  pathForFile(file: File): string {
+    return webUtils.getPathForFile(file)
   }
 }
 

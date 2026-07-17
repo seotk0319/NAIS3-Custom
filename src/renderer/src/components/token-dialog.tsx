@@ -308,6 +308,7 @@ function StorageSection(): React.JSX.Element {
   const [autoSave, setAutoSave] = useState(true)
   const [format, setFormat] = useState('png')
   const [dateFolders, setDateFolders] = useState(true)
+  const [libraryMode, setLibraryMode] = useState<'classic' | 'folders'>('classic')
   const stripExif = useStorageSettingsStore((s) => s.stripExif)
   const historyDeleteFile = useStorageSettingsStore((s) => s.historyDeleteFile)
   const loadStorageSettings = useStorageSettingsStore((s) => s.load)
@@ -325,6 +326,9 @@ function StorageSection(): React.JSX.Element {
     void window.nais
       .invoke('settings:get', { key: 'date_folders' })
       .then(({ value }) => setDateFolders(value !== '0'))
+    void window.nais
+      .invoke('settings:get', { key: 'library_view_mode' })
+      .then(({ value }) => setLibraryMode(value === 'folders' ? 'folders' : 'classic'))
   }, [loadStorageSettings])
 
   return (
@@ -339,7 +343,7 @@ function StorageSection(): React.JSX.Element {
             }}
           />
         </Row>
-        <Row label="날짜별 폴더" hint="메인 저장 폴더 안을 YYYY-MM으로 정리">
+        <Row label="날짜별 폴더" hint="메인 저장 폴더 안을 YYYY-MM-DD로 정리">
           <Switch
             checked={dateFolders}
             onCheckedChange={(v) => {
@@ -347,6 +351,28 @@ function StorageSection(): React.JSX.Element {
               void window.nais.invoke('settings:set', { key: 'date_folders', value: v ? '1' : '0' })
             }}
           />
+        </Row>
+        <Row
+          label="숙련자 옵션 · 라이브러리 화면"
+          hint="기존 갤러리와 중첩 가상 폴더 탐색 화면을 전환"
+        >
+          <Select
+            value={libraryMode}
+            onValueChange={(value) => {
+              const mode = value as 'classic' | 'folders'
+              setLibraryMode(mode)
+              void window.nais.invoke('settings:set', { key: 'library_view_mode', value: mode })
+              window.dispatchEvent(new CustomEvent('nais:library-view-mode', { detail: mode }))
+            }}
+          >
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="classic">기존 라이브러리</SelectItem>
+              <SelectItem value="folders">가상 폴더 탐색</SelectItem>
+            </SelectContent>
+          </Select>
         </Row>
         <Row label="EXIF 자동 제거" hint="저장 이미지의 프롬프트·EXIF/XMP 메타데이터 제거">
           <Switch checked={stripExif} onCheckedChange={(value) => void setStripExif(value)} />

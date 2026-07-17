@@ -1,11 +1,14 @@
 import { FolderPlus, ImagePlus, Pencil, Search, Trash2, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CharRefItem, CharRefType, VibeItem } from '@shared/types'
 import { cn } from '../lib/utils'
+import { droppedImagePaths, hasImageDrop } from '../lib/image-drag'
+import { isLeavingDropZone, useDragEndCleanup } from '../lib/drop-zone'
 import { buildDisplayRows } from '../lib/folder-list'
 import { CHARREF_TYPES, refsStoreFor } from '../stores/refs-store'
 import { askText } from '../stores/dialog-store'
+import { toast } from '../stores/toast-store'
 import { FolderListView } from './folder-list-view'
 import { Button } from './ui/button'
 import { ContextMenuItem, ContextMenuSeparator } from './ui/context-menu'
@@ -24,6 +27,7 @@ export function RefOverlay({ kind }: { kind: 'vibe' | 'charref' }): React.JSX.El
   const folders = store((s) => s.folders)
   const items = store((s) => s.items)
   const add = store((s) => s.add)
+  const addPaths = store((s) => s.addPaths)
   const update = store((s) => s.update)
   const remove = store((s) => s.remove)
   const createFolder = store((s) => s.createFolder)
@@ -36,6 +40,20 @@ export function RefOverlay({ kind }: { kind: 'vibe' | 'charref' }): React.JSX.El
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [preview, setPreview] = useState<{ src: string; top: number; left: number } | null>(null)
+  const [dropOver, setDropOver] = useState(false)
+  const clearDrop = useCallback(() => setDropOver(false), [])
+  useDragEndCleanup(clearDrop)
+
+  const onDropImages = async (e: React.DragEvent): Promise<void> => {
+    if (!hasImageDrop(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    setDropOver(false)
+    const paths = droppedImagePaths(e)
+    const count = await addPaths(paths, null)
+    if (count > 0) toast(`레퍼런스 ${count}장 추가됨`, 'success')
+    else toast('추가할 수 있는 이미지가 없습니다', 'info')
+  }
 
   const searching = search.trim().length > 0
   const rows = useMemo(() => {
@@ -138,7 +156,36 @@ export function RefOverlay({ kind }: { kind: 'vibe' | 'charref' }): React.JSX.El
   }
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div
+      className={cn(
+        'relative flex h-full flex-col gap-2 rounded-lg transition-shadow',
+        dropOver && 'ring-2 ring-accent ring-inset'
+      )}
+      onDragEnter={(e) => {
+        if (hasImageDrop(e)) {
+          e.preventDefault()
+          setDropOver(true)
+        }
+      }}
+      onDragOver={(e) => {
+        if (hasImageDrop(e)) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+          setDropOver(true)
+        }
+      }}
+      onDragLeave={(e) => {
+        if (isLeavingDropZone(e)) setDropOver(false)
+      }}
+      onDrop={(e) => void onDropImages(e)}
+    >
+      {dropOver && (
+        <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center rounded-lg bg-accent/10 backdrop-blur-[1px]">
+          <div className="rounded-lg border border-accent bg-paper/95 px-4 py-2 text-[12.5px] font-medium text-accent shadow-lg">
+            놓아서 레퍼런스에 추가
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Button size="icon" variant="ghost" className="h-7 w-7" title="닫기" onClick={() => setOverlayOpen(false)}>
           <X size={15} />

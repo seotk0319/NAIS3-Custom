@@ -407,33 +407,42 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
               />
             </label>
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="shrink-0 gap-1 text-danger hover:text-danger"
-            disabled={images.length === 0}
-            onClick={() => void deleteUnselected()}
-          >
-            <Trash2 size={14} /> 선별 외 삭제
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="shrink-0 gap-1"
-            disabled={images.length === 0}
-            onClick={() => void deleteAndNext()}
-          >
-            <Trash2 size={14} /> 삭제 후 다음 씬
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="shrink-0"
-            onClick={onClose}
-            aria-label="닫기"
-          >
-            <X size={16} />
-          </Button>
+          <div className="no-drag relative z-10 flex shrink-0 items-center gap-1 pointer-events-auto">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="no-drag h-9 min-w-28 shrink-0 cursor-pointer gap-1.5 px-3 pointer-events-auto text-danger hover:text-danger"
+              disabled={images.length === 0}
+              onClick={() => void deleteUnselected()}
+              data-testid="curation-delete-unselected"
+            >
+              <Trash2 size={14} className="pointer-events-none" aria-hidden="true" />
+              <span className="pointer-events-none">선별 외 삭제</span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="no-drag h-9 min-w-32 shrink-0 cursor-pointer gap-1.5 px-3 pointer-events-auto"
+              disabled={images.length === 0}
+              onClick={() => void deleteAndNext()}
+              data-testid="curation-delete-and-next"
+            >
+              <Trash2 size={14} className="pointer-events-none" aria-hidden="true" />
+              <span className="pointer-events-none">삭제 후 다음 씬</span>
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="no-drag shrink-0 cursor-pointer pointer-events-auto"
+              onClick={onClose}
+              aria-label="닫기"
+            >
+              <X size={16} className="pointer-events-none" aria-hidden="true" />
+            </Button>
+          </div>
         </div>
 
         {/* 본문 — 기준 그림과 후보 이미지 패널은 같은 폭, 우측 목록은 좁게 */}

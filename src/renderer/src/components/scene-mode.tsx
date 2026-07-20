@@ -323,6 +323,10 @@ function SceneGrid(): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface">
+      {curationOpen ? (
+        <SceneCuration onClose={() => setCurationOpen(false)} />
+      ) : (
+        <>
       {/* 툴바 — 한 행: 프리셋 드롭다운 + 아이콘(툴팁) */}
       <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
         <IconBtn
@@ -520,7 +524,8 @@ function SceneGrid(): React.JSX.Element {
           </p>
         )}
       </div>
-      {curationOpen && <SceneCuration onClose={() => setCurationOpen(false)} />}
+        </>
+      )}
     </div>
   )
 }

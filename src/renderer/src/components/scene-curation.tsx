@@ -338,347 +338,343 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
   // (JSX는 아래) — InpaintPanel은 파일 하단 참조
 
   return (
-    // no-drag: 커스텀 타이틀바의 창 드래그 영역과 겹치는 상단부에서도 클릭이 먹게 한다
-    <div className="no-drag fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col bg-black/60 p-3 backdrop-blur-sm">
+    // 타이틀바와 다른 일반 콘텐츠 흐름에서 렌더링한다. 뷰포트 fixed/portal 및 별도 drag
+    // 영역을 사용하지 않아 Chromium DOM 좌표와 Windows 네이티브 hit-test 좌표를 일치시킨다.
+    <div className="no-drag flex min-h-0 flex-1 flex-col bg-black/60 p-3 backdrop-blur-sm">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-2xl">
-        {/* 헤더 — 제목 + 레퍼 설정 행(한 줄 유지, 좁으면 줄바꿈) + 선별 외 삭제 + 닫기 */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-3 py-2">
-          <div className="flex shrink-0 items-center gap-2">
-            <ListChecks size={16} className="text-accent" />
-            <h2 className="text-[14px] font-semibold">선별 작업</h2>
-          </div>
-          <div className="h-5 w-px shrink-0 bg-line" />
-          <div
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5"
-            data-testid="scene-curation-reference-settings"
-          >
-            <label className="flex shrink-0 items-center gap-1.5 text-[12px]">
-              <Switch checked={applyRef} onCheckedChange={setApplyRef} />
-              레퍼런스 적용
-            </label>
-            <span
-              className="max-w-44 truncate rounded-md bg-surface-2 px-2 py-0.5 text-[11.5px] text-muted"
-              title={reference?.sceneName}
+          {/* 헤더 — 제목 + 레퍼 설정 행(한 줄 유지, 좁으면 줄바꿈) + 선별 외 삭제 + 닫기 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2">
+              <ListChecks size={16} className="text-accent" />
+              <h2 className="text-[14px] font-semibold">선별 작업</h2>
+            </div>
+            <div className="h-5 w-px shrink-0 bg-line" />
+            <div
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5"
+              data-testid="scene-curation-reference-settings"
             >
-              {reference ? reference.sceneName : '기준 없음'}
-            </span>
-            <Select value={refType} onValueChange={(v) => setRefType(v as CharRefType)}>
-              <SelectTrigger className="h-7 w-36 text-[12px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {REF_TYPE_LABELS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <label className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted">
-              강도
-              <Input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                className="h-7 w-16 text-[12px]"
-                value={refStrength}
-                onChange={(e) => setRefStrength(e.target.value)}
-                onBlur={() => {
-                  const p = parse01(refStrength)
-                  if (p !== null) setRefStrength(String(p))
-                }}
-              />
-            </label>
-            <label className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted">
-              충실도
-              <Input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                className="h-7 w-16 text-[12px]"
-                value={refFidelity}
-                onChange={(e) => setRefFidelity(e.target.value)}
-                onBlur={() => {
-                  const p = parse01(refFidelity)
-                  if (p !== null) setRefFidelity(String(p))
-                }}
-              />
-            </label>
-          </div>
-          <div className="no-drag relative z-10 flex shrink-0 items-center gap-1 pointer-events-auto">
+              <label className="flex shrink-0 items-center gap-1.5 text-[12px]">
+                <Switch checked={applyRef} onCheckedChange={setApplyRef} />
+                레퍼런스 적용
+              </label>
+              <span
+                className="max-w-44 truncate rounded-md bg-surface-2 px-2 py-0.5 text-[11.5px] text-muted"
+                title={reference?.sceneName}
+              >
+                {reference ? reference.sceneName : '기준 없음'}
+              </span>
+              <Select value={refType} onValueChange={(v) => setRefType(v as CharRefType)}>
+                <SelectTrigger className="h-7 w-36 text-[12px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REF_TYPE_LABELS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <label className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted">
+                강도
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  className="h-7 w-16 text-[12px]"
+                  value={refStrength}
+                  onChange={(e) => setRefStrength(e.target.value)}
+                  onBlur={() => {
+                    const p = parse01(refStrength)
+                    if (p !== null) setRefStrength(String(p))
+                  }}
+                />
+              </label>
+              <label className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted">
+                충실도
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  className="h-7 w-16 text-[12px]"
+                  value={refFidelity}
+                  onChange={(e) => setRefFidelity(e.target.value)}
+                  onBlur={() => {
+                    const p = parse01(refFidelity)
+                    if (p !== null) setRefFidelity(String(p))
+                  }}
+                />
+              </label>
+            </div>
             <Button
-              type="button"
               size="sm"
               variant="ghost"
-              className="no-drag h-9 min-w-28 shrink-0 cursor-pointer gap-1.5 px-3 pointer-events-auto text-danger hover:text-danger"
+              className="shrink-0 gap-1 text-danger hover:text-danger"
               disabled={images.length === 0}
               onClick={() => void deleteUnselected()}
-              data-testid="curation-delete-unselected"
             >
-              <Trash2 size={14} className="pointer-events-none" aria-hidden="true" />
-              <span className="pointer-events-none">선별 외 삭제</span>
+              <Trash2 size={14} /> 선별 외 삭제
             </Button>
             <Button
-              type="button"
               size="sm"
               variant="ghost"
-              className="no-drag h-9 min-w-32 shrink-0 cursor-pointer gap-1.5 px-3 pointer-events-auto"
+              className="shrink-0 gap-1"
               disabled={images.length === 0}
               onClick={() => void deleteAndNext()}
-              data-testid="curation-delete-and-next"
             >
-              <Trash2 size={14} className="pointer-events-none" aria-hidden="true" />
-              <span className="pointer-events-none">삭제 후 다음 씬</span>
+              <Trash2 size={14} /> 삭제 후 다음 씬
             </Button>
             <Button
-              type="button"
               size="icon"
               variant="ghost"
-              className="no-drag shrink-0 cursor-pointer pointer-events-auto"
+              className="shrink-0"
               onClick={onClose}
               aria-label="닫기"
             >
-              <X size={16} className="pointer-events-none" aria-hidden="true" />
+              <X size={16} />
             </Button>
           </div>
-        </div>
 
-        {/* 본문 — 기준 그림과 후보 이미지 패널은 같은 폭, 우측 목록은 좁게 */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[minmax(360px,1fr)_minmax(360px,1fr)_minmax(260px,0.55fr)] lg:overflow-hidden">
-          {/* 좌: 기준 그림 */}
-          <div
-            className={cn(
-              'flex min-h-64 flex-col overflow-hidden rounded-lg border bg-surface lg:min-h-0',
-              refDragOver ? 'border-accent' : 'border-line'
-            )}
-            onDragOver={(e) => {
-              if (e.dataTransfer.types.includes(DRAG_MIME)) {
-                e.preventDefault()
-                setRefDragOver(true)
-              }
-            }}
-            onDragLeave={() => setRefDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setRefDragOver(false)
-              try {
-                const data = JSON.parse(e.dataTransfer.getData(DRAG_MIME)) as ReferenceSelection
-                if (data?.filePath) setReference(data)
-              } catch {
-                // 형식이 다른 드롭은 무시
-              }
-            }}
-          >
-            <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-              <span className="text-[12.5px] font-medium">기준 그림</span>
-              {reference && (
-                <button
-                  className="ml-auto grid size-5 place-items-center rounded text-faint hover:text-danger"
-                  onClick={() => setReference(null)}
-                  title="기준 해제"
-                >
-                  <X size={12} />
-                </button>
+          {/* 본문 — 기준 그림과 후보 이미지 패널은 같은 폭, 우측 목록은 좁게 */}
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[minmax(360px,1fr)_minmax(360px,1fr)_minmax(260px,0.55fr)] lg:overflow-hidden">
+            {/* 좌: 기준 그림 */}
+            <div
+              className={cn(
+                'flex min-h-64 flex-col overflow-hidden rounded-lg border bg-surface lg:min-h-0',
+                refDragOver ? 'border-accent' : 'border-line'
               )}
-            </div>
-            {reference ? (
-              <div className="relative min-h-0 flex-1">
-                <img
-                  src={imageUrl(reference.filePath)}
-                  className="absolute inset-0 h-full w-full object-contain p-2"
-                  draggable={false}
-                  alt=""
-                />
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes(DRAG_MIME)) {
+                  e.preventDefault()
+                  setRefDragOver(true)
+                }
+              }}
+              onDragLeave={() => setRefDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setRefDragOver(false)
+                try {
+                  const data = JSON.parse(e.dataTransfer.getData(DRAG_MIME)) as ReferenceSelection
+                  if (data?.filePath) setReference(data)
+                } catch {
+                  // 형식이 다른 드롭은 무시
+                }
+              }}
+            >
+              <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+                <span className="text-[12.5px] font-medium">기준 그림</span>
+                {reference && (
+                  <button
+                    className="ml-auto grid size-5 place-items-center rounded text-faint hover:text-danger"
+                    onClick={() => setReference(null)}
+                    title="기준 해제"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
               </div>
-            ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-faint">
-                <ImagePlus size={30} strokeWidth={1.3} className="opacity-50" />
-                <p className="text-center text-[12px]">
-                  우측 이미지 목록에서 끌어다 놓거나
-                  <br />
-                  더블클릭으로 기준 지정
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* 중앙: 현재 이미지 / 내장 인페인트 */}
-          <div className="flex min-h-80 flex-col overflow-hidden rounded-lg border border-line bg-surface lg:min-h-0">
-            {job ? (
-              <div className="relative min-h-0 flex-1">
-                {jobPreview ? (
+              {reference ? (
+                <div className="relative min-h-0 flex-1">
                   <img
-                    src={`data:image/png;base64,${jobPreview}`}
+                    src={imageUrl(reference.filePath)}
                     className="absolute inset-0 h-full w-full object-contain p-2"
                     draggable={false}
                     alt=""
                   />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-muted">
-                    <Loader2 size={30} className="animate-spin" />
-                  </div>
-                )}
-                <span className="absolute left-2 top-2 rounded-full bg-accent px-2.5 py-1 text-[11.5px] font-medium text-white shadow">
-                  인페인트 생성 중
-                  {jobProgress ? ` ${jobProgress.stepIx}/${jobProgress.totalSteps}` : '…'}
-                </span>
-              </div>
-            ) : inpaint && scene ? (
-              <InpaintPanel
-                target={inpaint}
-                onCancel={() => setInpaint(null)}
-                onGenerate={generateInpaint}
-              />
-            ) : current ? (
-              <>
-                <ContextMenu>
-                  <ContextMenuTrigger asChild>
-                    <div className="relative min-h-0 flex-1">
-                      <img
-                        src={imageUrl(current.filePath)}
-                        className="absolute inset-0 h-full w-full object-contain p-2"
-                        draggable={false}
-                        alt=""
-                      />
-                      <Button
-                        size="sm"
-                        variant={current.favorite ? 'accent' : 'default'}
-                        className="absolute left-2 top-2 gap-1 shadow"
-                        onClick={() => void toggleFavorite(current)}
-                      >
-                        <Star size={14} fill={current.favorite ? 'currentColor' : 'none'} />
-                        {current.favorite ? '선별됨' : '선별'}
-                      </Button>
-                      {inpaintLoading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
-                          <Loader2 size={26} className="animate-spin" />
-                        </div>
-                      )}
-                    </div>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    <ContextMenuItem onSelect={() => void startInpaint()}>
-                      <Layers size={13} className="text-pink-400" /> 인페인트
-                    </ContextMenuItem>
-                    <ContextMenuItem onSelect={() => void showMeta({ filePath: current.filePath })}>
-                      <FileText size={13} className="text-sky-400" /> 메타데이터 확인
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
-                <div className="flex shrink-0 items-center justify-center gap-2 border-t border-line py-1.5">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    disabled={index === 0}
-                    onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                    aria-label="이전 이미지"
-                  >
-                    <ChevronLeft size={16} />
-                  </Button>
-                  <span className="min-w-16 text-center font-mono text-[12px] text-muted">
-                    {index + 1} / {images.length}
-                  </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    disabled={index >= images.length - 1}
-                    onClick={() => setIndex((i) => Math.min(images.length - 1, i + 1))}
-                    aria-label="다음 이미지"
-                  >
-                    <ChevronRight size={16} />
-                  </Button>
                 </div>
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-[13px] text-faint">
-                {loading ? '불러오는 중…' : '이 씬에는 생성된 이미지가 없습니다'}
-              </div>
-            )}
-          </div>
-
-          {/* 우: 씬 목록 + 이미지 목록 */}
-          <div className="flex min-h-96 flex-col gap-3 lg:min-h-0">
-            <div className="flex max-h-[38%] min-h-28 flex-col overflow-hidden rounded-lg border border-line bg-surface">
-              <div className="border-b border-line px-3 py-2 text-[12.5px] font-medium">
-                씬 목록
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-1">
-                {scenes.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setSceneId(s.id)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-surface-2',
-                      s.id === sceneId && 'bg-surface-2 font-semibold text-accent'
-                    )}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                    <span className="shrink-0 font-mono text-[11px] text-faint">
-                      {s.imageCount}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-faint">
+                  <ImagePlus size={30} strokeWidth={1.3} className="opacity-50" />
+                  <p className="text-center text-[12px]">
+                    우측 이미지 목록에서 끌어다 놓거나
+                    <br />
+                    더블클릭으로 기준 지정
+                  </p>
+                </div>
+              )}
             </div>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-surface">
-              <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-                <span className="text-[12.5px] font-medium">이미지 목록</span>
-                <span className="ml-auto text-[11px] text-faint">
-                  선별 {images.filter((i) => i.favorite).length} / {images.length}
-                </span>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                <div className="grid grid-cols-3 gap-1.5">
-                  {images.map((img, i) => (
+
+            {/* 중앙: 현재 이미지 / 내장 인페인트 */}
+            <div className="flex min-h-80 flex-col overflow-hidden rounded-lg border border-line bg-surface lg:min-h-0">
+              {job ? (
+                <div className="relative min-h-0 flex-1">
+                  {jobPreview ? (
+                    <img
+                      src={`data:image/png;base64,${jobPreview}`}
+                      className="absolute inset-0 h-full w-full object-contain p-2"
+                      draggable={false}
+                      alt=""
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-muted">
+                      <Loader2 size={30} className="animate-spin" />
+                    </div>
+                  )}
+                  <span className="absolute left-2 top-2 rounded-full bg-accent px-2.5 py-1 text-[11.5px] font-medium text-white shadow">
+                    인페인트 생성 중
+                    {jobProgress ? ` ${jobProgress.stepIx}/${jobProgress.totalSteps}` : '…'}
+                  </span>
+                </div>
+              ) : inpaint && scene ? (
+                <InpaintPanel
+                  target={inpaint}
+                  onCancel={() => setInpaint(null)}
+                  onGenerate={generateInpaint}
+                />
+              ) : current ? (
+                <>
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div className="relative min-h-0 flex-1">
+                        <img
+                          src={imageUrl(current.filePath)}
+                          className="absolute inset-0 h-full w-full object-contain p-2"
+                          draggable={false}
+                          alt=""
+                        />
+                        <Button
+                          size="sm"
+                          variant={current.favorite ? 'accent' : 'default'}
+                          className="absolute left-2 top-2 gap-1 shadow"
+                          onClick={() => void toggleFavorite(current)}
+                        >
+                          <Star size={14} fill={current.favorite ? 'currentColor' : 'none'} />
+                          {current.favorite ? '선별됨' : '선별'}
+                        </Button>
+                        {inpaintLoading && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                            <Loader2 size={26} className="animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onSelect={() => void startInpaint()}>
+                        <Layers size={13} className="text-pink-400" /> 인페인트
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => void showMeta({ filePath: current.filePath })}
+                      >
+                        <FileText size={13} className="text-sky-400" /> 메타데이터 확인
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                  <div className="flex shrink-0 items-center justify-center gap-2 border-t border-line py-1.5">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      disabled={index === 0}
+                      onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                      aria-label="이전 이미지"
+                    >
+                      <ChevronLeft size={16} />
+                    </Button>
+                    <span className="min-w-16 text-center font-mono text-[12px] text-muted">
+                      {index + 1} / {images.length}
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      disabled={index >= images.length - 1}
+                      onClick={() => setIndex((i) => Math.min(images.length - 1, i + 1))}
+                      aria-label="다음 이미지"
+                    >
+                      <ChevronRight size={16} />
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-1 items-center justify-center text-[13px] text-faint">
+                  {loading ? '불러오는 중…' : '이 씬에는 생성된 이미지가 없습니다'}
+                </div>
+              )}
+            </div>
+
+            {/* 우: 씬 목록 + 이미지 목록 */}
+            <div className="flex min-h-96 flex-col gap-3 lg:min-h-0">
+              <div className="flex max-h-[38%] min-h-28 flex-col overflow-hidden rounded-lg border border-line bg-surface">
+                <div className="border-b border-line px-3 py-2 text-[12.5px] font-medium">
+                  씬 목록
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                  {scenes.map((s) => (
                     <button
-                      key={img.id}
-                      draggable
-                      onDragStart={(e) => {
-                        setImagePathDrag(e, img.filePath)
-                        e.dataTransfer.effectAllowed = 'copy'
-                        e.dataTransfer.setData(
-                          DRAG_MIME,
-                          JSON.stringify({ filePath: img.filePath, sceneName: scene?.name ?? '' })
-                        )
-                      }}
-                      onClick={() => setIndex(i)}
-                      onDoubleClick={() =>
-                        setReference({ filePath: img.filePath, sceneName: scene?.name ?? '' })
-                      }
-                      title="클릭: 보기 · 더블클릭: 기준 그림으로 · 드래그: 좌측 기준 영역"
+                      key={s.id}
+                      onClick={() => setSceneId(s.id)}
                       className={cn(
-                        'relative aspect-square overflow-hidden rounded-md border transition-colors',
-                        i === index ? 'border-accent' : 'border-transparent hover:border-line',
-                        img.favorite && 'ring-1 ring-amber-400/70'
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-surface-2',
+                        s.id === sceneId && 'bg-surface-2 font-semibold text-accent'
                       )}
                     >
-                      <img
-                        src={
-                          img.thumbnail
-                            ? `data:image/webp;base64,${img.thumbnail}`
-                            : imageUrl(img.filePath)
-                        }
-                        className="h-full w-full object-cover"
-                        draggable={false}
-                        loading="lazy"
-                        alt=""
-                      />
-                      {img.favorite && (
-                        <Star
-                          size={11}
-                          className="absolute left-1 top-1 fill-amber-400 text-amber-400 drop-shadow"
-                        />
-                      )}
+                      <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                      <span className="shrink-0 font-mono text-[11px] text-faint">
+                        {s.imageCount}
+                      </span>
                     </button>
                   ))}
                 </div>
-                {loading && <p className="py-2 text-center text-[11px] text-faint">불러오는 중…</p>}
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-surface">
+                <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+                  <span className="text-[12.5px] font-medium">이미지 목록</span>
+                  <span className="ml-auto text-[11px] text-faint">
+                    선별 {images.filter((i) => i.favorite).length} / {images.length}
+                  </span>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {images.map((img, i) => (
+                      <button
+                        key={img.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setImagePathDrag(e, img.filePath)
+                          e.dataTransfer.effectAllowed = 'copy'
+                          e.dataTransfer.setData(
+                            DRAG_MIME,
+                            JSON.stringify({ filePath: img.filePath, sceneName: scene?.name ?? '' })
+                          )
+                        }}
+                        onClick={() => setIndex(i)}
+                        onDoubleClick={() =>
+                          setReference({ filePath: img.filePath, sceneName: scene?.name ?? '' })
+                        }
+                        title="클릭: 보기 · 더블클릭: 기준 그림으로 · 드래그: 좌측 기준 영역"
+                        className={cn(
+                          'relative aspect-square overflow-hidden rounded-md border transition-colors',
+                          i === index ? 'border-accent' : 'border-transparent hover:border-line',
+                          img.favorite && 'ring-1 ring-amber-400/70'
+                        )}
+                      >
+                        <img
+                          src={
+                            img.thumbnail
+                              ? `data:image/webp;base64,${img.thumbnail}`
+                              : imageUrl(img.filePath)
+                          }
+                          className="h-full w-full object-cover"
+                          draggable={false}
+                          loading="lazy"
+                          alt=""
+                        />
+                        {img.favorite && (
+                          <Star
+                            size={11}
+                            className="absolute left-1 top-1 fill-amber-400 text-amber-400 drop-shadow"
+                          />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {loading && (
+                    <p className="py-2 text-center text-[11px] text-faint">불러오는 중…</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
       </div>
     </div>
   )

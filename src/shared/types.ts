@@ -273,6 +273,8 @@ export interface ScenePreset {
   /** 새 씬 기본 해상도 (null = 832×1216) */
   defaultWidth: number | null
   defaultHeight: number | null
+  /** 바인드된 캐릭터 카드 id들 — 이 프리셋 생성 시 사이드바 대신 이 캐릭터들로 교체 (null = 바인드 없음) */
+  characterIds: number[] | null
 }
 
 /** 프리셋에 함께 저장되는 생성 파라미터 (시드·캐릭터는 제외) */
@@ -495,6 +497,11 @@ export interface IpcInvokeMap {
   }
   /** 활성 씬 프리셋의 이미지 폴더를 만들고 연다. */
   'scenePresets:openFolder': { req: { id: number }; res: { ok: boolean } }
+  /** 프리셋 캐릭터 바인드 — null = 해제 (사이드바 캐릭터 사용) */
+  'scenePresets:setCharacters': {
+    req: { id: number; characterIds: number[] | null }
+    res: void
+  }
   'promptPresets:reorder': { req: { ids: number[] }; res: void }
   'promptPresets:list': { req: void; res: { items: PromptPreset[] } }
   'promptPresets:create': {
@@ -587,6 +594,7 @@ export interface IpcInvokeMap {
     res: void
   }
   'vibes:delete': { req: { id: number }; res: void }
+  'vibes:duplicate': { req: { id: number }; res: { id: number } }
   'vibes:reorder': { req: { order: CharacterOrderEntry[] }; res: void }
   'vibes:folderCreate': { req: { name: string }; res: { id: number } }
   'vibes:folderRename': { req: { id: number; name: string }; res: void }
@@ -607,6 +615,7 @@ export interface IpcInvokeMap {
     res: void
   }
   'crefs:delete': { req: { id: number }; res: void }
+  'crefs:duplicate': { req: { id: number }; res: { id: number } }
   'crefs:reorder': { req: { order: CharacterOrderEntry[] }; res: void }
   'crefs:folderCreate': { req: { name: string }; res: { id: number } }
   'crefs:folderRename': { req: { id: number; name: string }; res: void }

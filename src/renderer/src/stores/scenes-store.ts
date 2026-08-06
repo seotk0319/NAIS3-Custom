@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { recordNav } from '../lib/nav-history'
 import type { GenerationRequest, Scene, SceneImage, ScenePreset } from '@shared/types'
 import { removeComments } from '@shared/nai-presets'
-import { enabledCharacters } from './characters-store'
+import { enabledCharacters, useCharactersStore } from './characters-store'
 import { randomSeed, useGenerationStore } from './generation-store'
 
 const PAGE = 80 // 씬 상세 이미지 페이지 크기 (수만 장 대비: 한 번에 전부 로드 금지)
@@ -78,6 +78,10 @@ interface ScenesState {
 
   /** 예약된 씬들을 예약 수만큼 큐에 넣는다 (메인 생성 버튼이 씬 모드에서 호출) */
   generateReserved: () => Promise<void>
+  /** 모든 프리셋의 예약을 프리셋 순서대로 순차 실행 (프리셋별 캐릭터 바인드 적용). 큐에 넣은 장수 반환 */
+  generateAllReserved: () => Promise<number>
+  /** 프리셋 캐릭터 바인드 (null = 해제) */
+  setPresetCharacters: (id: number, characterIds: number[] | null) => Promise<void>
   /** 이 씬 1장 바로 생성 (예약 없이 — NAIS2식 즉석 생성) */
   generateOne: (sceneId: number) => Promise<void>
 }
@@ -92,17 +96,33 @@ export function appendPrompt(base: string, add: string): string {
 }
 
 /**
+ * 프리셋에 바인드된 캐릭터 카드 해석 — 바인드가 있으면 그 카드들(enabled 무시),
+ * 없으면 사이드바에서 켜둔 캐릭터. 삭제된 카드 id는 건너뛴다.
+ */
+function resolveCharacters(
+  boundIds: number[] | null | undefined
+): ReturnType<typeof enabledCharacters> {
+  if (!boundIds || boundIds.length === 0) return enabledCharacters()
+  const byId = new Map(useCharactersStore.getState().items.map((c) => [c.id, c]))
+  return boundIds.map((id) => byId.get(id)).filter((c) => c != null)
+}
+
+/**
  * 씬 → 생성 요청. 사이드바의 모든 것(기본/네거 프롬프트·캐릭터·조각·바이브·레퍼런스·
  * 파라미터)을 그대로 쓰고, 씬 프롬프트는 기본/네거 프롬프트 "뒤에 이어붙인다".
  * 해상도만 씬 것을 사용 (소스가 있으면 소스 해상도가 우선). 바이브/레퍼런스/조각은
  * 메인 프로세스가 DB·와일드카드에서 읽어 적용하므로 여기선 프롬프트·캐릭터·파라미터만 구성.
+ * 프리셋에 캐릭터 바인드가 있으면 사이드바 캐릭터 대신 그 캐릭터들로 교체.
  */
-export function buildSceneRequest(scene: Scene): GenerationRequest {
+export function buildSceneRequest(
+  scene: Scene,
+  boundCharacterIds?: number[] | null
+): GenerationRequest {
   const base = useGenerationStore.getState().request
   const src = useGenerationStore.getState().source
   // 3분할 꺼진 상태면 promptParts를 요청/메타데이터에 싣지 않는다
   const splitEnabled = useGenerationStore.getState().promptSplitEnabled
-  const characterPrompts = enabledCharacters().map((c) => ({
+  const characterPrompts = resolveCharacters(boundCharacterIds).map((c) => ({
     prompt: c.prompt,
     negativePrompt: c.negativePrompt,
     center: c.center,
@@ -422,20 +442,11 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
   },
 
   generateReserved: async () => {
+    const preset = get().presets.find((p) => p.id === get().activePresetId)
     const reserved = get().scenes.filter((s) => s.reserveCount > 0)
     if (reserved.length === 0) return
-    // 모든 예약 장수를 한 배열로 모아 "한 번에" 큐에 넣는다. 항목마다 IPC를 왕복하며
-    // 순차로 차오르지 않으므로, 생성 중 취소 1번으로 전부 정리되고 나머지가 이어붙지 않는다.
-    const requests: GenerationRequest[] = []
-    let offset = 0
-    for (const scene of reserved) {
-      const req = buildSceneRequest(scene)
-      for (let i = 0; i < scene.reserveCount; i++) {
-        requests.push({ ...req, seed: sceneSeed(offset++) })
-      }
-    }
+    const requests = buildReservedRequests(reserved, preset?.characterIds ?? null)
     await window.nais.invoke('queue:enqueueMany', { requests })
-    // 큐 등록 성공 뒤에만 예약을 소진한다. 요청 구성/IPC 실패 시 예약은 그대로 남는다.
     set({ scenes: get().scenes.map((s) => (s.reserveCount > 0 ? { ...s, reserveCount: 0 } : s)) })
     await window.nais.invoke('scenes:setReserveAll', {
       presetId: get().activePresetId,
@@ -443,15 +454,62 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     })
   },
 
+  generateAllReserved: async () => {
+    const requests: GenerationRequest[] = []
+    const consumedPresetIds: number[] = []
+    for (const preset of get().presets) {
+      const { items } = await window.nais.invoke('scenes:list', { presetId: preset.id })
+      const reserved = items.filter((s) => s.reserveCount > 0)
+      if (reserved.length === 0) continue
+      requests.push(...buildReservedRequests(reserved, preset.characterIds))
+      consumedPresetIds.push(preset.id)
+    }
+    if (requests.length === 0) return 0
+    await window.nais.invoke('queue:enqueueMany', { requests })
+    await Promise.all(
+      consumedPresetIds.map((presetId) =>
+        window.nais.invoke('scenes:setReserveAll', { presetId, count: 0 })
+      )
+    )
+    if (consumedPresetIds.includes(get().activePresetId)) {
+      set({ scenes: get().scenes.map((s) => (s.reserveCount > 0 ? { ...s, reserveCount: 0 } : s)) })
+    }
+    return requests.length
+  },
+
+  setPresetCharacters: async (id, characterIds) => {
+    const normalized = characterIds && characterIds.length > 0 ? characterIds : null
+    set({
+      presets: get().presets.map((p) => (p.id === id ? { ...p, characterIds: normalized } : p))
+    })
+    await window.nais.invoke('scenePresets:setCharacters', { id, characterIds: normalized })
+  },
+
   generateOne: async (sceneId) => {
     const scene = get().scenes.find((s) => s.id === sceneId)
     if (!scene) return
+    const preset = get().presets.find((p) => p.id === get().activePresetId)
     await window.nais.invoke('queue:enqueue', {
-      request: { ...buildSceneRequest(scene), seed: sceneSeed(0) },
+      request: { ...buildSceneRequest(scene, preset?.characterIds ?? null), seed: sceneSeed(0) },
       count: 1
     })
   }
 }))
+
+/** 예약된 씬들을 큐에 — 시드 고정 시 모든 씬이 같은 base 시드 (같은 씬 반복만 +i로 동일 그림 방지) */
+function buildReservedRequests(
+  scenes: Scene[],
+  characterIds: number[] | null
+): GenerationRequest[] {
+  const requests: GenerationRequest[] = []
+  for (const scene of scenes) {
+    const request = buildSceneRequest(scene, characterIds)
+    for (let i = 0; i < scene.reserveCount; i++) {
+      requests.push({ ...request, seed: sceneSeed(i) })
+    }
+  }
+  return requests
+}
 
 /** 씬 생성 시드 — 시드 고정을 존중 (고정이면 base+offset, 아니면 랜덤) */
 function sceneSeed(offset: number): number {

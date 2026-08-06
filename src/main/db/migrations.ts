@@ -397,6 +397,13 @@ export const migrations: ((db: Database.Database) => void)[] = [
       CREATE INDEX idx_images_library_folder ON images(library_folder_id, id DESC);
       CREATE INDEX idx_library_stacks_folder ON library_stacks(folder_id, id DESC);
     `)
+  },
+
+  // v17: 씬 프리셋 캐릭터 바인드 (기존 Custom DB에는 3분할 열이 이미 존재한다).
+  (db) => {
+    if (!hasColumn(db, 'scene_presets', 'character_ids')) {
+      db.exec(`ALTER TABLE scene_presets ADD COLUMN character_ids TEXT;`)
+    }
   }
 ]
 

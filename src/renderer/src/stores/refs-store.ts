@@ -19,6 +19,7 @@ interface RefsState<T extends { id: number; folderId: number | null }> {
   addPaths: (filePaths: string[], folderId: number | null) => Promise<number>
   update: (id: number, patch: Record<string, unknown>) => void
   remove: (id: number) => void
+  duplicate: (id: number) => Promise<void>
   createFolder: (name: string) => Promise<void>
   renameFolder: (id: number, name: string) => void
   toggleCollapse: (id: number) => void
@@ -36,6 +37,7 @@ function makeRefsStore<T extends { id: number; folderId: number | null }>(
     addPaths: `${ns}:addPaths`,
     update: `${ns}:update`,
     delete: `${ns}:delete`,
+    duplicate: `${ns}:duplicate`,
     reorder: `${ns}:reorder`,
     folderCreate: `${ns}:folderCreate`,
     folderRename: `${ns}:folderRename`,
@@ -81,7 +83,14 @@ function makeRefsStore<T extends { id: number; folderId: number | null }>(
       set({ items: get().items.map((c) => (c.id === id ? { ...c, ...patch } : c)) })
       pendingPatch.set(id, { ...(pendingPatch.get(id) ?? {}), ...patch })
       clearTimeout(patchTimers.get(id))
-      patchTimers.set(id, setTimeout(() => flushPatch(id), 250))
+      patchTimers.set(
+        id,
+        setTimeout(() => flushPatch(id), 250)
+      )
+    },
+    duplicate: async (id) => {
+      await window.nais.invoke(ch.duplicate, { id })
+      await get().load()
     },
     remove: (id) => {
       clearTimeout(patchTimers.get(id))

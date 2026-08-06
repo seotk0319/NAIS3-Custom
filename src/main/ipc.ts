@@ -25,6 +25,7 @@ import {
   updateCharacter
 } from './characters/repo'
 import { getDbPath, getDb } from './db'
+import { analyzeArtists } from './images/artists'
 import { metadataFromPng, metadataFromPayloadJson } from './images/metadata'
 import {
   createFragment,
@@ -571,6 +572,23 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
         return { error: '메타데이터를 찾지 못했습니다' }
       }
       return { error: '입력이 없습니다' }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  handle('images:analyzeArtists', async ({ filePath, base64 }) => {
+    try {
+      let buf: Buffer | null = null
+      if (base64) {
+        buf = Buffer.from(base64.replace(/^data:[^,]+,/, ''), 'base64')
+      } else if (filePath) {
+        buf = readFileSync(filePath)
+      }
+      if (!buf) return { error: '입력이 없습니다' }
+      const tags = await analyzeArtists(buf)
+      if (tags.length === 0) return { error: '작가 태그를 찾지 못했습니다' }
+      return { tags }
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
     }

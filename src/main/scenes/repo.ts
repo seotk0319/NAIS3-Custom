@@ -257,6 +257,14 @@ export function adjustReserveAll(presetId: number, delta: number, ids?: number[]
   }
 }
 
+/** 모든 프리셋의 예약 총합 */
+export function reservedTotal(): number {
+  const row = getDb()
+    .prepare('SELECT COALESCE(SUM(reserve_count), 0) AS t FROM gen_scenes')
+    .get() as { t: number }
+  return row.t
+}
+
 // ── 편집 모드 일괄 작업 ──────────────────────────────────
 function placeholders(n: number): string {
   return Array(n).fill('?').join(',')

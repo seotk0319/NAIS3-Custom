@@ -1,4 +1,5 @@
 import type { GenerationRequest, ImageMetadata, UcPresetIndex } from '@shared/types'
+import { NAI_MODEL_V45_FULL, NAI_MODEL_V5_FULL } from '@shared/nai-models'
 
 type MetadataFallbacks = Partial<
   Pick<GenerationRequest, 'steps' | 'cfgScale' | 'cfgRescale' | 'sampler' | 'noiseSchedule'>
@@ -21,8 +22,11 @@ interface RequestFromMetadataInput {
 
 /** NAI PNG Source 청크의 모델 표기 → 생성 모델 id */
 export function modelFromMetadata(name?: string): string {
-  if (!name) return 'nai-diffusion-4-5-full'
+  if (!name) return NAI_MODEL_V45_FULL
   const lower = name.toLowerCase()
+  if (lower.includes('nai-diffusion-5') || lower.includes('v5') || lower.includes('diffusion 5')) {
+    return lower.includes('curated') ? 'nai-diffusion-5-curated' : NAI_MODEL_V5_FULL
+  }
   if (lower.includes('4.5') || lower.includes('4-5')) {
     return lower.includes('curated') ? 'nai-diffusion-4-5-curated' : 'nai-diffusion-4-5-full'
   }
@@ -31,7 +35,7 @@ export function modelFromMetadata(name?: string): string {
     return lower.includes('curated') ? 'nai-diffusion-4-curated-preview' : 'nai-diffusion-4-full'
   }
   if (lower.includes('v3') || lower.includes('3')) return 'nai-diffusion-3'
-  return 'nai-diffusion-4-5-full'
+  return NAI_MODEL_V45_FULL
 }
 
 export function snap64(value: number): number {

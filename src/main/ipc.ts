@@ -120,13 +120,7 @@ import {
   updateRefImage
 } from './refs/repo'
 import { searchTags } from './tags'
-import {
-  imagesRoot,
-  libraryRoot,
-  sceneDir,
-  scenePresetDir,
-  scenesRoot
-} from './images/storage'
+import { imagesRoot, libraryRoot, sceneDir, scenePresetDir, scenesRoot } from './images/storage'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
 import sharp from 'sharp'
@@ -179,10 +173,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
   handle('nai:balance', async () => {
     const token = getNaiToken()
-    if (!token) return { anlas: null, tier: null }
-    const { anlas, tier } = await fetchAnlasBalance(token)
+    if (!token) return { anlas: null, tier: null, v5Usage: null }
+    const { anlas, tier, v5Usage } = await fetchAnlasBalance(token)
     if (anlas !== null) logBalance(anlas)
-    return { anlas, tier }
+    return { anlas, tier, v5Usage }
   })
   handle('nai:anlasUsage', () => anlasUsage())
 
@@ -450,12 +444,14 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   })
 
   handle('tags:search', ({ query, limit }) => ({ items: searchTags(query, limit) }))
-  handle('tokens:count', ({ texts }) => {
+  handle('tokens:count', ({ texts, model }) => {
     // 토큰 수는 실제 전송본 기준 — 조각(<이름>)·주석을 치환/제거한 결과로 센다.
     // rng 고정(항상 첫 줄)이라 결정적이고, peek이라 <*이름> 순차 카운터를 소모하지 않는다.
     const src = fragmentSource()
     return {
-      counts: texts.map((t) => countTokens(processWildcards(removeComments(t), src, () => 0, true)))
+      counts: texts.map((t) =>
+        countTokens(processWildcards(removeComments(t), src, () => 0, true), model)
+      )
     }
   })
 
@@ -612,10 +608,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
         seed: 0,
         kind: 'upscale'
       })
-      void fetchAnlasBalance(token).then(({ anlas }) => {
+      void fetchAnlasBalance(token).then(({ anlas, v5Usage }) => {
         if (anlas !== null) {
           logBalance(anlas)
-          broadcast('anlas:balance', { anlas })
+          broadcast('anlas:balance', { anlas, v5Usage })
         }
       })
       return { filePath: saved.filePath, base64: png.toString('base64') }
@@ -645,10 +641,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
         kind: method // 툴별 kind (bg-removal 등) → 히스토리 뱃지 구분
       })
       // 잔액 갱신 (디렉터 툴도 Anlas 소모, Opus는 소형 무료)
-      void fetchAnlasBalance(token).then(({ anlas }) => {
+      void fetchAnlasBalance(token).then(({ anlas, v5Usage }) => {
         if (anlas !== null) {
           logBalance(anlas)
-          broadcast('anlas:balance', { anlas })
+          broadcast('anlas:balance', { anlas, v5Usage })
         }
       })
       return { filePath: saved.filePath, base64: png.toString('base64') }

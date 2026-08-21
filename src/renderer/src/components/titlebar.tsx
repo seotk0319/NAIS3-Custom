@@ -16,6 +16,7 @@ import { useLayoutStore } from '../stores/layout-store'
 import { useUpdateStore } from '../stores/update-store'
 import { useVibesStore, useCharRefsStore } from '../stores/refs-store'
 import { estimateAnlas } from '@shared/anlas'
+import type { V5UsageStatus } from '@shared/types'
 import { PageNav } from './page-nav'
 import { ThemeToggle } from './theme-toggle'
 
@@ -90,6 +91,41 @@ function AnlasChips({
   )
 }
 
+function formatDuration(seconds: number): string {
+  const value = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(value / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
+  const secs = value % 60
+  if (hours > 0) return `${hours}시간 ${minutes}분 ${secs}초`
+  if (minutes > 0) return `${minutes}분 ${secs}초`
+  return `${secs}초`
+}
+
+/** 공식 웹과 동일하게 V5 잔량·시간당 충전률·완충 예상 시간을 표시한다. */
+function V5UsageChip({ usage }: { usage: V5UsageStatus | null }): React.JSX.Element | null {
+  if (!usage) return null
+  const secondsPerPercent = usage.timeUntilNextPercent
+  const refillRate = secondsPerPercent > 0 ? Math.round((3600 / secondsPerPercent) * 10) / 10 : 0
+  const percentToFull = usage.isNegative ? usage.percent + 100 : 100 - usage.percent
+  const fullIn = percentToFull * secondsPerPercent
+  const refillText = usage.percent >= 100 ? '가득 참' : `+${refillRate}%/h`
+
+  return (
+    <span
+      className="no-drag flex items-center gap-1 rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[11.5px] text-muted"
+      title={`V5 생성 한도 잔량 ${usage.percent}%\n${
+        usage.percent >= 100
+          ? '충전 완료'
+          : `충전 속도 ${refillRate}%/시간 · 1%당 ${formatDuration(secondsPerPercent)}\n100%까지 약 ${formatDuration(fullIn)}`
+      }\nNovelAI 서버가 제공하는 비율이며 정확한 장당 소모율은 공개되지 않습니다.`}
+    >
+      <span className="font-semibold text-accent">V5</span>
+      <span>{usage.percent}%</span>
+      <span className="text-faint">· {usage.isNegative ? '제한됨' : refillText}</span>
+    </span>
+  )
+}
+
 function BarButton({
   className,
   active,
@@ -114,6 +150,8 @@ export function Titlebar(): React.JSX.Element {
   const toggleRight = useLayoutStore((s) => s.toggleRight)
   const setSettingsOpen = useLayoutStore((s) => s.setSettingsOpen)
   const anlasBalance = useGenerationStore((s) => s.anlasBalance)
+  const v5Usage = useGenerationStore((s) => s.v5Usage)
+  const refreshAnlas = useGenerationStore((s) => s.refreshAnlas)
   const [profileTitle, setProfileTitle] = useState<string | null>(null)
 
   useEffect(() => {
@@ -144,6 +182,14 @@ export function Titlebar(): React.JSX.Element {
     unencodedVibes
   }).total
 
+  useEffect(() => {
+    if (!v5Usage || v5Usage.percent >= 100) return
+    // timeUntilNextPercent는 카운트다운이 아니라 1%당 초다. 한 주기마다 서버 비율만 새로 읽는다.
+    const refreshInMs = Math.max(60_000, v5Usage.timeUntilNextPercent * 1000)
+    const timer = window.setTimeout(() => void refreshAnlas(), refreshInMs)
+    return () => window.clearTimeout(timer)
+  }, [v5Usage, refreshAnlas])
+
   return (
     <header
       className="drag relative flex h-14 shrink-0 select-none items-center gap-1 bg-paper px-2"
@@ -173,12 +219,18 @@ export function Titlebar(): React.JSX.Element {
             <ThemeToggle />
           </div>
           <AnlasChips balance={anlasBalance} cost={anlasCost} />
+          <V5UsageChip usage={v5Usage} />
         </>
       )}
 
       <div className="flex-1" />
 
-      {isMac && <AnlasChips balance={anlasBalance} cost={anlasCost} />}
+      {isMac && (
+        <>
+          <AnlasChips balance={anlasBalance} cost={anlasCost} />
+          <V5UsageChip usage={v5Usage} />
+        </>
+      )}
 
       <BarButton onClick={toggleRight} active={rightOpen} title="히스토리 패널 접기/펴기">
         <PanelRight size={15} />

@@ -14,6 +14,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { estimateAnlas } from '@shared/anlas'
+import { fullModelForVersion, isV5Model, tokenLimitForModel } from '@shared/nai-models'
 import { removeComments } from '@shared/nai-presets'
 import { useCharactersStore } from '../stores/characters-store'
 import { useFragmentsStore } from '../stores/fragments-store'
@@ -34,8 +35,6 @@ import { EditableCount } from './ui/editable-count'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Switch } from './ui/switch'
 
-const TOKEN_LIMIT = 512
-
 function anlasTooltip(anlas: ReturnType<typeof estimateAnlas>, batchCount: number): string {
   if (anlas.total === 0) return '무료 생성 (Opus · 1024² 이하 · 28스텝 이하)'
 
@@ -53,6 +52,8 @@ function anlasTooltip(anlas: ReturnType<typeof estimateAnlas>, batchCount: numbe
 export function PromptPanel(): React.JSX.Element {
   const request = useGenerationStore((s) => s.request)
   const patch = useGenerationStore((s) => s.patchRequest)
+  const v5Enabled = isV5Model(request.model)
+  const tokenLimit = tokenLimitForModel(request.model)
   const patchPromptParts = useGenerationStore((s) => s.patchPromptParts)
   const promptSplitEnabled = useGenerationStore((s) => s.promptSplitEnabled)
   const queue = useGenerationStore((s) => s.queue)
@@ -153,9 +154,9 @@ export function PromptPanel(): React.JSX.Element {
     }
     const timer = setTimeout(() => {
       void window.nais
-        .invoke('tokens:count', { texts: [...posTexts, ...negTexts] })
+        .invoke('tokens:count', { texts: [...posTexts, ...negTexts], model: request.model })
         .then(({ counts }) => {
-          // 공홈은 캡션별 EOS를 각각 포함해 그대로 합산한다 (빈 칸 = 1토큰인 이유)
+          // 캡션별 공식 토크나이저 결과를 그대로 합산한다.
           const sum = (arr: number[]): number | null =>
             arr.length === 0 ? null : arr.reduce((a, b) => a + b, 0)
           setTokenTotals({
@@ -165,7 +166,7 @@ export function PromptPanel(): React.JSX.Element {
         })
     }, 250)
     return () => clearTimeout(timer)
-  }, [request.prompt, request.negativePrompt, enabledChars])
+  }, [request.prompt, request.negativePrompt, request.model, enabledChars])
 
   const anlas = useMemo(
     () =>
@@ -245,6 +246,41 @@ export function PromptPanel(): React.JSX.Element {
             </motion.div>
           )}
         </AnimatePresence>
+        {/* 생성 모델 — 왼쪽 패널 상단에서 V4.5 Full / V5 Full 전환 */}
+        <label
+          className="flex h-8 shrink-0 cursor-pointer items-center justify-between rounded-md border border-line bg-paper px-2.5"
+          title={`현재 NAI Diffusion ${v5Enabled ? 'V5 Full' : 'V4.5 Full'} 모델을 사용합니다`}
+        >
+          <span className="text-[11px] font-medium text-muted">생성 모델</span>
+          <span className="flex items-center gap-2">
+            <span
+              className={
+                v5Enabled ? 'text-[11px] text-faint' : 'text-[11px] font-semibold text-ink'
+              }
+            >
+              V4.5
+            </span>
+            <Switch
+              aria-label={`생성 모델 ${v5Enabled ? 'V5 Full' : 'V4.5 Full'}`}
+              checked={v5Enabled}
+              onCheckedChange={(enabled) =>
+                patch({
+                  model: fullModelForVersion(
+                    enabled ? '5' : '4.5',
+                    request.model.includes('inpainting')
+                  )
+                })
+              }
+            />
+            <span
+              className={
+                v5Enabled ? 'text-[11px] font-semibold text-accent' : 'text-[11px] text-faint'
+              }
+            >
+              V5
+            </span>
+          </span>
+        </label>
         {/* 프롬프트 프리셋 — 포지티브 프롬프트 위 */}
         <PromptPresetBar />
         <div
@@ -263,7 +299,7 @@ export function PromptPanel(): React.JSX.Element {
             onToggle={() => setPosCollapsed((v) => !v)}
             action={
               <div className="flex items-center gap-1">
-                {promptSplitEnabled && <TokenBadge tokens={tokenTotals.pos} />}
+                {promptSplitEnabled && <TokenBadge tokens={tokenTotals.pos} limit={tokenLimit} />}
                 <SyntaxHelp />
               </div>
             }
@@ -472,9 +508,15 @@ function CollapseHeader({
   )
 }
 
-function TokenBadge({ tokens }: { tokens: number | null }): React.JSX.Element | null {
+function TokenBadge({
+  tokens,
+  limit
+}: {
+  tokens: number | null
+  limit: number
+}): React.JSX.Element | null {
   if (tokens === null) return null
-  const over = tokens > TOKEN_LIMIT
+  const over = tokens > limit
   return (
     <span
       className={
@@ -483,11 +525,11 @@ function TokenBadge({ tokens }: { tokens: number | null }): React.JSX.Element | 
       }
       title={
         over
-          ? `한도 초과 — ${tokens}/${TOKEN_LIMIT} 토큰. 초과분은 잘려서 반영되지 않습니다`
-          : `최종 프롬프트 ${tokens}/${TOKEN_LIMIT} 토큰`
+          ? `한도 초과 — ${tokens}/${limit} 토큰. 초과분은 잘려서 반영되지 않습니다`
+          : `최종 프롬프트 ${tokens}/${limit} 토큰`
       }
     >
-      {tokens}/{TOKEN_LIMIT}
+      {tokens}/{limit}
     </span>
   )
 }

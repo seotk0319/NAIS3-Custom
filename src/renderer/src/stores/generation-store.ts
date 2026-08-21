@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import type { GenerationRequest, HistoryItem, PromptParts, QueueStatus } from '@shared/types'
+import type {
+  GenerationRequest,
+  HistoryItem,
+  PromptParts,
+  QueueStatus,
+  V5UsageStatus
+} from '@shared/types'
+import { NAI_MODEL_V45_FULL } from '@shared/nai-models'
 import { queueDoneAlert } from '../lib/completion-alert'
 import { enabledCharacters } from './characters-store'
 import { useVibesStore } from './refs-store'
@@ -14,7 +21,7 @@ import { toast } from './toast-store'
 export const DEFAULT_REQUEST: GenerationRequest = {
   prompt: '',
   negativePrompt: '',
-  model: 'nai-diffusion-4-5-full',
+  model: NAI_MODEL_V45_FULL,
   width: 832,
   height: 1216,
   steps: 28,
@@ -49,6 +56,7 @@ interface GenerationState {
   subscriptionTier: string | null
   setSubscriptionTier: (tier: string) => void
   anlasBalance: number | null
+  v5Usage: V5UsageStatus | null
   refreshAnlas: () => Promise<void>
   queue: QueueStatus | null
   /** 진행 중 미리보기 (data URL 아님, base64) */
@@ -100,10 +108,11 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     void window.nais.invoke('settings:set', { key: 'nai_tier', value: tier })
   },
   anlasBalance: null,
+  v5Usage: null,
   refreshAnlas: async () => {
     // 잔액과 함께 구독 tier도 갱신 (무료 판정이 최신 tier를 쓰도록)
-    const { anlas, tier } = await window.nais.invoke('nai:balance', undefined)
-    set({ anlasBalance: anlas })
+    const { anlas, tier, v5Usage } = await window.nais.invoke('nai:balance', undefined)
+    set({ anlasBalance: anlas, v5Usage })
     if (tier) {
       set({ subscriptionTier: tier })
       void window.nais.invoke('settings:set', { key: 'nai_tier', value: tier })
@@ -426,8 +435,11 @@ export function bindGenerationEvents(): () => void {
       historyTotal: state.historyTotal + 1
     })
   })
-  const offAnlas = window.nais.on('anlas:balance', ({ anlas }) => {
-    useGenerationStore.setState({ anlasBalance: anlas })
+  const offAnlas = window.nais.on('anlas:balance', ({ anlas, v5Usage }) => {
+    useGenerationStore.setState({
+      anlasBalance: anlas,
+      ...(v5Usage !== undefined ? { v5Usage } : {})
+    })
   })
   // 바이브 인코딩 완료 시 목록 재로드 → 카드의 인코딩 표시 갱신
   const offVibes = window.nais.on('vibes:encoded', () => {

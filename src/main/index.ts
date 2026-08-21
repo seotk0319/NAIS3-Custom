@@ -247,10 +247,10 @@ app.whenReady().then(() => {
       broadcast('scenes:changed', { sceneId: request.sceneId, filePath: saved.filePath })
 
     // 생성 후 잔액 갱신 (실사용량 추적의 진실 공급원) — 실패해도 생성 흐름엔 영향 없음
-    void fetchAnlasBalance(token).then(({ anlas }) => {
+    void fetchAnlasBalance(token).then(({ anlas, v5Usage }) => {
       if (anlas !== null) {
         logBalance(anlas)
-        broadcast('anlas:balance', { anlas })
+        broadcast('anlas:balance', { anlas, v5Usage })
       }
     })
 

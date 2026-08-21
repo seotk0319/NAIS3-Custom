@@ -124,6 +124,14 @@ export interface SubscriptionInfo {
   anlasPurchased: number
 }
 
+/** V5 무료 생성 사용량. 서버는 정확한 장수 대신 정수 비율과 1%당 충전 시간을 제공한다. */
+export interface V5UsageStatus {
+  isNegative: boolean
+  percent: number
+  /** 1% 충전에 필요한 초 (NovelAI 웹의 "Sec / %") */
+  timeUntilNextPercent: number
+}
+
 /** 캐릭터 카드 (단일 리스트 모델 — 카드가 직접 생성 포함 여부·위치를 가짐) */
 export interface CharacterCard {
   id: number
@@ -362,7 +370,10 @@ export interface IpcInvokeMap {
   'nai:revealToken': { req: void; res: { token: string | null } }
   'nai:deleteToken': { req: void; res: void }
   /** 잔액 조회 (스냅샷 로그에도 기록) */
-  'nai:balance': { req: void; res: { anlas: number | null; tier: string | null } }
+  'nai:balance': {
+    req: void
+    res: { anlas: number | null; tier: string | null; v5Usage: V5UsageStatus | null }
+  }
   'nai:anlasUsage': { req: void; res: { today: number; week: number } }
   'queue:enqueue': { req: { request: GenerationRequest; count: number }; res: { ids: string[] } }
   'queue:enqueueMany': { req: { requests: GenerationRequest[] }; res: { ids: string[] } }
@@ -424,8 +435,8 @@ export interface IpcInvokeMap {
     req: { query: string; limit?: number }
     res: { items: { tag: string; count: number; type: string }[] }
   }
-  /** T5 토큰 카운트 (V4.5 한도 512, EOS 포함 — NAI 웹과 동일 방식) */
-  'tokens:count': { req: { texts: string[] }; res: { counts: number[] } }
+  /** 선택 모델 기준 토큰 카운트 (V4.5=T5, V5=Qwen) */
+  'tokens:count': { req: { texts: string[]; model: string }; res: { counts: number[] } }
   /** 히스토리 이미지를 i2i/인페인트 소스로 읽기 */
   'images:readForSource': {
     req: { filePath: string }
@@ -641,7 +652,7 @@ export interface IpcInvokeMap {
 export interface IpcEventMap {
   'queue:changed': QueueStatus
   /** 생성 완료 등으로 잔액이 갱신될 때 */
-  'anlas:balance': { anlas: number }
+  'anlas:balance': { anlas: number; v5Usage?: V5UsageStatus | null }
   'generation:progress': {
     id: string
     stepIx: number

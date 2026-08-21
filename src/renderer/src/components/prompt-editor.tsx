@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { tokenLimitForModel } from '@shared/nai-models'
 import { removeComments } from '@shared/nai-presets'
 import { cn } from '../lib/utils'
 import { caretCoords } from '../lib/caret'
 import { highlightRanges } from '../lib/prompt-weights'
 import { fragmentPaths } from '../stores/fragments-store'
+import { useGenerationStore } from '../stores/generation-store'
 
 /**
  * 프롬프트 에디터.
@@ -42,8 +44,6 @@ const TYPE_COLORS: Record<string, string> = {
   meta: 'text-[#c9a34f]'
 }
 
-const TOKEN_LIMIT = 512
-
 export function PromptEditor({
   value,
   onValueChange,
@@ -60,6 +60,8 @@ export function PromptEditor({
   /** 외부에서 합산한 토큰 수 (기본+캐릭터 합산 등). undefined면 자체 카운트, null이면 숨김 */
   tokensOverride?: number | null
 }): React.JSX.Element {
+  const model = useGenerationStore((s) => s.request.model)
+  const tokenLimit = tokenLimitForModel(model)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mirrorRef = useRef<HTMLDivElement>(null)
   const commentRef = useRef<HTMLDivElement>(null)
@@ -86,7 +88,7 @@ export function PromptEditor({
     return segs
   }, [value])
 
-  // 토큰 카운트 (V4.5 = T5, 한도 512 — NAI 웹과 동일: 원문 기준, 가중치 문법 제거 후)
+  // 선택 모델 기준 토큰 카운트: V4.5=T5/512, V5=Qwen/1471(Full).
   const [ownTokens, setOwnTokens] = useState<number | null>(null)
   const external = tokensOverride !== undefined
   useEffect(() => {
@@ -98,11 +100,11 @@ export function PromptEditor({
     }
     const timer = setTimeout(() => {
       void window.nais
-        .invoke('tokens:count', { texts: [active] })
+        .invoke('tokens:count', { texts: [active], model })
         .then(({ counts }) => setOwnTokens(counts[0]))
     }, 250)
     return () => clearTimeout(timer)
-  }, [value, external])
+  }, [value, external, model])
   const tokens = external ? tokensOverride : ownTokens
 
   // 세로 스크롤바가 생기면 textarea 콘텐츠 폭이 줄어 줄바꿈이 달라진다 —
@@ -298,15 +300,15 @@ export function PromptEditor({
         <span
           className={cn(
             'pointer-events-none absolute bottom-1 right-1.5 rounded bg-paper/85 px-1 font-mono text-[10.5px] backdrop-blur-sm',
-            tokens > TOKEN_LIMIT ? 'text-danger' : 'text-faint'
+            tokens > tokenLimit ? 'text-danger' : 'text-faint'
           )}
           title={
-            tokens > TOKEN_LIMIT
-              ? `한도 초과 — ${tokens}/${TOKEN_LIMIT} 토큰. 초과분은 잘려서 반영되지 않습니다`
-              : `${tokens}/${TOKEN_LIMIT} 토큰`
+            tokens > tokenLimit
+              ? `한도 초과 — ${tokens}/${tokenLimit} 토큰. 초과분은 잘려서 반영되지 않습니다`
+              : `${tokens}/${tokenLimit} 토큰`
           }
         >
-          {tokens}/{TOKEN_LIMIT}
+          {tokens}/{tokenLimit}
         </span>
       )}
 

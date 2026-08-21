@@ -16,6 +16,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CharacterCard } from '@shared/types'
+import { tokenLimitForModel } from '@shared/nai-models'
 import { removeComments } from '@shared/nai-presets'
 import { cn } from '../lib/utils'
 import { applyClickSelection, useSelectAllShortcut } from '../lib/edit-selection'
@@ -79,6 +80,8 @@ export function CharacterOverlay(): React.JSX.Element {
   const removeFolder = useCharactersStore((s) => s.removeFolder)
   const move = useCharactersStore((s) => s.move)
   const useCoords = useGenerationStore((s) => s.request.useCoords)
+  const model = useGenerationStore((s) => s.request.model)
+  const tokenLimit = tokenLimitForModel(model)
   const patch = useGenerationStore((s) => s.patchRequest)
 
   const [search, setSearch] = useState('')
@@ -153,7 +156,7 @@ export function CharacterOverlay(): React.JSX.Element {
     setSelected(new Set())
   }
 
-  // 기본 프롬프트 + 캐릭터 프롬프트가 512 토큰을 합산 공유 (공홈 실측)
+  // 기본 프롬프트 + 캐릭터 프롬프트는 선택 모델의 토큰 한도를 합산 공유한다.
   const basePrompt = useGenerationStore((s) => s.request.prompt)
   const positiveTexts = useMemo(
     () =>
@@ -170,13 +173,12 @@ export function CharacterOverlay(): React.JSX.Element {
       return () => clearTimeout(timer)
     }
     const timer = setTimeout(() => {
-      void window.nais.invoke('tokens:count', { texts: positiveTexts }).then(({ counts }) => {
-        // 공홈은 캡션별 EOS를 각각 포함해 그대로 합산
+      void window.nais.invoke('tokens:count', { texts: positiveTexts, model }).then(({ counts }) => {
         setCharTokens(counts.reduce((a, b) => a + b, 0))
       })
     }, 300)
     return () => clearTimeout(timer)
-  }, [positiveTexts])
+  }, [positiveTexts, model])
 
   // 편집 모드 헤더 — 선택 전용 행 (스위치/좌표 등 상호작용 제거)
   const renderHeaderEdit = (char: CharacterCard): React.ReactNode => {
@@ -356,11 +358,11 @@ export function CharacterOverlay(): React.JSX.Element {
           <span
             className={cn(
               'font-mono text-[10.5px]',
-              charTokens > 512 ? 'text-danger' : 'text-faint'
+              charTokens > tokenLimit ? 'text-danger' : 'text-faint'
             )}
-            title="기본 프롬프트 + 캐릭터 프롬프트 합산 (512 토큰 공유)"
+            title={`기본 프롬프트 + 캐릭터 프롬프트 합산 (${tokenLimit} 토큰 공유)`}
           >
-            {charTokens}/512
+            {charTokens}/{tokenLimit}
           </span>
         )}
         <div className="flex-1" />

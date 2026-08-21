@@ -1,4 +1,5 @@
 import type { GenerationRequest } from '../../shared/types'
+import { isV5Model } from '../../shared/nai-models'
 
 /**
  * NAI 웹과 바이트 단위로 동일한 payload를 만드는 것이 이 모듈의 존재 이유다 (P1).
@@ -47,6 +48,8 @@ export function varietySigma(opts: {
   height: number
 }): number | null {
   if (!opts.variety) return null
+  // V5는 공식 웹에서 CFG Delay(Variety+)를 지원하지 않아 해당 필드를 보내지 않는다.
+  if (isV5Model(opts.model)) return null
   const coef = opts.model.includes('nai-diffusion-4-5') ? 58 : 19
   const pixelRatio = (opts.width * opts.height) / (832 * 1216)
   return coef * Math.sqrt(pixelRatio)
@@ -128,6 +131,7 @@ export function buildGenerateImagePayload(
 ): NaiImagePayload {
   const prompt = mergeQualityTags(removeComments(req.prompt), req.qualityToggle)
   const negative = mergeUcPreset(removeComments(req.negativePrompt), req.ucPreset)
+  const v5 = isV5Model(req.model)
 
   // 캐릭터 프롬프트도 주석(#) 제거 — 기본/네거만 걸러지고 캐릭터 칸은 그대로 전송되던 버그 수정
   const activeChars = req.characterPrompts
@@ -145,7 +149,8 @@ export function buildGenerateImagePayload(
     input: prompt,
     model: req.model,
     parameters: {
-      params_version: 3,
+      // V4.5는 기존 실캡처 fixture와의 호환을 유지하고, V5만 현행 요청 버전을 사용한다.
+      params_version: v5 ? 4 : 3,
       width: req.width,
       height: req.height,
       scale: req.cfgScale,
@@ -177,6 +182,7 @@ export function buildGenerateImagePayload(
         : {}),
       ucPreset: req.ucPreset,
       qualityToggle: req.qualityToggle,
+      ...(v5 ? { tag_hint_transparent_background: true, legacy_uc: false } : {}),
       autoSmea: false,
       dynamic_thresholding: false,
       controlnet_strength: 1,

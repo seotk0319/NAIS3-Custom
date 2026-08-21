@@ -35,6 +35,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
   const source = useGenerationStore((s) => s.source)
   const basePrompt = useGenerationStore((s) => s.request.prompt)
   const baseNegative = useGenerationStore((s) => s.request.negativePrompt)
+  const model = useGenerationStore((s) => s.request.model)
   const charItems = useCharactersStore((s) => s.items)
   const previewPng = useGenerationStore((s) => s.previewPng)
   const generatingSceneId = useGenerationStore(
@@ -89,7 +90,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
     }
     const timer = setTimeout(() => {
       void window.nais
-        .invoke('tokens:count', { texts: [...posTexts, ...negTexts] })
+        .invoke('tokens:count', { texts: [...posTexts, ...negTexts], model })
         .then(({ counts }) => {
           const sum = (a: number[]): number | null =>
             a.length === 0 ? null : a.reduce((x, y) => x + y, 0)
@@ -100,7 +101,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
         })
     }, 250)
     return () => clearTimeout(timer)
-  }, [basePrompt, baseNegative, scene.prompt, scene.negativePrompt, charItems])
+  }, [basePrompt, baseNegative, scene.prompt, scene.negativePrompt, charItems, model])
 
   // ESC로 씬 목록으로 (라이트박스가 열려 있으면 라이트박스만 닫힘)
   useEffect(() => {

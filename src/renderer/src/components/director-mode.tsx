@@ -8,6 +8,7 @@ import {
   Loader2,
   Maximize2,
   MessageSquareText,
+  Paintbrush,
   Palette,
   Pencil,
   PenTool,
@@ -24,6 +25,7 @@ import { directorAugmentCost, directorToolCost } from '@shared/anlas'
 import { EMOTIONS, type DirectorMethod } from '@shared/types'
 import { useArtistTagsStore } from '../stores/artist-tags-store'
 import { openInDirector, useDirectorStore } from '../stores/director-store'
+import { openCensorBatch } from '../stores/censor-store'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
 import { cn } from '../lib/utils'
@@ -35,6 +37,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Slider } from './ui/slider'
+import { toast } from '../stores/toast-store'
 
 type Opt = 'colorize' | 'emotion' | undefined
 const TOOLS: {
@@ -128,6 +131,16 @@ export function DirectorMode(): React.JSX.Element {
   }
 
   const shown = source ? `data:image/png;base64,${source}` : null
+
+  async function openCensorFolder(): Promise<void> {
+    const result = await window.nais.invoke('censor:pickFolder', undefined)
+    if (result.canceled) return
+    if (result.filePaths.length === 0) {
+      toast('선택한 폴더에 지원 이미지가 없습니다', 'info')
+      return
+    }
+    openCensorBatch(result.folderPath, result.filePaths)
+  }
 
   return (
     <div className="flex min-h-0 flex-1 gap-3">
@@ -245,6 +258,15 @@ export function DirectorMode(): React.JSX.Element {
         <div className="flex items-center gap-2 border-b border-line px-4 py-3">
           <Wand2 size={16} className="text-accent" />
           <h2 className="text-[14px] font-semibold">디렉터 툴</h2>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto gap-1.5 text-red-300"
+            onClick={() => void openCensorFolder()}
+            title="폴더 전체 이미지를 검열하기"
+          >
+            <Paintbrush size={14} /> 검열하기
+          </Button>
         </div>
         <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3 no-scrollbar">
           {error && (

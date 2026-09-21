@@ -43,7 +43,7 @@ import {
   type CSSProperties
 } from 'react'
 import type { Scene, ScenePreset } from '@shared/types'
-import { RESOLUTIONS, imageUrl } from '../lib/constants'
+import { RESOLUTIONS, imageUrl, thumbnailUrl } from '../lib/constants'
 import { useCharactersStore } from '../stores/characters-store'
 import { useGenerationStore } from '../stores/generation-store'
 import { useScenesStore } from '../stores/scenes-store'
@@ -53,6 +53,8 @@ import { toast } from '../stores/toast-store'
 import { cn } from '../lib/utils'
 import { SceneCuration } from './scene-curation'
 import { SceneDetail } from './scene-detail'
+import { SceneCardImage } from './scene-card-image'
+import { PresetManager } from './preset-manager'
 import { SortableList, SortableRow } from './sortable-list'
 import { Button } from './ui/button'
 import { EditableCount } from './ui/editable-count'
@@ -84,6 +86,7 @@ export function SceneMode(): React.JSX.Element {
 
 /** NAIS2식 프리셋 드롭다운 — 현재 프리셋 표시 + 전환/추가/이름변경/삭제 */
 function PresetDropdown(): React.JSX.Element {
+  const [manageOpen, setManageOpen] = useState(false)
   const presets = useScenesStore((s) => s.presets)
   const activePresetId = useScenesStore((s) => s.activePresetId)
   const setActivePreset = useScenesStore((s) => s.setActivePreset)
@@ -197,6 +200,15 @@ function PresetDropdown(): React.JSX.Element {
           </div>
           <div className="my-1 h-px bg-line" />
           <button
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-surface-2"
+            onClick={() => {
+              setOpen(false)
+              setManageOpen(true)
+            }}
+          >
+            <ListChecks size={14} /> 프리셋 관리
+          </button>
+          <button
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-accent hover:bg-surface-2"
             onClick={async () => {
               const name = await askText('새 프리셋 이름', '새 프리셋')
@@ -207,6 +219,7 @@ function PresetDropdown(): React.JSX.Element {
           </button>
         </PopoverContent>
       </Popover>
+      {manageOpen && <PresetManager kind="scene" onClose={() => setManageOpen(false)} />}
       {bindPreset && (
         <PresetCharacterDialog preset={bindPreset} onClose={() => setBindPreset(null)} />
       )}
@@ -465,203 +478,214 @@ function SceneGrid(): React.JSX.Element {
         <SceneCuration onClose={() => setCurationOpen(false)} />
       ) : (
         <>
-      {/* 툴바 — 한 행: 프리셋 드롭다운 + 아이콘(툴팁) */}
-      <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
-        <IconBtn
-          icon={<FolderOpen size={17} />}
-          tip="활성 씬 프리셋 이미지 폴더 열기"
-          color="text-amber-400"
-          onClick={() => void openPresetFolder()}
-        />
-        <span className="mr-1 shrink-0 text-[13px] font-semibold">씬 모드</span>
-        <div className="mx-1 h-5 w-px bg-line" />
-        <PresetDropdown />
-        <div className="mx-1 h-5 w-px bg-line" />
-        <IconBtn
-          icon={<FileUp size={18} />}
-          tip="씬 JSON 내보내기"
-          color="text-sky-400"
-          onClick={exportJson}
-        />
-        <IconBtn
-          icon={<FileDown size={18} />}
-          tip="씬 JSON 불러오기"
-          color="text-emerald-400"
-          onClick={importJson}
-        />
-        <IconBtn
-          icon={<FolderArchive size={16} />}
-          tip="ZIP 내보내기"
-          onClick={() => void exportZip()}
-        />
-        <IconBtn
-          icon={<Pencil size={16} />}
-          tip="편집 모드"
-          active={editMode}
-          onClick={() => setEditMode(!editMode)}
-        />
-        <IconBtn
-          icon={<ListChecks size={16} />}
-          tip="선별 작업"
-          disabled={scenes.length === 0 || queueBusy}
-          onClick={() => setCurationOpen(true)}
-        />
+          {/* 툴바 — 한 행: 프리셋 드롭다운 + 아이콘(툴팁) */}
+          <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+            <IconBtn
+              icon={<FolderOpen size={17} />}
+              tip="활성 씬 프리셋 이미지 폴더 열기"
+              color="text-amber-400"
+              onClick={() => void openPresetFolder()}
+            />
+            <span className="mr-1 shrink-0 text-[13px] font-semibold">씬 모드</span>
+            <div className="mx-1 h-5 w-px bg-line" />
+            <PresetDropdown />
+            <div className="mx-1 h-5 w-px bg-line" />
+            <IconBtn
+              icon={<FileUp size={18} />}
+              tip="씬 JSON 내보내기"
+              color="text-sky-400"
+              onClick={exportJson}
+            />
+            <IconBtn
+              icon={<FileDown size={18} />}
+              tip="씬 JSON 불러오기"
+              color="text-emerald-400"
+              onClick={importJson}
+            />
+            <IconBtn
+              icon={<FolderArchive size={16} />}
+              tip="ZIP 내보내기"
+              onClick={() => void exportZip()}
+            />
+            <IconBtn
+              icon={<Pencil size={16} />}
+              tip="편집 모드"
+              active={editMode}
+              onClick={() => setEditMode(!editMode)}
+            />
+            <IconBtn
+              icon={<ListChecks size={16} />}
+              tip="선별 작업"
+              disabled={scenes.length === 0 || queueBusy}
+              onClick={() => setCurationOpen(true)}
+            />
 
-        <div className="flex-1" />
+            <div className="flex-1" />
 
-        <IconBtn
-          icon={<CalendarPlus size={16} />}
-          tip={
-            editMode && selection.size > 0
-              ? `선택 ${selection.size}개 예약 +${batchCount}`
-              : `전체 예약 +${batchCount}`
-          }
-          onClick={() => void adjustReserveAll(1)}
-        />
-        <IconBtn
-          icon={<CalendarX size={16} />}
-          tip={
-            editMode && selection.size > 0 ? `선택 ${selection.size}개 예약 취소` : '전체 예약 취소'
-          }
-          onClick={() => void clearReserveAll()}
-        />
-        <div className="mx-1 h-5 w-px bg-line" />
-        {/* 카드 비율: 세로/가로/정사각 (해상도와 무관하게 고정) */}
-        <IconBtn
-          icon={
-            cardOrientation === 'portrait' ? (
-              <RectangleVertical size={16} />
-            ) : cardOrientation === 'landscape' ? (
-              <RectangleHorizontal size={16} />
-            ) : (
-              <Square size={16} />
-            )
-          }
-          tip={
-            cardOrientation === 'portrait'
-              ? '세로 카드 (클릭: 가로)'
-              : cardOrientation === 'landscape'
-                ? '가로 카드 (클릭: 정사각)'
-                : '정사각 카드 (클릭: 세로)'
-          }
-          onClick={() =>
-            setCardOrientation(
-              cardOrientation === 'portrait'
-                ? 'landscape'
-                : cardOrientation === 'landscape'
-                  ? 'square'
-                  : 'portrait'
-            )
-          }
-        />
-        {/* 열 수 (2~5) */}
-        <div className="flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5">
-          {[2, 3, 4, 5].map((n) => (
-            <button
-              key={n}
-              onClick={() => setColumns(n)}
-              className={cn(
-                'grid h-6 w-6 place-items-center rounded text-[12px] font-medium transition-colors',
-                columns === n ? 'bg-paper text-ink shadow-sm' : 'text-muted hover:text-ink'
-              )}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {editMode && (
-          <motion.div
-            key="bulkbar"
-            className="overflow-hidden"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <BulkBar />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* 카드 그리드 (열 수만큼 폭에 꽉 차게). scrollbar-gutter로 스크롤바 등장 시 밀림 방지 */}
-      <div
-        ref={scrollRef}
-        onScroll={(e) => {
-          savedGridScroll = e.currentTarget.scrollTop
-        }}
-        className="min-h-0 flex-1 overflow-y-auto p-3 no-scrollbar"
-      >
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={onDragStart}
-          onDragCancel={() => setDragScene(null)}
-          onDragEnd={onDragEnd}
-        >
-          <SortableContext
-            items={scenes.map((s) => `scene-${s.id}`)}
-            strategy={rectSortingStrategy}
-          >
-            <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-            >
-              {scenes.map((scene) => (
-                <SceneCard
-                  key={scene.id}
-                  scene={scene}
-                  live={scene.id === generatingSceneId ? previewPng : null}
-                  generating={scene.id === generatingSceneId}
-                  remaining={remainingByScene.get(scene.id) ?? 0}
-                />
-              ))}
-              <button
-                onClick={() => void create('새 씬')}
-                className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-line text-faint transition hover:text-accent"
-                style={{ aspectRatio: CARD_ASPECT[cardOrientation] }}
-              >
-                <Plus size={22} />
-                <span className="text-[12px]">씬 추가</span>
-              </button>
-            </div>
-          </SortableContext>
-          {/* 드래그 중 커서를 따라가는 가벼운 클론 (원본은 숨김) */}
-          <DragOverlay dropAnimation={null}>
-            {dragScene && (
-              <div
-                className="relative overflow-hidden rounded-lg border border-accent bg-surface-2 shadow-2xl"
-                style={{ aspectRatio: CARD_ASPECT[cardOrientation] }}
-              >
-                {dragScene.thumbnail ? (
-                  <img
-                    src={`data:image/webp;base64,${dragScene.thumbnail}`}
-                    className="h-full w-full object-cover"
-                    draggable={false}
-                    alt=""
-                  />
+            <IconBtn
+              icon={<CalendarPlus size={16} />}
+              tip={
+                editMode && selection.size > 0
+                  ? `선택 ${selection.size}개 예약 +${batchCount}`
+                  : `전체 예약 +${batchCount}`
+              }
+              onClick={() => void adjustReserveAll(1)}
+            />
+            <IconBtn
+              icon={<CalendarX size={16} />}
+              tip={
+                editMode && selection.size > 0
+                  ? `선택 ${selection.size}개 예약 취소`
+                  : '전체 예약 취소'
+              }
+              onClick={() => void clearReserveAll()}
+            />
+            <div className="mx-1 h-5 w-px bg-line" />
+            {/* 카드 비율: 세로/가로/정사각 (해상도와 무관하게 고정) */}
+            <IconBtn
+              icon={
+                cardOrientation === 'portrait' ? (
+                  <RectangleVertical size={16} />
+                ) : cardOrientation === 'landscape' ? (
+                  <RectangleHorizontal size={16} />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-paper text-faint">
-                    <ImageOff size={26} strokeWidth={1.3} />
+                  <Square size={16} />
+                )
+              }
+              tip={
+                cardOrientation === 'portrait'
+                  ? '세로 카드 (클릭: 가로)'
+                  : cardOrientation === 'landscape'
+                    ? '가로 카드 (클릭: 정사각)'
+                    : '정사각 카드 (클릭: 세로)'
+              }
+              onClick={() =>
+                setCardOrientation(
+                  cardOrientation === 'portrait'
+                    ? 'landscape'
+                    : cardOrientation === 'landscape'
+                      ? 'square'
+                      : 'portrait'
+                )
+              }
+            />
+            {/* 열 수 (2~5) */}
+            <div className="flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5">
+              {[2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setColumns(n)}
+                  className={cn(
+                    'grid h-6 w-6 place-items-center rounded text-[12px] font-medium transition-colors',
+                    columns === n ? 'bg-paper text-ink shadow-sm' : 'text-muted hover:text-ink'
+                  )}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {editMode && (
+              <motion.div
+                key="bulkbar"
+                className="overflow-hidden"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <BulkBar />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* 카드 그리드 (열 수만큼 폭에 꽉 차게). scrollbar-gutter로 스크롤바 등장 시 밀림 방지 */}
+          <div
+            ref={scrollRef}
+            onScroll={(e) => {
+              savedGridScroll = e.currentTarget.scrollTop
+            }}
+            className="min-h-0 flex-1 overflow-y-auto p-3 no-scrollbar"
+          >
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={onDragStart}
+              onDragCancel={() => setDragScene(null)}
+              onDragEnd={onDragEnd}
+            >
+              <SortableContext
+                items={scenes.map((s) => `scene-${s.id}`)}
+                strategy={rectSortingStrategy}
+              >
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+                >
+                  {scenes.map((scene) => (
+                    <SceneCard
+                      key={scene.id}
+                      scene={scene}
+                      live={scene.id === generatingSceneId ? previewPng : null}
+                      generating={scene.id === generatingSceneId}
+                      remaining={remainingByScene.get(scene.id) ?? 0}
+                    />
+                  ))}
+                  <button
+                    onClick={() => void create('새 씬')}
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-line text-faint transition hover:text-accent"
+                    style={{ aspectRatio: CARD_ASPECT[cardOrientation] }}
+                  >
+                    <Plus size={22} />
+                    <span className="text-[12px]">씬 추가</span>
+                  </button>
+                </div>
+              </SortableContext>
+              {/* 드래그 중 커서를 따라가는 가벼운 클론 (원본은 숨김) */}
+              <DragOverlay dropAnimation={null}>
+                {dragScene && (
+                  <div
+                    className="relative overflow-hidden rounded-lg border border-accent bg-surface-2 shadow-2xl"
+                    style={{ aspectRatio: CARD_ASPECT[cardOrientation] }}
+                  >
+                    {dragScene.thumbnailPath || dragScene.thumbnail ? (
+                      <img
+                        src={
+                          dragScene.thumbnailPath
+                            ? thumbnailUrl(
+                                dragScene.thumbnailPath,
+                                useGenerationStore.getState().imageRevisions[
+                                  dragScene.thumbnailPath
+                                ]
+                              )
+                            : `data:image/webp;base64,${dragScene.thumbnail}`
+                        }
+                        className="h-full w-full object-cover"
+                        draggable={false}
+                        alt=""
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-paper text-faint">
+                        <ImageOff size={26} strokeWidth={1.3} />
+                      </div>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2 pb-1.5 pt-6">
+                      <div className="truncate text-[13px] font-semibold text-white drop-shadow">
+                        {dragScene.name}
+                      </div>
+                    </div>
                   </div>
                 )}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2 pb-1.5 pt-6">
-                  <div className="truncate text-[13px] font-semibold text-white drop-shadow">
-                    {dragScene.name}
-                  </div>
-                </div>
-              </div>
+              </DragOverlay>
+            </DndContext>
+            {scenes.length === 0 && (
+              <p className="mt-6 text-center text-[13px] text-faint">
+                씬을 추가해 프롬프트와 해상도를 저장하고, +로 예약한 뒤 좌측 생성 버튼으로 뽑으세요.
+              </p>
             )}
-          </DragOverlay>
-        </DndContext>
-        {scenes.length === 0 && (
-          <p className="mt-6 text-center text-[13px] text-faint">
-            씬을 추가해 프롬프트와 해상도를 저장하고, +로 예약한 뒤 좌측 생성 버튼으로 뽑으세요.
-          </p>
-        )}
-      </div>
+          </div>
         </>
       )}
     </div>
@@ -819,18 +843,19 @@ const SceneCard = memo(function SceneCard({
   const duplicate = useScenesStore((s) => s.duplicate)
   const remove = useScenesStore((s) => s.remove)
   const adjustReserve = useScenesStore((s) => s.adjustReserve)
+  const thumbnailRevision = useGenerationStore((s) =>
+    scene.thumbnailPath ? s.imageRevisions[scene.thumbnailPath] : undefined
+  )
   const sortable = useSortable({ id: `scene-${scene.id}` })
 
   const checked = selection.has(scene.id)
-  // 이미지 우선순위: 생성 중 스트리밍 > 저장 썸네일(가벼움, 드래그 렉 방지) > 원본 > 없음.
-  // 카드는 작게 표시되므로 640 webp 썸네일이면 충분히 선명하고, 풀해상도 대신 써서 드래그가 부드럽다.
-  const src = live
-    ? `data:image/png;base64,${live}`
+  // Fetch the existing 512px thumbnail on demand, not the full-resolution original.
+  // Revision keys keep whitepaint/undo edits fresh without invalidating other cards.
+  const src = scene.thumbnailPath
+    ? thumbnailUrl(scene.thumbnailPath, thumbnailRevision)
     : scene.thumbnail
       ? `data:image/webp;base64,${scene.thumbnail}`
-      : scene.thumbnailPath
-        ? imageUrl(scene.thumbnailPath)
-        : null
+      : null
 
   // 우클릭 메뉴/3-dot 공용 액션
   const renameScene = async (): Promise<void> => {
@@ -868,12 +893,13 @@ const SceneCard = memo(function SceneCard({
           onClick={(e) => (editMode ? toggleSelected(scene.id, e.shiftKey) : select(scene.id))}
         >
           {/* 배경 이미지 (생성 중이면 스트리밍 프리뷰) */}
-          {src ? (
-            <img
-              src={src}
-              className="h-full w-full cursor-pointer object-cover"
-              draggable={false}
-              alt=""
+          {src || live ? (
+            <SceneCardImage
+              src={src ?? ''}
+              fullSrc={
+                scene.thumbnailPath ? imageUrl(scene.thumbnailPath, thumbnailRevision) : undefined
+              }
+              live={live}
             />
           ) : (
             <div className="flex h-full w-full cursor-pointer items-center justify-center bg-paper text-faint">

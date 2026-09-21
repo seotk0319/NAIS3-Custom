@@ -5,7 +5,7 @@ import { removeComments } from '@shared/nai-presets'
 import { imageUrl } from '../lib/constants'
 import { ResolutionPicker } from './resolution-picker'
 import { useGenerationStore } from '../stores/generation-store'
-import { useScenesStore, appendPrompt } from '../stores/scenes-store'
+import { useScenesStore, appendPrompt, composeScenePrompt } from '../stores/scenes-store'
 import { useCharactersStore } from '../stores/characters-store'
 import { askConfirm } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
@@ -34,10 +34,13 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
 
   const source = useGenerationStore((s) => s.source)
   const basePrompt = useGenerationStore((s) => s.request.prompt)
+  const basePromptParts = useGenerationStore((s) => s.request.promptParts)
+  const splitEnabled = useGenerationStore((s) => s.promptSplitEnabled)
   const baseNegative = useGenerationStore((s) => s.request.negativePrompt)
   const model = useGenerationStore((s) => s.request.model)
   const charItems = useCharactersStore((s) => s.items)
   const previewPng = useGenerationStore((s) => s.previewPng)
+  const imageRevisions = useGenerationStore((s) => s.imageRevisions)
   const generatingSceneId = useGenerationStore(
     (s) => s.queue?.items.find((i) => i.state === 'generating')?.request.sceneId ?? null
   )
@@ -71,7 +74,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
       : null
   const showTile = streaming || heldFrame != null
 
-  // F9: 씬 에디터 토큰 수를 base(메인)+씬 합산으로 표시 — 실제 전송은 base 뒤에 씬을 붙이므로
+  // 씬 에디터도 실제 생성 요청과 같은 고정 → 가변 → 씬 → 디테일 순서로 계산한다.
   const [sceneTokens, setSceneTokens] = useState<{ pos: number | null; neg: number | null }>({
     pos: null,
     neg: null
@@ -79,7 +82,11 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
   useEffect(() => {
     const enabled = charItems.filter((c) => c.enabled && c.prompt.trim())
     const posTexts = [
-      appendPrompt(basePrompt, scene.prompt),
+      composeScenePrompt(
+        { prompt: basePrompt, promptParts: basePromptParts },
+        splitEnabled,
+        scene.prompt
+      ).prompt,
       ...enabled.map((c) => removeComments(c.prompt))
     ].filter((t) => t.trim())
     const negText = appendPrompt(baseNegative, scene.negativePrompt)
@@ -101,7 +108,16 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
         })
     }, 250)
     return () => clearTimeout(timer)
-  }, [basePrompt, baseNegative, scene.prompt, scene.negativePrompt, charItems, model])
+  }, [
+    basePrompt,
+    basePromptParts,
+    splitEnabled,
+    baseNegative,
+    scene.prompt,
+    scene.negativePrompt,
+    charItems,
+    model
+  ])
 
   // ESC로 씬 목록으로 (라이트박스가 열려 있으면 라이트박스만 닫힘)
   useEffect(() => {
@@ -309,7 +325,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
                 {/* 완성본이 도착하면 숨겨서 미리 디코드 → 로드되는 순간 프레임 해제(끊김 없음) */}
                 {newTop && (
                   <img
-                    src={imageUrl(newTop.filePath)}
+                    src={imageUrl(newTop.filePath, imageRevisions[newTop.filePath])}
                     className="hidden"
                     onLoad={() => setHeldFrame(null)}
                     alt=""
@@ -329,7 +345,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
                   style={{ aspectRatio: `${scene.width} / ${scene.height}` }}
                 >
                   <img
-                    src={imageUrl(img.filePath)}
+                    src={imageUrl(img.filePath, imageRevisions[img.filePath])}
                     className="h-full w-full cursor-pointer object-cover"
                     loading="lazy"
                     draggable

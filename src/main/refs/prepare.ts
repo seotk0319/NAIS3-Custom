@@ -5,10 +5,26 @@ import type { CharacterReferenceOptions, VibeOptions } from '../nai/payload'
 import { ENDPOINTS } from '../nai/endpoints'
 import { enabledCharRefRows, enabledVibeRows, saveVibeEncoding } from './repo'
 
+let vibesInFlight: Promise<{ vibes: VibeOptions[]; newlyEncoded: number[] }> | null = null
+let charRefsInFlight: Promise<CharacterReferenceOptions[]> | null = null
+
 /** 생성 직전 바이브 준비 — 미인코딩/ie 변경분만 encode-vibe (2 Anlas) 후 캐시.
  *  newlyEncoded: 이번에 새로 인코딩된 바이브 id (카드 표시 갱신 통지용) */
-export async function prepareVibes(
-  token: string
+export function prepareVibes(
+  token: string,
+  maySpend: () => boolean = () => true
+): Promise<{ vibes: VibeOptions[]; newlyEncoded: number[] }> {
+  if (!vibesInFlight) {
+    vibesInFlight = prepareVibesOnce(token, maySpend).finally(() => {
+      vibesInFlight = null
+    })
+  }
+  return vibesInFlight
+}
+
+async function prepareVibesOnce(
+  token: string,
+  maySpend: () => boolean
 ): Promise<{ vibes: VibeOptions[]; newlyEncoded: number[] }> {
   const rows = enabledVibeRows()
   const vibes: VibeOptions[] = []
@@ -16,6 +32,8 @@ export async function prepareVibes(
   for (const row of rows) {
     let encoded = row.encoded
     if (!encoded || row.encodedIe !== row.infoExtracted) {
+      if (!maySpend())
+        throw new Error('Anlas 소모 OFF: 새 바이브 인코딩은 유료이므로 중단했습니다.')
       const res = await fetch(ENDPOINTS.encodeVibe, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token.trim()}`, 'Content-Type': 'application/json' },
@@ -49,7 +67,11 @@ async function processCharRefImage(filePath: string): Promise<string> {
   const h = meta.height ?? 1
   const ratio = w / h
   const canvas =
-    ratio > 1.2 ? { w: 1536, h: 1024 } : ratio < 1 / 1.2 ? { w: 1024, h: 1536 } : { w: 1472, h: 1472 }
+    ratio > 1.2
+      ? { w: 1536, h: 1024 }
+      : ratio < 1 / 1.2
+        ? { w: 1024, h: 1536 }
+        : { w: 1472, h: 1472 }
 
   const png = await sharp(buf)
     .resize(canvas.w, canvas.h, { fit: 'contain', background: { r: 0, g: 0, b: 0 } })
@@ -58,7 +80,16 @@ async function processCharRefImage(filePath: string): Promise<string> {
   return png.toString('base64')
 }
 
-export async function prepareCharRefs(): Promise<CharacterReferenceOptions[]> {
+export function prepareCharRefs(): Promise<CharacterReferenceOptions[]> {
+  if (!charRefsInFlight) {
+    charRefsInFlight = prepareCharRefsOnce().finally(() => {
+      charRefsInFlight = null
+    })
+  }
+  return charRefsInFlight
+}
+
+async function prepareCharRefsOnce(): Promise<CharacterReferenceOptions[]> {
   const rows = enabledCharRefRows()
   const result: CharacterReferenceOptions[] = []
   for (const row of rows) {

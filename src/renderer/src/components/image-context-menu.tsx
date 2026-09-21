@@ -5,6 +5,7 @@ import {
   FolderOpen,
   ImageIcon,
   Layers,
+  Paintbrush,
   Trash2,
   Wand2
 } from 'lucide-react'
@@ -12,6 +13,7 @@ import { toast } from '../stores/toast-store'
 import { openInDirector } from '../stores/director-store'
 import { setI2iSource, useGenerationStore } from '../stores/generation-store'
 import { useMetadataStore } from '../stores/metadata-store'
+import { openCensor } from '../stores/censor-store'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -50,6 +52,9 @@ export function ImageContextMenu({
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void openInDirector(filePath)}>
           <Wand2 size={13} className="text-violet-400" /> 디렉터 툴에서 열기
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => openCensor(filePath)}>
+          <Paintbrush size={13} className="text-red-300" /> 검열하기
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => void showMeta({ filePath })}>

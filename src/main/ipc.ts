@@ -47,7 +47,12 @@ import {
 import { processWildcards, resetSequentialCounters } from './fragments/processor'
 import { removeComments } from '../shared/nai-presets'
 import {
+  addNaiAccount,
+  deleteNaiAccount,
   deleteNaiToken,
+  getNaiAccountInfos,
+  getNaiAccountToken,
+  getNaiAccounts,
   getNaiToken,
   getNaiTokenInfo,
   getSetting,
@@ -55,11 +60,20 @@ import {
   setSetting
 } from './db/settings'
 import { anlasUsage, logBalance } from './nai/anlas-log'
+import { getTodayGenerationUsage } from './nai/account-usage'
 import { fetchAnlasBalance } from './nai/client'
-import { listImages, getImagePayload, saveGeneratedImage } from './images/storage'
+import {
+  getImagePayload,
+  hasCensorBackup,
+  listImages,
+  overwriteCensoredImage,
+  restoreCensoredImage,
+  saveGeneratedImage
+} from './images/storage'
 import { augmentImage, upscaleImage } from './nai/client'
 import {
   listPresets,
+  manageScenePresets,
   createPreset,
   renamePreset,
   deletePreset,
@@ -83,6 +97,7 @@ import {
   bulkSetResolution,
   bulkClearFavorites,
   bulkClearImages,
+  clearCurationImages,
   bulkExportZip,
   sceneImages,
   deleteNonFavorites,
@@ -95,6 +110,7 @@ import {
 } from './scenes/repo'
 import {
   listPromptPresets,
+  managePromptPresets,
   createPromptPreset,
   updatePromptPreset,
   deletePromptPreset,
@@ -122,7 +138,8 @@ import {
 import { searchTags } from './tags'
 import { imagesRoot, libraryRoot, sceneDir, scenePresetDir, scenesRoot } from './images/storage'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { basename } from 'path'
+import { readdir } from 'fs/promises'
+import { basename, extname, join, resolve } from 'path'
 import sharp from 'sharp'
 import { verifyToken } from './nai/client'
 import { APP_TITLE, PROFILE } from './profile'
@@ -153,6 +170,8 @@ export function broadcast<C extends keyof IpcEventMap>(channel: C, payload: IpcE
 }
 
 export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQueue }): void {
+  const censorFolderFiles = new Set<string>()
+  const censorPathKey = (filePath: string): string => resolve(filePath).toLowerCase()
   handle('db:status', () => ({ version: ctx.dbVersion, path: getDbPath() }))
   handle('app:version', () => ({ version: app.getVersion() }))
   handle('app:profile', () => ({ profile: PROFILE, title: APP_TITLE }))
@@ -162,7 +181,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   // 검증 성공 시에만 저장 — 잘못된 토큰이 조용히 저장되는 것 방지
   handle('nai:setToken', async ({ token }) => {
     const result = await verifyToken(token)
-    if (result.valid) setNaiToken(token)
+    if (result.valid) {
+      setNaiToken(token)
+      ctx.queue.refreshConfiguration()
+    }
     return result
   })
 
@@ -170,6 +192,28 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('nai:revealToken', () => ({ token: getNaiToken() }))
   handle('nai:deleteToken', () => {
     deleteNaiToken()
+    ctx.queue.refreshConfiguration()
+  })
+  handle('nai:accounts', () => ({ accounts: getNaiAccountInfos() }))
+  handle('nai:addAccount', async ({ token }) => {
+    if (PROFILE !== 1) return { valid: false, error: '가속 계정은 Custom 1에서만 지원합니다' }
+    const result = await verifyToken(token)
+    if (!result.valid) return result
+    const saved = addNaiAccount(token)
+    if (!saved.added) return { valid: false, error: saved.error }
+    ctx.queue.refreshConfiguration()
+    return result
+  })
+  handle('nai:revealAccount', ({ id }) => ({ token: getNaiAccountToken(id) }))
+  handle('nai:deleteAccount', ({ id }) => {
+    if (PROFILE !== 1) return { deleted: false, error: 'Custom 1에서만 변경할 수 있습니다' }
+    if (ctx.queue.isAccountBusy(id)) {
+      return { deleted: false, error: '이 계정이 생성 중이라 끝난 뒤 삭제할 수 있습니다' }
+    }
+    const deleted = deleteNaiAccount(id)
+    if (!deleted) return { deleted: false, error: '계정을 찾지 못했습니다' }
+    ctx.queue.refreshConfiguration()
+    return { deleted: true }
   })
   handle('nai:balance', async () => {
     const token = getNaiToken()
@@ -179,14 +223,76 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     return { anlas, tier, v5Usage }
   })
   handle('nai:anlasUsage', () => anlasUsage())
+  handle('nai:accountUsage', async () => {
+    const accounts = getNaiAccounts()
+    const items = await Promise.all(
+      accounts.map(async (account) => {
+        const { anlas, tier, v5Usage } = await fetchAnlasBalance(account.token)
+        return {
+          accountId: account.id,
+          anlas,
+          tier,
+          v5Usage
+        }
+      })
+    )
+    // 네트워크 조회 중 자정이 지나거나 생성이 끝나도 최신 날짜/장수를 반환한다.
+    const daily = getTodayGenerationUsage()
+    return {
+      date: daily.date,
+      items: items.map((item) => ({
+        ...item,
+        today: daily.accounts[item.accountId] ?? { v45: 0, v5: 0 }
+      }))
+    }
+  })
 
-  handle('queue:enqueue', ({ request, count }) => ({ ids: ctx.queue.enqueue(request, count) }))
-  handle('queue:enqueueMany', ({ requests }) => ({ ids: ctx.queue.enqueueMany(requests) }))
+  handle('queue:enqueue', ({ request, count }) => ctx.queue.tryEnqueue(request, count))
+  handle('queue:enqueueMany', ({ requests }) => ctx.queue.tryEnqueueMany(requests))
   handle('queue:cancel', ({ ids }) => ctx.queue.cancel(ids))
   handle('queue:reset', () => {
     ctx.queue.reset()
   })
   handle('queue:status', () => ctx.queue.status())
+  handle('acceleration:set', ({ enabled }) => {
+    if (PROFILE === 1) setSetting('acceleration_mode', enabled ? '1' : '0')
+    ctx.queue.refreshConfiguration()
+    return ctx.queue.status()
+  })
+  handle('anlasSpending:set', ({ enabled }) => {
+    if (PROFILE === 1) setSetting('anlas_spending', enabled ? '1' : '0')
+    ctx.queue.refreshConfiguration()
+    return ctx.queue.status()
+  })
+  handle('presets:manage', ({ kind, action, ids }) => {
+    if (
+      !Array.isArray(ids) ||
+      !ids.length ||
+      ids.some((id) => !Number.isSafeInteger(id) || id <= 0) ||
+      !['prompt', 'scene'].includes(kind) ||
+      !['duplicate', 'delete'].includes(action)
+    )
+      throw new Error('잘못된 프리셋 선택입니다')
+    if (kind === 'scene' && action === 'delete') {
+      const selectedScenes = new Set(ids.flatMap((id) => listScenes(id).map((s) => s.id)))
+      if (
+        ctx.queue
+          .status()
+          .items.some(
+            (item) =>
+              (item.state === 'pending' || item.state === 'generating') &&
+              item.request.sceneId !== undefined &&
+              selectedScenes.has(item.request.sceneId)
+          )
+      )
+        throw new Error(
+          '생성 중이거나 대기 중인 씬의 프리셋은 삭제할 수 없습니다. 큐를 먼저 완료하거나 취소하세요.'
+        )
+    }
+    return {
+      ids: kind === 'scene' ? manageScenePresets(ids, action) : managePromptPresets(ids, action)
+    }
+  })
 
   handle('images:list', ({ limit, offset, date, virtualFolderId, unfiledOnly }) =>
     listImages(limit, offset, { date, virtualFolderId, unfiledOnly })
@@ -358,6 +464,17 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     bulkClearFavorites(ids)
   })
   handle('scenes:bulkClearImages', ({ ids }) => ({ deleted: bulkClearImages(ids) }))
+  handle('scenes:clearCurationImages', ({ sceneId }) => {
+    const active = ctx.queue
+      .status()
+      .items.some(
+        (item) =>
+          item.request.sceneId === sceneId &&
+          (item.state === 'pending' || item.state === 'generating')
+      )
+    if (active) return { deleted: 0, error: '이 씬의 생성이 끝난 뒤 선별 없음으로 정리해주세요' }
+    return clearCurationImages(sceneId)
+  })
   handle('scenes:bulkExportZip', async ({ ids }) => ({ count: await bulkExportZip(ids) }))
   handle('scenes:images', ({ sceneId, limit, offset, favoritesOnly }) =>
     sceneImages(sceneId, limit, offset, favoritesOnly)
@@ -450,7 +567,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     const src = fragmentSource()
     return {
       counts: texts.map((t) =>
-        countTokens(processWildcards(removeComments(t), src, () => 0, true), model)
+        countTokens(
+          processWildcards(removeComments(t), src, () => 0, true),
+          model
+        )
       )
     }
   })
@@ -657,10 +777,93 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     try {
       const buf = readFileSync(filePath)
       const meta = await sharp(buf).metadata()
-      return { base64: buf.toString('base64'), width: meta.width ?? 0, height: meta.height ?? 0 }
+      return {
+        base64: buf.toString('base64'),
+        width: meta.width ?? 0,
+        height: meta.height ?? 0,
+        censorBackupAvailable: hasCensorBackup(filePath)
+      }
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
     }
+  })
+
+  handle('images:overwriteCensor', async ({ filePath, base64 }) => {
+    try {
+      const result = await overwriteCensoredImage(
+        filePath,
+        Buffer.from(base64.replace(/^data:[^,]+,/, ''), 'base64'),
+        censorFolderFiles.has(censorPathKey(filePath))
+      )
+      broadcast('images:updated', {
+        filePath,
+        thumbnail: result.thumbnail,
+        revision: result.revision
+      })
+      if (result.sceneId != null) {
+        broadcast('scenes:changed', { sceneId: result.sceneId, filePath })
+      }
+      return {
+        thumbnail: result.thumbnail,
+        revision: result.revision,
+        backupAvailable: result.backupAvailable
+      }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  handle('images:restoreCensor', async ({ filePath }) => {
+    try {
+      const result = await restoreCensoredImage(
+        filePath,
+        censorFolderFiles.has(censorPathKey(filePath))
+      )
+      broadcast('images:updated', {
+        filePath,
+        thumbnail: result.thumbnail,
+        revision: result.revision
+      })
+      if (result.sceneId != null) {
+        broadcast('scenes:changed', { sceneId: result.sceneId, filePath })
+      }
+      return { thumbnail: result.thumbnail, revision: result.revision }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  handle('censor:pickFolder', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showOpenDialog(win, {
+      title: '검열할 이미지 폴더 선택',
+      properties: ['openDirectory']
+    })
+    if (result.canceled || !result.filePaths[0]) return { canceled: true as const }
+    const folderPath = result.filePaths[0]
+    const supported = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+    const pending = [folderPath]
+    const filePaths: string[] = []
+    while (pending.length > 0) {
+      const dir = pending.pop()!
+      let entries
+      try {
+        entries = await readdir(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name)
+        if (entry.isDirectory()) pending.push(fullPath)
+        else if (entry.isFile() && supported.has(extname(entry.name).toLowerCase())) {
+          filePaths.push(fullPath)
+        }
+      }
+    }
+    filePaths.sort((a, b) => a.localeCompare(b, 'ko', { numeric: true, sensitivity: 'base' }))
+    censorFolderFiles.clear()
+    for (const filePath of filePaths) censorFolderFiles.add(censorPathKey(filePath))
+    return { canceled: false as const, folderPath, filePaths }
   })
 
   // 바이브 / 캐릭터 레퍼런스 라이브러리 (공용 저장소, kind로 분기)

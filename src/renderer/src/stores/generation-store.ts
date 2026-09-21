@@ -59,6 +59,7 @@ interface GenerationState {
   v5Usage: V5UsageStatus | null
   refreshAnlas: () => Promise<void>
   queue: QueueStatus | null
+  setAccelerationEnabled: (enabled: boolean) => Promise<void>
   /** 진행 중 미리보기 (data URL 아님, base64) */
   previewPng: string | null
   progress: { stepIx: number; totalSteps: number } | null
@@ -72,6 +73,8 @@ interface GenerationState {
   viewPinned: boolean
   history: HistoryItem[]
   historyTotal: number
+  /** 제자리 수정된 이미지의 캐시 무효화 키 (파일 경로 → 수정 시각). */
+  imageRevisions: Record<string, number>
 
   patchRequest: (patch: Partial<GenerationRequest>) => void
   setSeedLocked: (locked: boolean) => void
@@ -119,6 +122,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     }
   },
   queue: null,
+  setAccelerationEnabled: async (enabled) => {
+    const queue = await window.nais.invoke('acceleration:set', { enabled })
+    set({ queue })
+  },
   previewPng: null,
   progress: null,
   genStartAt: null,
@@ -127,6 +134,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   viewPinned: false,
   history: [],
   historyTotal: 0,
+  imageRevisions: {},
 
   patchRequest: (patch) => {
     const request = withoutTransientSource({ ...get().request, ...patch })
@@ -228,10 +236,11 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       value: JSON.stringify(baseRequest)
     })
     set({ previewPng: null, progress: null, viewingFilePath: null })
-    await window.nais.invoke('queue:enqueue', {
+    const result = await window.nais.invoke('queue:enqueue', {
       request: finalRequest,
       count: batchCount
     })
+    if (result.blockedReason) toast(enqueueBlockedMessage(result.blockedReason), 'info')
   },
 
   cancelAll: async () => {
@@ -301,6 +310,12 @@ export async function setI2iSource(filePath: string): Promise<void> {
 
 export function randomSeed(): number {
   return Math.floor(Math.random() * 4294967295)
+}
+
+export function enqueueBlockedMessage(reason: 'no-account' | 'pending' | 'busy'): string {
+  if (reason === 'no-account') return '설정에서 NAI 계정 토큰을 먼저 등록해주세요'
+  if (reason === 'pending') return '예약된 이미지가 남아 있어 새 작업을 추가할 수 없어요'
+  return '사용 가능한 모든 계정이 이미 생성 중이에요'
 }
 
 /** 파라미터를 settings('main_params')에 디바운스 저장 (편집 중 매 키 입력마다 쓰지 않도록) */
@@ -435,6 +450,15 @@ export function bindGenerationEvents(): () => void {
       historyTotal: state.historyTotal + 1
     })
   })
+  const offImageUpdated = window.nais.on('images:updated', ({ filePath, thumbnail, revision }) => {
+    const state = useGenerationStore.getState()
+    useGenerationStore.setState({
+      history: state.history.map((item) =>
+        item.filePath === filePath ? { ...item, thumbnail } : item
+      ),
+      imageRevisions: { ...state.imageRevisions, [filePath]: revision }
+    })
+  })
   const offAnlas = window.nais.on('anlas:balance', ({ anlas, v5Usage }) => {
     useGenerationStore.setState({
       anlasBalance: anlas,
@@ -449,6 +473,7 @@ export function bindGenerationEvents(): () => void {
     offQueue()
     offProgress()
     offImage()
+    offImageUpdated()
     offAnlas()
     offVibes()
   }

@@ -6,19 +6,27 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import sharp from 'sharp'
 import icon from '../../resources/icon.png?asset'
 import iconInverted from '../../resources/icon-inverted.png?asset'
-import { closeDb, initDb } from './db'
-import { getNaiToken } from './db/settings'
-import { getSetting } from './db/settings'
+import { closeDb, getDb, initDb } from './db'
+import { getNaiAccounts, getSetting } from './db/settings'
 import { processWildcards } from './fragments/processor'
 import { removeComments } from '../shared/nai-presets'
 import { fragmentSource } from './fragments/repo'
 import { saveGeneratedImage } from './images/storage'
 import { broadcast, registerIpcHandlers } from './ipc'
 import { logBalance } from './nai/anlas-log'
+import { logGeneratedImage } from './nai/account-usage'
 import { fetchAnlasBalance, generateImageStream, generateImageZip } from './nai/client'
+import { checkFreeGeneration } from './nai/spending-policy'
+import { enabledCharRefRows, enabledVibeRows } from './refs/repo'
 import { snapNaiResolution } from './nai/resolution'
 import { prepareCharRefs, prepareExtraCharRefs, prepareVibes } from './refs/prepare'
-import { APP_TITLE, APP_USER_MODEL_ID, SHOULD_INVERT_ICON, initProfilePaths } from './profile'
+import {
+  APP_TITLE,
+  APP_USER_MODEL_ID,
+  PROFILE,
+  SHOULD_INVERT_ICON,
+  initProfilePaths
+} from './profile'
 import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
 
@@ -93,6 +101,19 @@ app.whenReady().then(() => {
     try {
       const url = new URL(request.url)
       const filePath = decodeURIComponent(url.searchParams.get('path') ?? '')
+      if (filePath && url.searchParams.get('thumbnail') === '1') {
+        const row = getDb()
+          .prepare('SELECT thumbnail FROM images WHERE file_path = ?')
+          .get(filePath) as { thumbnail: Buffer | null } | undefined
+        if (row?.thumbnail?.length) {
+          return new Response(new Uint8Array(row.thumbnail), {
+            headers: {
+              'Content-Type': 'image/webp',
+              'Cache-Control': 'private, max-age=3600'
+            }
+          })
+        }
+      }
       if (!filePath || !existsSync(filePath)) return new Response(null, { status: 404 })
       return await net.fetch(pathToFileURL(filePath).toString())
     } catch {
@@ -112,150 +133,194 @@ app.whenReady().then(() => {
   }
 
   // 생성 파이프라인: 큐 → 조각/와일드카드 치환 → 바이브/캐릭레퍼 준비 → 스트리밍 생성 → 저장
-  const queue = new GenerationQueue(async (rawRequest, id, signal) => {
-    const token = getNaiToken()
-    if (!token) throw new Error('NAI 토큰이 설정되지 않았습니다')
+  const queue = new GenerationQueue(
+    async (rawRequest, id, signal, account) => {
+      const token = account.token
+      const maySpend = (): boolean => PROFILE !== 1 || getSetting('anlas_spending') !== '0'
+      const ensureFree = async (): Promise<void> => {
+        if (maySpend()) return
+        const rows = enabledVibeRows()
+        await checkFreeGeneration(token, rawRequest, {
+          characterCount: enabledCharRefRows().length + (rawRequest.extraCharRefs?.length ?? 0),
+          vibeCount: rows.length,
+          unencodedVibes: rows.filter((r) => !r.encoded || r.encodedIe !== r.infoExtracted).length
+        })
+        signal.throwIfAborted()
+      }
+      await ensureFree()
+      signal.throwIfAborted()
 
-    // 배치 항목마다 여기서 치환 — 매 장 다른 와일드카드 결과가 나온다.
-    // 일반 생성은 주석 제거가 반드시 먼저 — 주석 줄이 조각을 소모하거나(순차 카운터),
-    // 와일드카드 처리의 재조립이 개행을 지워 주석 범위가 전체로 번지는 것 방지 (NAIS2와 동일 순서).
-    // skipWildcards는 메타데이터 원문 복구용이므로 이 전처리 묶음을 건너뛴다.
-    const fragSource = fragmentSource()
-    const sub = (text: string): string =>
-      rawRequest.skipWildcards ? text : processWildcards(removeComments(text), fragSource)
-    // 3분할이면 각 조각을 개별 치환 후 병합 — 전송 프롬프트와 메타데이터(promptParts)가
-    // 같은 치환 결과를 공유한다 (병합본만 치환하면 메타데이터에 <조각> 원문이 남는 버그)
-    const subbedParts = rawRequest.promptParts
-      ? {
-          base: sub(rawRequest.promptParts.base),
-          additional: sub(rawRequest.promptParts.additional),
-          detail: sub(rawRequest.promptParts.detail)
+      // 배치 항목마다 여기서 치환 — 매 장 다른 와일드카드 결과가 나온다.
+      // 일반 생성은 주석 제거가 반드시 먼저 — 주석 줄이 조각을 소모하거나(순차 카운터),
+      // 와일드카드 처리의 재조립이 개행을 지워 주석 범위가 전체로 번지는 것 방지 (NAIS2와 동일 순서).
+      // skipWildcards는 메타데이터 원문 복구용이므로 이 전처리 묶음을 건너뛴다.
+      const fragSource = fragmentSource()
+      const sub = (text: string): string =>
+        rawRequest.skipWildcards ? text : processWildcards(removeComments(text), fragSource)
+      // 3분할이면 각 조각을 개별 치환 후 병합 — 전송 프롬프트와 메타데이터(promptParts)가
+      // 같은 치환 결과를 공유한다 (병합본만 치환하면 메타데이터에 <조각> 원문이 남는 버그)
+      const subbedParts = rawRequest.promptParts
+        ? {
+            base: sub(rawRequest.promptParts.base),
+            additional: sub(rawRequest.promptParts.additional),
+            detail: sub(rawRequest.promptParts.detail)
+          }
+        : undefined
+      let request = {
+        ...rawRequest,
+        prompt: subbedParts
+          ? [subbedParts.base, subbedParts.additional, subbedParts.detail]
+              .filter((p) => p.trim())
+              .join(', ')
+          : sub(rawRequest.prompt),
+        negativePrompt: sub(rawRequest.negativePrompt),
+        promptParts: subbedParts,
+        characterPrompts: rawRequest.characterPrompts.map((c) => ({
+          ...c,
+          prompt: sub(c.prompt),
+          negativePrompt: sub(c.negativePrompt)
+        }))
+      }
+
+      // 바이브/캐릭레퍼는 DB의 enabled 항목에서 준비 (바이브는 필요 시 인코딩 — 2 Anlas, 캐시됨)
+      const { vibes, newlyEncoded } = await prepareVibes(token, maySpend)
+      if (newlyEncoded.length) broadcast('vibes:encoded', {}) // 카드 인코딩 표시 갱신
+      const extraCharacterReferences = rawRequest.extraCharRefs?.length
+        ? await prepareExtraCharRefs(rawRequest.extraCharRefs)
+        : []
+      const characterReferences = [...extraCharacterReferences, ...(await prepareCharRefs())]
+
+      let source = request.source
+      // i2i/인페인트: 소스 해상도를 유효 NAI 해상도(64 배수·픽셀 상한)로 스냅하고 이미지를 맞춰 리사이즈.
+      // NAI는 width/height가 64 배수가 아니면 400을 낸다 (임의 크기 업로드 이미지 → i2i 실패 원인).
+      if (source) {
+        const snapped = snapNaiResolution(request.width, request.height)
+        if (snapped.width !== request.width || snapped.height !== request.height) {
+          const resized = await sharp(Buffer.from(source.imageBase64, 'base64'))
+            .resize(snapped.width, snapped.height, { fit: 'fill' })
+            .png()
+            .toBuffer()
+          source = { ...source, imageBase64: resized.toString('base64') }
+          request = { ...request, width: snapped.width, height: snapped.height }
         }
-      : undefined
-    let request = {
-      ...rawRequest,
-      prompt: subbedParts
-        ? [subbedParts.base, subbedParts.additional, subbedParts.detail]
-            .filter((p) => p.trim())
-            .join(', ')
-        : sub(rawRequest.prompt),
-      negativePrompt: sub(rawRequest.negativePrompt),
-      promptParts: subbedParts,
-      characterPrompts: rawRequest.characterPrompts.map((c) => ({
-        ...c,
-        prompt: sub(c.prompt),
-        negativePrompt: sub(c.negativePrompt)
-      }))
-    }
-
-    // 바이브/캐릭레퍼는 DB의 enabled 항목에서 준비 (바이브는 필요 시 인코딩 — 2 Anlas, 캐시됨)
-    const { vibes, newlyEncoded } = await prepareVibes(token)
-    if (newlyEncoded.length) broadcast('vibes:encoded', {}) // 카드 인코딩 표시 갱신
-    const extraCharacterReferences = rawRequest.extraCharRefs?.length
-      ? await prepareExtraCharRefs(rawRequest.extraCharRefs)
-      : []
-    const characterReferences = [...extraCharacterReferences, ...(await prepareCharRefs())]
-
-    let source = request.source
-    // i2i/인페인트: 소스 해상도를 유효 NAI 해상도(64 배수·픽셀 상한)로 스냅하고 이미지를 맞춰 리사이즈.
-    // NAI는 width/height가 64 배수가 아니면 400을 낸다 (임의 크기 업로드 이미지 → i2i 실패 원인).
-    if (source) {
-      const snapped = snapNaiResolution(request.width, request.height)
-      if (snapped.width !== request.width || snapped.height !== request.height) {
-        const resized = await sharp(Buffer.from(source.imageBase64, 'base64'))
-          .resize(snapped.width, snapped.height, { fit: 'fill' })
-          .png()
-          .toBuffer()
-        source = { ...source, imageBase64: resized.toString('base64') }
-        request = { ...request, width: snapped.width, height: snapped.height }
       }
-    }
-    const normalizedMaskBase64 = source?.maskBase64
-      ? await normalizeInpaintMask(source.maskBase64, request.width, request.height)
-      : undefined
-    if (source?.maskBase64 && !request.model.includes('inpainting')) {
-      // TODO(fixture): 인페인트 실캡처로 모델 스위칭 여부 확정 필요 (웹 enum에 -inpainting 존재)
-      request = { ...request, model: `${request.model}-inpainting` }
-    }
-
-    const imageFormat: 'png' | 'webp' = getSetting('image_format') === 'webp' ? 'webp' : 'png'
-    const buildOpts = {
-      vibes: vibes.length > 0 ? vibes : undefined,
-      characterReferences: characterReferences.length > 0 ? characterReferences : undefined,
-      imageFormat,
-      i2i: source
-        ? {
-            strength: source.strength,
-            noise: source.noise,
-            // TODO(fixture): 캡처 1건에서 seed-1이었음 — 규칙 미확정이라 캡처값 방식 채택
-            extraNoiseSeed: Math.max(0, request.seed - 1),
-            colorCorrect: false,
-            imageBase64: source.imageBase64,
-            maskBase64: normalizedMaskBase64
-          }
+      const normalizedMaskBase64 = source?.maskBase64
+        ? await normalizeInpaintMask(source.maskBase64, request.width, request.height)
         : undefined
-    }
+      if (source?.maskBase64 && !request.model.includes('inpainting')) {
+        // TODO(fixture): 인페인트 실캡처로 모델 스위칭 여부 확정 필요 (웹 enum에 -inpainting 존재)
+        request = { ...request, model: `${request.model}-inpainting` }
+      }
 
-    // t2i·i2i·인페인트 모두 스트리밍으로 진행 미리보기 (인페인트는 서버가 스트림에서도 합성 확인됨,
-    // i2i는 합성 단계가 없어 최종 프레임이 곧 결과). 스트리밍 설정 off면 전부 zip.
-    const streamingOn = getSetting('gen_streaming') !== '0'
-    const useZip = !streamingOn
-    const { png, sentPayload } = useZip
-      ? await generateImageZip(token, request, buildOpts, signal)
-      : await generateImageStream(
-          token,
-          request,
-          buildOpts,
-          (stepIx, preview) => {
-            broadcast('generation:progress', {
-              id,
-              stepIx,
-              totalSteps: request.steps,
-              previewPng: preview?.toString('base64')
-            })
-          },
-          signal
-        )
-
-    // 자동 저장 off여도 히스토리엔 남긴다 — 저장 폴더 대신 앱 내부 라이브러리로 가는 판정은
-    // saveGeneratedImage가 auto_save 설정을 읽어 처리한다 (씬 포함).
-    // 씬 생성은 씬루트/<프리셋>/<씬 이름>/에 모아 저장 (NAIS2와 동일 계층)
-    const scene = request.sceneId ? getScene(request.sceneId) : null
-    const saved = await saveGeneratedImage({
-      png,
-      sentPayload,
-      seed: request.seed,
-      kind: request.sceneId ? 'scene' : source ? (source.maskBase64 ? 'inpaint' : 'i2i') : 't2i',
-      sceneId: request.sceneId,
-      format: imageFormat,
-      sceneName: scene?.name,
-      scenePresetName: scene ? (getPresetName(scene.presetId) ?? undefined) : undefined,
-      localMetadata: request.promptParts
-        ? {
-            promptParts: {
-              ...request.promptParts,
-              negative: request.negativePrompt
+      const imageFormat: 'png' | 'webp' = getSetting('image_format') === 'webp' ? 'webp' : 'png'
+      const buildOpts = {
+        vibes: vibes.length > 0 ? vibes : undefined,
+        characterReferences: characterReferences.length > 0 ? characterReferences : undefined,
+        imageFormat,
+        i2i: source
+          ? {
+              strength: source.strength,
+              noise: source.noise,
+              // TODO(fixture): 캡처 1건에서 seed-1이었음 — 규칙 미확정이라 캡처값 방식 채택
+              extraNoiseSeed: Math.max(0, request.seed - 1),
+              colorCorrect: false,
+              imageBase64: source.imageBase64,
+              maskBase64: normalizedMaskBase64
             }
-          }
-        : undefined
-    })
-
-    broadcast('images:added', saved)
-
-    // 씬 생성이면 해당 씬 갱신 알림 (목록 썸네일/개수, 상세 이미지 갱신용)
-    if (request.sceneId)
-      broadcast('scenes:changed', { sceneId: request.sceneId, filePath: saved.filePath })
-
-    // 생성 후 잔액 갱신 (실사용량 추적의 진실 공급원) — 실패해도 생성 흐름엔 영향 없음
-    void fetchAnlasBalance(token).then(({ anlas, v5Usage }) => {
-      if (anlas !== null) {
-        logBalance(anlas)
-        broadcast('anlas:balance', { anlas, v5Usage })
+          : undefined
       }
-    })
 
-    return saved.filePath
-  })
+      // t2i·i2i·인페인트 모두 스트리밍으로 진행 미리보기 (인페인트는 서버가 스트림에서도 합성 확인됨,
+      // i2i는 합성 단계가 없어 최종 프레임이 곧 결과). 스트리밍 설정 off면 전부 zip.
+      const streamingOn = getSetting('gen_streaming') !== '0'
+      const useZip = !streamingOn
+      // 준비 중 토글/레퍼런스가 바뀌어도 실제 전송 구성으로 재검사한다. 이미 보낸 요청은 소급 취소하지 않는다.
+      if (!maySpend()) {
+        await checkFreeGeneration(
+          token,
+          { ...request, source },
+          {
+            characterCount: characterReferences.length,
+            vibeCount: vibes.length,
+            unencodedVibes: 0
+          }
+        )
+      }
+      signal.throwIfAborted()
+      const { png, sentPayload } = useZip
+        ? await generateImageZip(token, request, buildOpts, signal)
+        : await generateImageStream(
+            token,
+            request,
+            buildOpts,
+            (stepIx, preview) => {
+              broadcast('generation:progress', {
+                id,
+                stepIx,
+                totalSteps: request.steps,
+                previewPng: preview?.toString('base64')
+              })
+            },
+            signal
+          )
+
+      // 자동 저장 off여도 히스토리엔 남긴다 — 저장 폴더 대신 앱 내부 라이브러리로 가는 판정은
+      // saveGeneratedImage가 auto_save 설정을 읽어 처리한다 (씬 포함).
+      // 씬 생성은 씬루트/<프리셋>/<씬 이름>/에 모아 저장 (NAIS2와 동일 계층)
+      const scene = request.sceneId ? getScene(request.sceneId) : null
+      const saved = await saveGeneratedImage({
+        png,
+        sentPayload,
+        seed: request.seed,
+        kind: request.sceneId ? 'scene' : source ? (source.maskBase64 ? 'inpaint' : 'i2i') : 't2i',
+        sceneId: request.sceneId,
+        format: imageFormat,
+        sceneName: scene?.name,
+        scenePresetName: scene ? (getPresetName(scene.presetId) ?? undefined) : undefined,
+        localMetadata: request.promptParts
+          ? {
+              promptParts: {
+                ...request.promptParts,
+                negative: request.negativePrompt
+              }
+            }
+          : undefined
+      })
+
+      // 실제 이미지 저장까지 성공한 건만 PC 현지 자정 기준 계정·모델별 장수에 포함한다.
+      try {
+        logGeneratedImage(account.id, request.model)
+      } catch {
+        // 집계 실패가 이미 저장된 이미지를 재생성(과금)하게 해서는 안 된다.
+        console.error('계정별 생성 장수 저장 실패')
+      }
+
+      broadcast('images:added', saved)
+
+      // 씬 생성이면 해당 씬 갱신 알림 (목록 썸네일/개수, 상세 이미지 갱신용)
+      if (request.sceneId)
+        broadcast('scenes:changed', { sceneId: request.sceneId, filePath: saved.filePath })
+
+      // 생성 후 잔액 갱신 (실사용량 추적의 진실 공급원) — 실패해도 생성 흐름엔 영향 없음
+      void fetchAnlasBalance(token).then(({ anlas, v5Usage }) => {
+        // 기존 상단 잔액과 Anlas 사용 로그는 대표 계정(계정 1)의 값만 유지한다.
+        // 계정 2 이상 잔액을 섞으면 계정 전환이 사용량으로 잘못 계산된다.
+        const primaryId = getNaiAccounts()[0]?.id
+        if (account.id === primaryId && anlas !== null) {
+          logBalance(anlas)
+          broadcast('anlas:balance', { anlas, v5Usage })
+        }
+      })
+
+      return saved.filePath
+    },
+    {
+      getAccounts: () => getNaiAccounts(),
+      accelerationAvailable: PROFILE === 1,
+      isAccelerationEnabled: () => getSetting('acceleration_mode') === '1',
+      isAnlasSpendingEnabled: () => PROFILE !== 1 || getSetting('anlas_spending') !== '0'
+    }
+  )
 
   // 저장해둔 생성 지연 시간 적용 (기본 600ms)
   const savedDelay = Number(getSetting('gen_delay_ms'))

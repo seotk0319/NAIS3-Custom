@@ -7,6 +7,7 @@ import { PreviewPane } from './components/preview-pane'
 import { DirectorMode } from './components/director-mode'
 import { LibraryView } from './components/library-view'
 import { InpaintHost } from './components/inpaint-host'
+import { CensorEditor } from './components/censor-editor'
 import { ArtistTagsDialog } from './components/artist-tags-dialog'
 import { MetadataDialog } from './components/metadata-dialog'
 import { PromptPanel } from './components/prompt-panel'
@@ -150,6 +151,7 @@ export default function App(): React.JSX.Element {
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         <TextPromptHost />
         <InpaintHost />
+        <CensorEditor />
         <MetadataDialog />
         <ArtistTagsDialog />
         <Toaster />

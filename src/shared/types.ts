@@ -104,6 +104,8 @@ export interface QueueItem {
   id: string
   state: QueueItemState
   request: GenerationRequest
+  /** 가속 모드에서 이 작업을 실행한 계정 슬롯. 토큰 원문은 절대 노출하지 않는다. */
+  accountId?: string
   error?: string
   /** 생성 완료 시 저장된 이미지 파일 경로 */
   filePath?: string
@@ -116,6 +118,23 @@ export interface QueueStatus {
   running: boolean
   delayMs: number
   counts: Record<QueueItemState, number>
+  /** Custom 1에서만 제공되는 다중 계정 가속 기능인지 */
+  accelerationAvailable: boolean
+  accelerationEnabled: boolean
+  anlasSpendingEnabled?: boolean
+  pausedAccounts?: { id: string; reason: string; retryAt: number }[]
+  accountCount: number
+  busyAccountCount: number
+  availableSlots: number
+  /** 새 묶음을 즉시 받을 수 있는지. pending이 남아 있으면 false다. */
+  accepting: boolean
+}
+
+export type QueueEnqueueBlockedReason = 'no-account' | 'pending' | 'busy'
+
+export interface QueueEnqueueResult {
+  ids: string[]
+  blockedReason?: QueueEnqueueBlockedReason
 }
 
 export interface SubscriptionInfo {
@@ -124,12 +143,29 @@ export interface SubscriptionInfo {
   anlasPurchased: number
 }
 
+/** 렌더러에 노출하는 NAI 계정 슬롯 정보. 토큰 원문은 별도 reveal IPC에서만 반환한다. */
+export interface NaiAccountInfo {
+  id: string
+  name: string
+  prefix: string
+  length: number
+}
+
 /** V5 무료 생성 사용량. 서버는 정확한 장수 대신 정수 비율과 1%당 충전 시간을 제공한다. */
 export interface V5UsageStatus {
   isNegative: boolean
   percent: number
   /** 1% 충전에 필요한 초 (NovelAI 웹의 "Sec / %") */
   timeUntilNextPercent: number
+}
+
+/** 계정별 현재 할당량과 PC 현지 자정부터 성공 저장된 생성 장수. */
+export interface NaiAccountUsage {
+  accountId: string
+  tier: string | null
+  anlas: number | null
+  v5Usage: V5UsageStatus | null
+  today: { v45: number; v5: number }
 }
 
 /** 캐릭터 카드 (단일 리스트 모델 — 카드가 직접 생성 포함 여부·위치를 가짐) */
@@ -369,17 +405,37 @@ export interface IpcInvokeMap {
   'nai:tokenStatus': { req: void; res: { hasToken: boolean; prefix: string; length: number } }
   'nai:revealToken': { req: void; res: { token: string | null } }
   'nai:deleteToken': { req: void; res: void }
+  'nai:accounts': { req: void; res: { accounts: NaiAccountInfo[] } }
+  'nai:addAccount': {
+    req: { token: string }
+    res: { valid: boolean; subscription?: SubscriptionInfo; error?: string }
+  }
+  'nai:revealAccount': { req: { id: string }; res: { token: string | null } }
+  'nai:deleteAccount': {
+    req: { id: string }
+    res: { deleted: boolean; error?: string }
+  }
   /** 잔액 조회 (스냅샷 로그에도 기록) */
   'nai:balance': {
     req: void
     res: { anlas: number | null; tier: string | null; v5Usage: V5UsageStatus | null }
   }
   'nai:anlasUsage': { req: void; res: { today: number; week: number } }
-  'queue:enqueue': { req: { request: GenerationRequest; count: number }; res: { ids: string[] } }
-  'queue:enqueueMany': { req: { requests: GenerationRequest[] }; res: { ids: string[] } }
+  'nai:accountUsage': {
+    req: void
+    res: { date: string; items: NaiAccountUsage[] }
+  }
+  'queue:enqueue': { req: { request: GenerationRequest; count: number }; res: QueueEnqueueResult }
+  'queue:enqueueMany': { req: { requests: GenerationRequest[] }; res: QueueEnqueueResult }
   'queue:cancel': { req: { ids: string[] }; res: void }
   'queue:reset': { req: void; res: void }
   'queue:status': { req: void; res: QueueStatus }
+  'acceleration:set': { req: { enabled: boolean }; res: QueueStatus }
+  'anlasSpending:set': { req: { enabled: boolean }; res: QueueStatus }
+  'presets:manage': {
+    req: { kind: 'prompt' | 'scene'; action: 'duplicate' | 'delete'; ids: number[] }
+    res: { ids: number[] }
+  }
   'images:list': {
     req: {
       limit: number
@@ -440,7 +496,24 @@ export interface IpcInvokeMap {
   /** 히스토리 이미지를 i2i/인페인트 소스로 읽기 */
   'images:readForSource': {
     req: { filePath: string }
-    res: { base64: string; width: number; height: number } | { error: string }
+    res:
+      | { base64: string; width: number; height: number; censorBackupAvailable: boolean }
+      | { error: string }
+  }
+  /** 흰칠 검열 결과로 기존 이미지 파일을 덮어쓰고 관련 썸네일을 갱신한다. */
+  'images:overwriteCensor': {
+    req: { filePath: string; base64: string }
+    res: { thumbnail: string; revision: number; backupAvailable: boolean } | { error: string }
+  }
+  /** 최초 흰칠 직전의 원본 파일을 바이트 단위로 복원한다. */
+  'images:restoreCensor': {
+    req: { filePath: string }
+    res: { thumbnail: string; revision: number } | { error: string }
+  }
+  /** 디렉터에서 검열할 폴더를 고르고 하위 이미지까지 자연 정렬해 반환한다. */
+  'censor:pickFolder': {
+    req: void
+    res: { canceled: true } | { canceled: false; folderPath: string; filePaths: string[] }
   }
   /** 파일 탐색기에서 해당 파일 위치 열기 (파일 선택 상태로) */
   'images:showInFolder': { req: { filePath: string }; res: void }
@@ -579,6 +652,10 @@ export interface IpcInvokeMap {
   'scenes:bulkSetResolution': { req: { ids: number[]; width: number; height: number }; res: void }
   'scenes:bulkClearFavorites': { req: { ids: number[] }; res: void }
   'scenes:bulkClearImages': { req: { ids: number[] }; res: { deleted: number } }
+  'scenes:clearCurationImages': {
+    req: { sceneId: number }
+    res: { deleted: number; error?: string }
+  }
   'scenes:bulkExportZip': { req: { ids: number[] }; res: { count: number } }
   /** 씬 상세 이미지 페이지네이션 (수만 장 대비) */
   'scenes:images': {
@@ -662,6 +739,8 @@ export interface IpcEventMap {
   }
   /** 전체 히스토리를 다시 읽지 않고 새 이미지 한 장만 추가한다. */
   'images:added': HistoryItem
+  /** 기존 이미지 파일이 제자리에서 수정됨 — 캐시 무효화와 썸네일 교체용. */
+  'images:updated': { filePath: string; thumbnail: string; revision: number }
   /** 씬에 새 이미지가 생성됨 (목록/상세 갱신). filePath로 카드 즉시 낙관적 갱신 */
   'scenes:changed': { sceneId: number; filePath: string }
   /** 바이브 인코딩 완료 — 카드의 인코딩 표시 갱신용 */

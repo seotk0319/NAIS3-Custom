@@ -69,12 +69,21 @@ export async function verifyToken(
 /** 현재 Anlas 잔액(fixed + purchased)과 구독 tier. 실패 시 둘 다 null */
 export async function fetchAnlasBalance(
   token: string
-): Promise<{ anlas: number | null; tier: string | null; v5Usage: V5UsageStatus | null }> {
+): Promise<{
+  anlas: number | null
+  tier: string | null
+  v5Usage: V5UsageStatus | null
+  active?: boolean
+}> {
   try {
-    const res = await fetch(ENDPOINTS.subscription, { headers: headers(token) })
+    const res = await fetch(ENDPOINTS.subscription, {
+      headers: headers(token),
+      signal: AbortSignal.timeout(15000)
+    })
     if (!res.ok) return { anlas: null, tier: null, v5Usage: null }
     const data = (await res.json()) as {
       tier?: number
+      active?: boolean
       trainingStepsLeft?: { fixedTrainingStepsLeft?: number; purchasedTrainingSteps?: number }
       usage?: { isNegative?: boolean; percent?: number; timeUntilNextPercent?: number }
     }
@@ -84,11 +93,12 @@ export async function fetchAnlasBalance(
       usage && Number.isFinite(usage.percent) && Number.isFinite(usage.timeUntilNextPercent)
         ? {
             isNegative: usage.isNegative === true,
-            percent: Math.max(0, Math.min(100, Math.trunc(usage.percent ?? 0))),
+            percent: Math.max(0, Math.trunc(usage.percent ?? 0)),
             timeUntilNextPercent: Math.max(0, Math.trunc(usage.timeUntilNextPercent ?? 0))
           }
         : null
     return {
+      active: data.active === true,
       anlas:
         (data.trainingStepsLeft?.fixedTrainingStepsLeft ?? 0) +
         (data.trainingStepsLeft?.purchasedTrainingSteps ?? 0),

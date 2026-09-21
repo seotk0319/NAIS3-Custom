@@ -81,3 +81,29 @@ export function reorderPromptPresets(ids: number[]): void {
     ids.forEach((id, i) => stmt.run(i, id))
   })()
 }
+
+export function managePromptPresets(ids: number[], action: 'duplicate' | 'delete'): number[] {
+  const db = getDb()
+  return db.transaction(() => {
+    const all = listPromptPresets()
+    const selected = all.filter((p) => ids.includes(p.id))
+    if (!selected.length || selected.length !== new Set(ids).size)
+      throw new Error('프리셋 목록이 변경됐습니다. 다시 선택하세요.')
+    if (action === 'delete') {
+      if (selected.length === all.length) throw new Error('프리셋을 최소 1개 남겨주세요.')
+      for (const p of selected) deletePromptPreset(p.id)
+      return selected.map((p) => p.id)
+    }
+    const names = new Set(all.map((p) => p.name))
+    return selected.map((p) => {
+      const base = `${p.name} 복사`
+      let name = base,
+        n = 2
+      while (names.has(name)) name = `${base} (${n++})`
+      names.add(name)
+      const id = createPromptPreset(name, p.prompt, p.negativePrompt, p.params ?? undefined)
+      updatePromptPreset(id, { promptParts: p.promptParts })
+      return id
+    })
+  })()
+}

@@ -33,6 +33,14 @@ export const UC_PRESET_OPTIONS: { value: UcPresetIndex; label: string }[] = [
   { value: 4, label: 'None' }
 ]
 
-export function imageUrl(filePath: string): string {
-  return `nais-image://local/?path=${encodeURIComponent(filePath)}`
+export function imageUrl(filePath: string, revision?: number): string {
+  const rev = revision == null ? '' : `&revision=${revision}`
+  return `nais-image://local/?path=${encodeURIComponent(filePath)}${rev}`
+}
+
+const thumbnailSession = Date.now().toString(36)
+
+/** Stored 512px preview; originals are still used by detail/curation views. */
+export function thumbnailUrl(filePath: string, revision?: number): string {
+  return `${imageUrl(filePath, revision)}&thumbnail=1&session=${thumbnailSession}`
 }

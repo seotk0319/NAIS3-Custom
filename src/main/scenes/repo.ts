@@ -114,6 +114,38 @@ export function deletePreset(id: number): void {
   })()
 }
 
+/** 이미지 링크와 생성 예약은 복사하지 않는다. 원본 파일은 삭제/복제 모두 건드리지 않는다. */
+export function manageScenePresets(ids: number[], action: 'duplicate' | 'delete'): number[] {
+  const db = getDb()
+  return db.transaction(() => {
+    const all = listPresets()
+    const selected = all.filter((p) => ids.includes(p.id))
+    if (!selected.length || selected.length !== new Set(ids).size)
+      throw new Error('프리셋 목록이 변경됐습니다. 다시 선택하세요.')
+    if (action === 'delete') {
+      if (selected.length === all.length) throw new Error('프리셋을 최소 1개 남겨주세요.')
+      for (const p of selected) deletePreset(p.id)
+      return selected.map((p) => p.id)
+    }
+    return selected.map((p) => {
+      const id = createPreset(uniquePresetName(`${p.name} 복사`))
+      db.prepare(
+        'UPDATE scene_presets SET default_width = ?, default_height = ?, character_ids = ? WHERE id = ?'
+      ).run(
+        p.defaultWidth ?? null,
+        p.defaultHeight ?? null,
+        p.characterIds ? JSON.stringify(p.characterIds) : null,
+        id
+      )
+      db.prepare(
+        `INSERT INTO gen_scenes (preset_id, name, prompt, negative_prompt, width, height, sort_order, reserve_count)
+        SELECT ?, name, prompt, negative_prompt, width, height, sort_order, 0 FROM gen_scenes WHERE preset_id = ? ORDER BY sort_order, id`
+      ).run(id, p.id)
+      return id
+    })
+  })()
+}
+
 // ── 씬 ──────────────────────────────────────────────────
 /** 프리셋별 목록 (썸네일은 씬당 1장만 조인 — 수만 장이어도 가벼움) */
 export function listScenes(presetId: number): Scene[] {
@@ -319,6 +351,32 @@ export function bulkClearImages(ids: number[]): number {
 }
 
 // ── 씬 상세 이미지 (페이지네이션) ────────────────────────
+/** 선별 없음: 파일 삭제에 실패하면 기록을 보존하고 다음 씬으로 이동하지 않는다. */
+export function clearCurationImages(sceneId: number): { deleted: number; error?: string } {
+  const db = getDb()
+  const rows = db.prepare('SELECT id, file_path FROM images WHERE scene_id = ?').all(sceneId) as {
+    id: number
+    file_path: string
+  }[]
+  const remove = db.prepare('DELETE FROM images WHERE id = ? AND scene_id = ?')
+  let deleted = 0
+  for (const row of rows) {
+    try {
+      unlinkSync(row.file_path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        return {
+          deleted,
+          error: `${deleted}장 삭제 후 중단됐습니다. 사용 중이거나 삭제할 수 없는 파일이 있습니다.`
+        }
+      }
+    }
+    remove.run(row.id, sceneId)
+    deleted++
+  }
+  return { deleted }
+}
+
 export function sceneImages(
   sceneId: number,
   limit: number,

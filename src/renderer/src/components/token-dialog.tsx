@@ -9,11 +9,13 @@ import {
   KeyRound,
   Image as ImageIcon,
   Palette,
+  Plus,
   RotateCcw,
   Trash2,
   Upload
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { NaiAccountInfo, NaiAccountUsage } from '@shared/types'
 import discordSvg from '../assets/discord.svg'
 import nais3Logo from '../assets/nais3-logo.svg'
 import { playChime } from '../lib/completion-alert'
@@ -523,53 +525,95 @@ function ShortcutsSection(): React.JSX.Element {
   )
 }
 
+function formatUsageDuration(seconds: number): string {
+  if (seconds <= 0) return '—'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (hours > 0) return `${hours}시간 ${minutes}분`
+  return minutes > 0 ? `${minutes}분 ${seconds % 60}초` : `${seconds}초`
+}
+
 function AccountSection(): React.JSX.Element {
+  const [accounts, setAccounts] = useState<NaiAccountInfo[]>([])
+  const [accountUsage, setAccountUsage] = useState<NaiAccountUsage[]>([])
+  const [usageLoading, setUsageLoading] = useState(true)
+  const [usageDate, setUsageDate] = useState('')
+  const [updatedAt, setUpdatedAt] = useState('')
+  const [usageError, setUsageError] = useState(false)
+  const usageInFlight = useRef(false)
   const [draft, setDraft] = useState('')
+  const [adding, setAdding] = useState(false)
   const [status, setStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [message, setMessage] = useState('')
-  const [info, setInfo] = useState<{ hasToken: boolean; prefix: string; length: number }>({
-    hasToken: false,
-    prefix: '',
-    length: 0
-  })
-  const [revealed, setRevealed] = useState('')
-  const [usage, setUsage] = useState<{ today: number; week: number } | null>(null)
-  const anlasBalance = useGenerationStore((s) => s.anlasBalance)
+  const [revealed, setRevealed] = useState<Record<string, string>>({})
   const refreshAnlas = useGenerationStore((s) => s.refreshAnlas)
 
-  const refresh = (): void => {
-    void window.nais.invoke('nai:tokenStatus', undefined).then(setInfo)
-    void window.nais.invoke('nai:anlasUsage', undefined).then(setUsage)
-  }
-  useEffect(refresh, [])
+  const refreshUsage = useCallback(async (): Promise<void> => {
+    if (usageInFlight.current) return
+    usageInFlight.current = true
+    setUsageLoading(true)
+    try {
+      const { items, date } = await window.nais.invoke('nai:accountUsage', undefined)
+      setAccountUsage(items)
+      setUsageDate(date)
+      setUpdatedAt(new Date().toLocaleTimeString('ko-KR', { hour12: false }))
+      setUsageError(false)
+    } catch {
+      setUsageError(true)
+    } finally {
+      usageInFlight.current = false
+      setUsageLoading(false)
+    }
+  }, [])
 
-  // WHIMS 프로바이더 키 패턴: pst-************** + 눈 아이콘으로 공개 토글
-  const masked = info.hasToken
-    ? `${info.prefix}${'*'.repeat(Math.max(0, info.length - info.prefix.length))}`
-    : ''
-  const inputValue = info.hasToken ? revealed || masked : draft
+  const refresh = useCallback((): void => {
+    void window.nais.invoke('nai:accounts', undefined).then(({ accounts: next }) => {
+      setAccounts(next)
+      if (next.length === 0) setAdding(true)
+    })
+    void refreshUsage()
+  }, [refreshUsage])
+  useEffect(() => {
+    const initialTimer = window.setTimeout(refresh, 0)
+    const timer = window.setInterval(() => void refreshUsage(), 30000)
+    let generatedTimer: number | undefined
+    const off = window.nais.on('images:added', () => {
+      window.clearTimeout(generatedTimer)
+      generatedTimer = window.setTimeout(() => void refreshUsage(), 1500)
+    })
+    return () => {
+      off()
+      window.clearTimeout(initialTimer)
+      window.clearInterval(timer)
+      window.clearTimeout(generatedTimer)
+    }
+  }, [refresh, refreshUsage])
 
-  async function toggleReveal(): Promise<void> {
-    if (revealed) {
-      setRevealed('')
+  async function toggleReveal(account: NaiAccountInfo): Promise<void> {
+    if (revealed[account.id]) {
+      setRevealed((prev) => {
+        const next = { ...prev }
+        delete next[account.id]
+        return next
+      })
       return
     }
-    const { token } = await window.nais.invoke('nai:revealToken', undefined)
-    setRevealed(token ?? '')
+    const { token } = await window.nais.invoke('nai:revealAccount', { id: account.id })
+    if (token) setRevealed((prev) => ({ ...prev, [account.id]: token }))
   }
 
-  async function saveToken(): Promise<void> {
+  async function addAccount(): Promise<void> {
     if (!draft.trim()) return
     setStatus('checking')
-    const result = await window.nais.invoke('nai:setToken', { token: draft.trim() })
+    const result = await window.nais.invoke('nai:addAccount', { token: draft.trim() })
     if (result.valid) {
       setStatus('ok')
-      if (result.subscription) {
+      if (result.subscription && accounts.length === 0) {
         useGenerationStore.getState().setSubscriptionTier(result.subscription.tier)
       }
-      setMessage(`연결됨 — ${result.subscription?.tier ?? '?'}`)
+      setMessage(`계정 연결됨 — ${result.subscription?.tier ?? '?'}`)
       setDraft('')
-      setRevealed('')
+      setAdding(false)
       refresh()
       void refreshAnlas()
     } else {
@@ -578,94 +622,205 @@ function AccountSection(): React.JSX.Element {
     }
   }
 
-  function deleteToken(): void {
-    void window.nais.invoke('nai:deleteToken', undefined).then(() => {
-      setRevealed('')
-      setDraft('')
-      setStatus('idle')
-      useGenerationStore.setState({ anlasBalance: null })
-      refresh()
+  async function removeAccount(id: string): Promise<void> {
+    const result = await window.nais.invoke('nai:deleteAccount', { id })
+    if (!result.deleted) {
+      setStatus('fail')
+      setMessage(result.error ?? '계정 삭제 실패')
+      return
+    }
+    setRevealed((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
     })
+    setStatus('idle')
+    refresh()
+    void refreshAnlas()
   }
 
   return (
-    <div className="flex h-full flex-col gap-2">
-      <p className="text-[13px] text-ink">NAI API 토큰</p>
-      <p className="text-[11.5px] text-faint">OS 키체인으로 암호화되어 저장됩니다.</p>
-      <div className="flex gap-1.5">
-        <Input
-          className={cn(info.hasToken && 'cursor-default font-mono')}
-          value={inputValue}
-          readOnly={info.hasToken}
-          placeholder="pst-..."
-          autoComplete="off"
-          spellCheck={false}
-          onChange={(e) => {
-            setDraft(e.target.value)
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[13px] text-ink">NAI API 계정</p>
+          <p className="text-[11.5px] text-faint">
+            등록된 계정은 OS 키체인으로 암호화되며 가속 모드에서 각각 한 장씩 생성합니다.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="default"
+          className="shrink-0 gap-1.5"
+          onClick={() => {
+            setAdding(true)
             setStatus('idle')
           }}
-          onKeyDown={(e) => e.key === 'Enter' && void saveToken()}
-        />
-        {info.hasToken ? (
-          <>
-            <Button
-              size="icon"
-              variant="default"
-              title={revealed ? '토큰 숨기기' : '토큰 보기'}
-              onClick={() => void toggleReveal()}
-            >
-              {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
-            </Button>
-            <Button
-              size="icon"
-              variant="default"
-              className="hover:text-danger"
-              title="토큰 삭제"
-              onClick={deleteToken}
-            >
-              <Trash2 size={14} />
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="accent"
-            disabled={status === 'checking'}
-            onClick={() => void saveToken()}
-          >
-            {status === 'checking' ? '확인 중…' : '저장'}
-          </Button>
+        >
+          <Plus size={13} /> 계정 추가
+        </Button>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 text-[10.5px] text-faint">
+        <span>
+          {usageDate} ·{' '}
+          {usageError ? '조회 실패 · 이전 표시값' : updatedAt ? `${updatedAt} 조회` : '조회 중…'}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={usageLoading}
+          onClick={() => void refreshUsage()}
+        >
+          <RotateCcw size={12} className={cn('mr-1', usageLoading && 'animate-spin')} /> 새로고침
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 no-scrollbar">
+        {accounts.map((account) => {
+          const isRevealed = !!revealed[account.id]
+          const masked = `${account.prefix}${'*'.repeat(Math.max(0, account.length - account.prefix.length))}`
+          const metrics = accountUsage.find((item) => item.accountId === account.id)
+          const v5Text = metrics?.v5Usage
+            ? metrics.v5Usage.isNegative
+              ? `−${metrics.v5Usage.percent}% · 제한`
+              : `${metrics.v5Usage.percent}%`
+            : '—'
+          return (
+            <div key={account.id} className="rounded-lg border border-line bg-surface-2/40 p-2.5">
+              <div className="mb-1.5 flex items-center gap-2">
+                <p className="text-[11.5px] font-medium text-muted">{account.name}</p>
+                {metrics?.tier && (
+                  <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[9.5px] uppercase text-faint">
+                    {metrics.tier}
+                  </span>
+                )}
+                {usageLoading && !metrics && (
+                  <span className="text-[10.5px] text-faint">사용량 조회 중…</span>
+                )}
+              </div>
+              <div className="flex gap-1.5">
+                <Input
+                  className="cursor-default font-mono"
+                  value={isRevealed ? revealed[account.id] : masked}
+                  readOnly
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button
+                  size="icon"
+                  variant="default"
+                  title={isRevealed ? '토큰 숨기기' : '토큰 보기'}
+                  onClick={() => void toggleReveal(account)}
+                >
+                  {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="default"
+                  className="hover:text-danger"
+                  title={`${account.name} 삭제`}
+                  onClick={() => void removeAccount(account.id)}
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+              <div className="mt-2 grid grid-cols-5 gap-1.5 border-t border-line/70 pt-2 text-center">
+                <div>
+                  <p className="font-mono text-[12.5px] text-ink">
+                    {metrics?.anlas != null ? metrics.anlas.toLocaleString() : '—'}
+                  </p>
+                  <p className="text-[9.5px] text-faint">Anlas 잔액</p>
+                </div>
+                <div>
+                  <p className="font-mono text-[12.5px] text-ink">{v5Text}</p>
+                  {metrics?.v5Usage && (
+                    <p className="text-[10.5px] text-muted" title={V5_ESTIMATE_BASIS}>
+                      약 {estimateV5Images(metrics.v5Usage).toLocaleString()}장*
+                    </p>
+                  )}
+                  <p className="text-[9.5px] text-faint">V5 잔량</p>
+                </div>
+                <div>
+                  <p className="font-mono text-[11.5px] text-ink">
+                    {metrics?.v5Usage
+                      ? formatUsageDuration(metrics.v5Usage.timeUntilNextPercent)
+                      : '—'}
+                  </p>
+                  <p
+                    className="text-[9.5px] text-faint"
+                    title="서버가 제공하는 현재 1%당 충전 시간입니다. 다음 충전 시각이나 고정 주기를 뜻하지 않습니다."
+                  >
+                    1%당 충전
+                  </p>
+                </div>
+                <div>
+                  <p className="font-mono text-[12.5px] text-ink">
+                    {metrics ? `${metrics.today.v45}장` : '—'}
+                  </p>
+                  <p className="text-[9.5px] text-faint">오늘 V4.5</p>
+                </div>
+                <div>
+                  <p className="font-mono text-[12.5px] text-ink">
+                    {metrics ? `${metrics.today.v5}장` : '—'}
+                  </p>
+                  <p className="text-[9.5px] text-faint">오늘 V5</p>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+
+        {adding && (
+          <div className="rounded-lg border border-accent/40 bg-surface-2/40 p-2.5">
+            <p className="mb-1.5 text-[11.5px] font-medium text-muted">
+              계정 {accounts.length + 1}
+            </p>
+            <div className="flex gap-1.5">
+              <Input
+                className="font-mono"
+                value={draft}
+                placeholder="pst-..."
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  setDraft(event.target.value)
+                  setStatus('idle')
+                }}
+                onKeyDown={(event) => event.key === 'Enter' && void addAccount()}
+              />
+              <Button
+                variant="accent"
+                disabled={status === 'checking' || !draft.trim()}
+                onClick={() => void addAccount()}
+              >
+                {status === 'checking' ? '확인 중…' : '저장'}
+              </Button>
+              {accounts.length > 0 && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setAdding(false)
+                    setDraft('')
+                    setStatus('idle')
+                  }}
+                >
+                  취소
+                </Button>
+              )}
+            </div>
+          </div>
         )}
       </div>
-      {status === 'ok' && <span className="text-[12px] text-accent">{message}</span>}
-      {status === 'fail' && <span className="text-[12px] text-danger">{message}</span>}
 
-      <div className="flex-1" />
+      <div className="min-h-5">
+        {status === 'ok' && <span className="text-[12px] text-accent">{message}</span>}
+        {status === 'fail' && <span className="text-[12px] text-danger">{message}</span>}
+      </div>
 
-      {/* Anlas 사용량 — 잔액 스냅샷 간 감소분 합산 */}
-      <div className="rounded-lg border border-line bg-surface-2/50 p-3">
-        <p className="mb-2 flex items-center gap-1.5 text-[12.5px] font-medium text-ink">
-          <Coins size={13} className="text-[#c9a34f]" /> Anlas
-        </p>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <p className="font-mono text-[15px] text-ink">
-              {anlasBalance !== null ? anlasBalance.toLocaleString() : '—'}
-            </p>
-            <p className="text-[10.5px] text-faint">현재 잔액</p>
-          </div>
-          <div>
-            <p className="font-mono text-[15px] text-ink">
-              {usage ? usage.today.toLocaleString() : '—'}
-            </p>
-            <p className="text-[10.5px] text-faint">오늘 사용</p>
-          </div>
-          <div>
-            <p className="font-mono text-[15px] text-ink">
-              {usage ? usage.week.toLocaleString() : '—'}
-            </p>
-            <p className="text-[10.5px] text-faint">최근 7일</p>
-          </div>
-        </div>
+      <div className="flex items-center gap-1.5 text-[10.5px] text-faint">
+        <Coins size={11} className="text-[#c9a34f]" /> 오늘 장수는 PC 시각 00:00부터 성공 저장된
+        이미지만 집계합니다. 이번 업데이트 적용 이후 Custom 1 생성분이며, 삭제해도 장수는
+        유지됩니다.
       </div>
     </div>
   )
@@ -803,3 +958,4 @@ export function SettingsDialog({
     </Dialog>
   )
 }
+import { estimateV5Images, V5_ESTIMATE_BASIS } from '@shared/v5-usage'

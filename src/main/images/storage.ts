@@ -1,7 +1,7 @@
 import { app } from 'electron'
-import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
-import { randomUUID } from 'crypto'
-import { join } from 'path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
+import { createHash, randomUUID } from 'crypto'
+import { extname, join, resolve } from 'path'
 import sharp from 'sharp'
 import type { DirectorMethod, HistoryItem, ImageMetadata } from '../../shared/types'
 import { getDb } from '../db'
@@ -303,4 +303,95 @@ export function getImagePayload(id: number): string | null {
   const row = getDb().prepare('SELECT payload_json FROM images WHERE id = ?').get(id) as
     { payload_json: string } | undefined
   return row?.payload_json ?? null
+}
+
+/**
+ * 흰칠 편집 결과를 기존 파일에 저장한다.
+ * 앱 DB에 등록된 파일만 허용하며, 새 히스토리 행이나 API 요청은 만들지 않는다.
+ */
+export async function overwriteCensoredImage(
+  filePath: string,
+  png: Buffer,
+  allowExternal = false
+): Promise<{
+  thumbnail: string
+  sceneId: number | null
+  revision: number
+  backupAvailable: boolean
+}> {
+  const db = getDb()
+  const row = db.prepare('SELECT scene_id FROM images WHERE file_path = ?').get(filePath) as
+    | { scene_id: number | null }
+    | undefined
+  if (!row && !allowExternal) throw new Error('앱에 등록된 이미지 파일이 아닙니다')
+  ensureCensorBackup(filePath)
+
+  const image = sharp(png)
+  const extension = extname(filePath).toLowerCase()
+  let output: Buffer
+  if (extension === '.webp') output = await image.webp({ quality: 95 }).toBuffer()
+  else if (extension === '.jpg' || extension === '.jpeg') {
+    output = await image.flatten({ background: '#ffffff' }).jpeg({ quality: 95 }).toBuffer()
+  } else output = await image.png({ compressionLevel: 6 }).toBuffer()
+
+  const thumbnail = await writeCensoredFile(filePath, output)
+
+  return {
+    thumbnail: thumbnail.toString('base64'),
+    sceneId: row?.scene_id ?? null,
+    revision: Date.now(),
+    backupAvailable: true
+  }
+}
+
+function censorBackupPath(filePath: string): string {
+  const key = createHash('sha256').update(resolve(filePath).toLowerCase()).digest('hex')
+  return join(app.getPath('userData'), 'censor-backups', `${key}.original`)
+}
+
+function ensureCensorBackup(filePath: string): void {
+  const backupPath = censorBackupPath(filePath)
+  if (existsSync(backupPath)) return
+  mkdirSync(join(app.getPath('userData'), 'censor-backups'), { recursive: true })
+  writeFileSync(backupPath, readFileSync(filePath))
+}
+
+export function hasCensorBackup(filePath: string): boolean {
+  return existsSync(censorBackupPath(filePath))
+}
+
+async function writeCensoredFile(filePath: string, output: Buffer): Promise<Buffer> {
+  const thumbnail = await sharp(output)
+    .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer()
+  writeFileSync(filePath, output)
+  const db = getDb()
+  const update = db.transaction(() => {
+    db.prepare('UPDATE images SET thumbnail = ? WHERE file_path = ?').run(thumbnail, filePath)
+    db.prepare('UPDATE library_images SET thumbnail = ? WHERE file_path = ?').run(thumbnail, filePath)
+  })
+  update()
+  return thumbnail
+}
+
+/** 최초 흰칠 전 보관본을 그대로 되돌린다. 백업은 이후 재복원을 위해 유지한다. */
+export async function restoreCensoredImage(
+  filePath: string,
+  allowExternal = false
+): Promise<{ thumbnail: string; sceneId: number | null; revision: number }> {
+  const db = getDb()
+  const row = db.prepare('SELECT scene_id FROM images WHERE file_path = ?').get(filePath) as
+    | { scene_id: number | null }
+    | undefined
+  if (!row && !allowExternal) throw new Error('앱에 등록된 이미지 파일이 아닙니다')
+  const backupPath = censorBackupPath(filePath)
+  if (!existsSync(backupPath)) throw new Error('복원할 최초 원본이 없습니다')
+  const original = readFileSync(backupPath)
+  const thumbnail = await writeCensoredFile(filePath, original)
+  return {
+    thumbnail: thumbnail.toString('base64'),
+    sceneId: row?.scene_id ?? null,
+    revision: Date.now()
+  }
 }

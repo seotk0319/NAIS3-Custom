@@ -3,7 +3,13 @@ import { recordNav } from '../lib/nav-history'
 import type { GenerationRequest, Scene, SceneImage, ScenePreset } from '@shared/types'
 import { removeComments } from '@shared/nai-presets'
 import { enabledCharacters, useCharactersStore } from './characters-store'
-import { randomSeed, useGenerationStore } from './generation-store'
+import {
+  enqueueBlockedMessage,
+  mergePromptParts,
+  randomSeed,
+  useGenerationStore
+} from './generation-store'
+import { toast } from './toast-store'
 
 const PAGE = 80 // 씬 상세 이미지 페이지 크기 (수만 장 대비: 한 번에 전부 로드 금지)
 let loadSeq = 0 // load() 비동기 응답 순서 보장용
@@ -108,9 +114,26 @@ function resolveCharacters(
   return boundIds.map((id) => byId.get(id)).filter((c) => c != null)
 }
 
+/** 생성 요청과 토큰 미리보기가 공유하는 순서: 고정 → 가변 → 씬 → 디테일. */
+export function composeScenePrompt(
+  base: Pick<GenerationRequest, 'prompt' | 'promptParts'>,
+  splitEnabled: boolean,
+  scenePrompt: string
+): Pick<GenerationRequest, 'prompt' | 'promptParts'> {
+  const promptParts =
+    splitEnabled && base.promptParts
+      ? { ...base.promptParts, detail: appendPrompt(scenePrompt, base.promptParts.detail) }
+      : undefined
+  return {
+    prompt: promptParts ? mergePromptParts(promptParts) : appendPrompt(base.prompt, scenePrompt),
+    promptParts
+  }
+}
+
 /**
  * 씬 → 생성 요청. 사이드바의 모든 것(기본/네거 프롬프트·캐릭터·조각·바이브·레퍼런스·
- * 파라미터)을 그대로 쓰고, 씬 프롬프트는 기본/네거 프롬프트 "뒤에 이어붙인다".
+ * 파라미터)을 그대로 쓰고, 3분할 씬 프롬프트는 가변 뒤·디테일 앞에 넣는다.
+ * 단일 입력과 네거티브는 기존 프롬프트 뒤에 씬 내용을 이어붙인다.
  * 해상도만 씬 것을 사용 (소스가 있으면 소스 해상도가 우선). 바이브/레퍼런스/조각은
  * 메인 프로세스가 DB·와일드카드에서 읽어 적용하므로 여기선 프롬프트·캐릭터·파라미터만 구성.
  * 프리셋에 캐릭터 바인드가 있으면 사이드바 캐릭터 대신 그 캐릭터들로 교체.
@@ -131,11 +154,7 @@ export function buildSceneRequest(
   }))
   return {
     ...base,
-    prompt: appendPrompt(base.prompt, scene.prompt),
-    promptParts:
-      splitEnabled && base.promptParts
-        ? { ...base.promptParts, detail: appendPrompt(base.promptParts.detail, scene.prompt) }
-        : undefined,
+    ...composeScenePrompt(base, splitEnabled, scene.prompt),
     negativePrompt: appendPrompt(base.negativePrompt, scene.negativePrompt),
     width: src ? src.width : scene.width,
     height: src ? src.height : scene.height,
@@ -457,7 +476,11 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     const reserved = get().scenes.filter((s) => s.reserveCount > 0)
     if (reserved.length === 0) return
     const requests = buildReservedRequests(reserved, preset?.characterIds ?? null)
-    await window.nais.invoke('queue:enqueueMany', { requests })
+    const result = await window.nais.invoke('queue:enqueueMany', { requests })
+    if (result.blockedReason) {
+      toast(enqueueBlockedMessage(result.blockedReason), 'info')
+      return
+    }
     set({ scenes: get().scenes.map((s) => (s.reserveCount > 0 ? { ...s, reserveCount: 0 } : s)) })
     await window.nais.invoke('scenes:setReserveAll', {
       presetId: get().activePresetId,
@@ -477,7 +500,11 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
       consumedPresetIds.push(preset.id)
     }
     if (requests.length === 0) return 0
-    await window.nais.invoke('queue:enqueueMany', { requests })
+    const result = await window.nais.invoke('queue:enqueueMany', { requests })
+    if (result.blockedReason) {
+      toast(enqueueBlockedMessage(result.blockedReason), 'info')
+      return 0
+    }
     await Promise.all(
       consumedPresetIds.map((presetId) =>
         window.nais.invoke('scenes:setReserveAll', { presetId, count: 0 })
@@ -502,10 +529,11 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     const scene = get().scenes.find((s) => s.id === sceneId)
     if (!scene) return
     const preset = get().presets.find((p) => p.id === get().activePresetId)
-    await window.nais.invoke('queue:enqueue', {
+    const result = await window.nais.invoke('queue:enqueue', {
       request: { ...buildSceneRequest(scene, preset?.characterIds ?? null), seed: sceneSeed(0) },
       count: 1
     })
+    if (result.blockedReason) toast(enqueueBlockedMessage(result.blockedReason), 'info')
   }
 }))
 

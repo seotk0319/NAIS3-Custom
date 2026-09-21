@@ -7,7 +7,8 @@ import {
   PanelRight,
   Settings,
   Square,
-  X
+  X,
+  Zap
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cn } from '../lib/utils'
@@ -17,8 +18,10 @@ import { useUpdateStore } from '../stores/update-store'
 import { useVibesStore, useCharRefsStore } from '../stores/refs-store'
 import { estimateAnlas } from '@shared/anlas'
 import type { V5UsageStatus } from '@shared/types'
+import { estimateV5Images, V5_ESTIMATE_BASIS } from '@shared/v5-usage'
 import { PageNav } from './page-nav'
 import { ThemeToggle } from './theme-toggle'
+import { Switch } from './ui/switch'
 
 const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
 
@@ -117,10 +120,14 @@ function V5UsageChip({ usage }: { usage: V5UsageStatus | null }): React.JSX.Elem
         usage.percent >= 100
           ? '충전 완료'
           : `충전 속도 ${refillRate}%/시간 · 1%당 ${formatDuration(secondsPerPercent)}\n100%까지 약 ${formatDuration(fullIn)}`
-      }\nNovelAI 서버가 제공하는 비율이며 정확한 장당 소모율은 공개되지 않습니다.`}
+      }\n약 ${estimateV5Images(usage).toLocaleString()}장: ${V5_ESTIMATE_BASIS}`}
     >
       <span className="font-semibold text-accent">V5</span>
-      <span>{usage.percent}%</span>
+      <span>
+        {usage.isNegative ? '−' : ''}
+        {usage.percent}%
+      </span>
+      <span>· 약 {estimateV5Images(usage).toLocaleString()}장</span>
       <span className="text-faint">· {usage.isNegative ? '제한됨' : refillText}</span>
     </span>
   )
@@ -152,6 +159,8 @@ export function Titlebar(): React.JSX.Element {
   const anlasBalance = useGenerationStore((s) => s.anlasBalance)
   const v5Usage = useGenerationStore((s) => s.v5Usage)
   const refreshAnlas = useGenerationStore((s) => s.refreshAnlas)
+  const queue = useGenerationStore((s) => s.queue)
+  const setAccelerationEnabled = useGenerationStore((s) => s.setAccelerationEnabled)
   const [profileTitle, setProfileTitle] = useState<string | null>(null)
 
   useEffect(() => {
@@ -192,14 +201,9 @@ export function Titlebar(): React.JSX.Element {
 
   return (
     <header
-      className="drag relative flex h-14 shrink-0 select-none items-center gap-1 bg-paper px-2"
+      className="drag relative flex min-h-14 shrink-0 flex-wrap select-none items-center gap-1 bg-paper px-2 py-1"
       style={{ paddingLeft: isMac ? 90 : undefined }}
     >
-      {/* 네비게이션 — 타이틀바 중앙 (컨테이너는 pointer-events-none, PageNav만 클릭 가능) */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <PageNav />
-      </div>
-
       <BarButton onClick={toggleLeft} active={leftOpen} title="프롬프트 패널 접기/펴기">
         <PanelLeft size={15} />
       </BarButton>
@@ -208,6 +212,48 @@ export function Titlebar(): React.JSX.Element {
         <span className="mx-1 shrink-0 rounded-md bg-surface-2 px-2 py-0.5 text-[11.5px] font-semibold text-muted">
           {profileTitle}
         </span>
+      )}
+
+      {queue?.accelerationAvailable && (
+        <>
+          <label
+            className="no-drag mx-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-surface-2 px-2 text-[11.5px] font-medium text-muted"
+            title={`등록 계정 ${queue.accountCount}개 · 현재 ${queue.busyAccountCount}개 생성 중`}
+          >
+            <Zap size={12} className={queue.accelerationEnabled ? 'text-accent' : 'text-faint'} />
+            <span>가속 모드</span>
+            <Switch
+              aria-label={`가속 모드 ${queue.accelerationEnabled ? '켜짐' : '꺼짐'}`}
+              checked={queue.accelerationEnabled}
+              disabled={queue.running}
+              onCheckedChange={(enabled) => void setAccelerationEnabled(enabled)}
+            />
+          </label>
+          <label
+            className="no-drag mx-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-surface-2 px-2 text-[11.5px] text-muted"
+            title="ON: 기존처럼 유료 생성 허용. OFF: 메인·씬 생성 전 무료 여부 확인, 1% 미만/확인 실패 계정 대기. 이미 전송한 요청은 소급 적용하지 않으며 다른 앱과 같은 계정을 동시에 쓰면 과금 방지를 보장할 수 없습니다."
+          >
+            <Coins size={12} />
+            <span>Anlas 소모</span>
+            <Switch
+              aria-label={`Anlas 소모 ${queue.anlasSpendingEnabled !== false ? 'ON' : 'OFF'}`}
+              checked={queue.anlasSpendingEnabled !== false}
+              onCheckedChange={(enabled) =>
+                void window.nais
+                  .invoke('anlasSpending:set', { enabled })
+                  .then((status) => useGenerationStore.setState({ queue: status }))
+              }
+            />
+          </label>
+          {!!queue.pausedAccounts?.length && (
+            <span
+              className="no-drag text-[11px] text-accent"
+              title={queue.pausedAccounts.map((a) => a.reason).join('\n')}
+            >
+              잔량 대기 {queue.pausedAccounts.length}계정
+            </span>
+          )}
+        </>
       )}
 
       <UpdateButton />
@@ -223,7 +269,10 @@ export function Titlebar(): React.JSX.Element {
         </>
       )}
 
-      <div className="flex-1" />
+      {/* 실제 레이아웃 공간을 차지하게 해 넓어진 계정 표시와 탭의 클릭 영역이 겹치지 않게 한다. */}
+      <div className="no-drag mx-auto flex shrink-0 items-center justify-center">
+        <PageNav />
+      </div>
 
       {isMac && (
         <>

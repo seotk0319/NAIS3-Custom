@@ -208,7 +208,7 @@ export function PromptPanel(): React.JSX.Element {
       <div className="drag absolute inset-x-0 top-0 h-3" />
       {/* 오버레이는 프롬프트 영역만 덮는다 — 하단 버튼들은 항상 접근 가능 (NAIS2 2.0.7 교훈)
           셸 하나가 열림/닫힘만 애니메이션하고 내용은 즉시 전환 — 오버레이 간 전환 깜빡임 방지 */}
-      <div ref={promptAreaRef} className="relative flex min-h-0 flex-1 flex-col gap-2">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-2">
         <AnimatePresence>
           {(charOverlayOpen || fragOverlayOpen || vibeOverlayOpen || crefOverlayOpen) && (
             <motion.div
@@ -283,82 +283,92 @@ export function PromptPanel(): React.JSX.Element {
         </label>
         {/* 프롬프트 프리셋 — 포지티브 프롬프트 위 */}
         <PromptPresetBar />
-        <div
-          className={'flex min-h-0 flex-col gap-1 ' + (posCollapsed ? 'flex-none' : 'min-h-9')}
-          style={
-            bothOpen
-              ? { flexGrow: posRatio, flexBasis: 0 }
-              : !posCollapsed
-                ? { flexGrow: 1 }
-                : undefined
-          }
-        >
-          <CollapseHeader
-            label="프롬프트"
-            collapsed={posCollapsed}
-            onToggle={() => setPosCollapsed((v) => !v)}
-            action={
-              <div className="flex items-center gap-1">
-                {promptSplitEnabled && <TokenBadge tokens={tokenTotals.pos} limit={tokenLimit} />}
-                <SyntaxHelp />
-              </div>
-            }
-          />
-          {!posCollapsed &&
-            (promptSplitEnabled ? (
-              <SplitPromptFields
-                parts={request.promptParts ?? { base: request.prompt, additional: '', detail: '' }}
-                onChange={patchPromptParts}
-              />
-            ) : (
-              <PromptEditor
-                className="min-h-0 flex-1"
-                value={request.prompt}
-                tokensOverride={tokenTotals.pos}
-                placeholder="1girl, ...  (태그 자동완성 · <조각>)"
-                onValueChange={(v) => patch({ prompt: v })}
-              />
-            ))}
-        </div>
-        {/* 세로 비율 조절 스플리터 (둘 다 펼쳐졌을 때만) */}
-        {bothOpen && (
+        {/* 헤더를 제외한 실제 편집 영역을 기준으로 리사이즈한다. 최소 높이보다
+            창이 작으면 이 영역만 스크롤하고 하단 도구/생성 버튼은 밀지 않는다. */}
+        <div ref={promptAreaRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           <div
-            className="group -my-1 flex h-2 shrink-0 cursor-row-resize items-center justify-center"
-            onMouseDown={startPromptResize}
+            className={
+              'flex flex-col gap-1 overflow-hidden ' + (posCollapsed ? 'flex-none' : 'min-h-32')
+            }
+            style={
+              bothOpen
+                ? { flexGrow: posRatio, flexBasis: 0 }
+                : !posCollapsed
+                  ? { flexGrow: 1 }
+                  : undefined
+            }
           >
-            <div className="h-0.5 w-8 rounded-full bg-line transition-colors group-hover:bg-accent/50" />
-          </div>
-        )}
-        <div
-          className={'flex min-h-0 flex-col gap-1 ' + (negCollapsed ? 'flex-none' : 'min-h-9')}
-          style={
-            bothOpen
-              ? { flexGrow: 1 - posRatio, flexBasis: 0 }
-              : !negCollapsed
-                ? { flexGrow: 1 }
-                : undefined
-          }
-        >
-          <CollapseHeader
-            label="네거티브"
-            collapsed={negCollapsed}
-            onToggle={() => setNegCollapsed((v) => !v)}
-          />
-          {!negCollapsed && (
-            <PromptEditor
-              negative
-              className="min-h-0 flex-1"
-              value={request.negativePrompt}
-              tokensOverride={tokenTotals.neg}
-              placeholder="UC 프리셋 뒤에 이어 붙습니다"
-              onValueChange={(v) => patch({ negativePrompt: v })}
+            <CollapseHeader
+              label="프롬프트"
+              collapsed={posCollapsed}
+              onToggle={() => setPosCollapsed((v) => !v)}
+              action={
+                <div className="flex items-center gap-1">
+                  {promptSplitEnabled && <TokenBadge tokens={tokenTotals.pos} limit={tokenLimit} />}
+                  <SyntaxHelp />
+                </div>
+              }
             />
+            {!posCollapsed &&
+              (promptSplitEnabled ? (
+                <SplitPromptFields
+                  parts={
+                    request.promptParts ?? { base: request.prompt, additional: '', detail: '' }
+                  }
+                  onChange={patchPromptParts}
+                />
+              ) : (
+                <PromptEditor
+                  className="min-h-0 flex-1"
+                  value={request.prompt}
+                  tokensOverride={tokenTotals.pos}
+                  placeholder="1girl, ...  (태그 자동완성 · <조각>)"
+                  onValueChange={(v) => patch({ prompt: v })}
+                />
+              ))}
+          </div>
+          {/* 세로 비율 조절 스플리터 (둘 다 펼쳐졌을 때만) */}
+          {bothOpen && (
+            <div
+              className="group -my-1 flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+              onMouseDown={startPromptResize}
+            >
+              <div className="h-0.5 w-8 rounded-full bg-line transition-colors group-hover:bg-accent/50" />
+            </div>
           )}
+          <div
+            className={
+              'flex flex-col gap-1 overflow-hidden ' + (negCollapsed ? 'flex-none' : 'min-h-24')
+            }
+            style={
+              bothOpen
+                ? { flexGrow: 1 - posRatio, flexBasis: 0 }
+                : !negCollapsed
+                  ? { flexGrow: 1 }
+                  : undefined
+            }
+          >
+            <CollapseHeader
+              label="네거티브"
+              collapsed={negCollapsed}
+              onToggle={() => setNegCollapsed((v) => !v)}
+            />
+            {!negCollapsed && (
+              <PromptEditor
+                negative
+                className="min-h-0 flex-1"
+                value={request.negativePrompt}
+                tokensOverride={tokenTotals.neg}
+                placeholder="UC 프리셋 뒤에 이어 붙습니다"
+                onValueChange={(v) => patch({ negativePrompt: v })}
+              />
+            )}
+          </div>
         </div>
       </div>
 
       {/* 도구 행: 캐릭터 / 조각 / 바이브 / 레퍼런스 */}
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid shrink-0 grid-cols-4 gap-1.5">
         <ToolButton
           active={charOverlayOpen}
           icon={<UsersRound size={14} />}
@@ -390,7 +400,7 @@ export function PromptPanel(): React.JSX.Element {
       </div>
 
       {/* 생성 행: 파라미터 / 배치 / 생성 */}
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <Button
           size="icon"
           variant="ghost"
@@ -440,11 +450,17 @@ export function PromptPanel(): React.JSX.Element {
             onCheckedChange={(value) => void setStripExif(value)}
           />
         </label>
-        {generating ? (
-          <Button variant="danger" size="lg" className="flex-1" onClick={() => void cancelAll()}>
+        {generating && (
+          <Button
+            variant="danger"
+            size="lg"
+            className={isScene ? 'flex-1' : 'shrink-0 px-3'}
+            onClick={() => void cancelAll()}
+          >
             <Square size={14} /> 취소 ({queueCount})
           </Button>
-        ) : isScene ? (
+        )}
+        {!generating && isScene ? (
           <Button
             variant="accent"
             size="lg"
@@ -463,7 +479,7 @@ export function PromptPanel(): React.JSX.Element {
               <span className="text-[12px] opacity-75">{sceneReserved}장</span>
             )}
           </Button>
-        ) : (
+        ) : !isScene ? (
           <Button
             variant="accent"
             size="lg"
@@ -473,7 +489,7 @@ export function PromptPanel(): React.JSX.Element {
           >
             생성
           </Button>
-        )}
+        ) : null}
       </div>
 
       <ParamsDialog open={paramsOpen} onOpenChange={setParamsOpen} />
@@ -648,7 +664,7 @@ function SplitPromptFields({
   const openTotal = openKeys.reduce((sum, key) => sum + sizes[key], 0)
 
   return (
-    <div ref={containerRef} className="flex min-h-0 flex-1 flex-col gap-1">
+    <div ref={containerRef} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
       {SPLIT_PARTS.map((part) => {
         const isCollapsed = collapsed[part.key]
         const nextOpen = isCollapsed ? undefined : nextOpenAfter(part.key)
@@ -697,7 +713,9 @@ function SplitField({
 }): React.JSX.Element {
   return (
     <div
-      className={'flex min-h-0 flex-col gap-1 ' + (collapsed ? 'flex-none' : 'min-h-9')}
+      className={
+        'flex flex-col gap-1 overflow-hidden ' + (collapsed ? 'flex-none' : 'min-h-[4.5rem]')
+      }
       style={collapsed ? undefined : { flexGrow: grow, flexBasis: 0 }}
     >
       <CollapseHeader label={label} collapsed={collapsed} onToggle={onToggle} />

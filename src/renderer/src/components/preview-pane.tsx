@@ -13,6 +13,9 @@ export function PreviewPane(): React.JSX.Element {
   const previewPng = useGenerationStore((s) => s.previewPng)
   const progress = useGenerationStore((s) => s.progress)
   const viewingFilePath = useGenerationStore((s) => s.viewingFilePath)
+  const viewingRevision = useGenerationStore((s) =>
+    viewingFilePath ? s.imageRevisions[viewingFilePath] : undefined
+  )
   const queue = useGenerationStore((s) => s.queue)
   const genStartAt = useGenerationStore((s) => s.genStartAt)
   const avgDurationMs = useGenerationStore((s) => s.avgDurationMs)
@@ -26,7 +29,7 @@ export function PreviewPane(): React.JSX.Element {
   const src = streamShown
     ? `data:image/png;base64,${previewPng}`
     : viewingFilePath
-      ? imageUrl(viewingFilePath)
+      ? imageUrl(viewingFilePath, viewingRevision)
       : previewPng
         ? `data:image/png;base64,${previewPng}`
         : null

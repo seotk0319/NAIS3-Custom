@@ -7,6 +7,11 @@ publish:
   owner: seotk0319
   repo: NAIS3-Custom
 files:
+  - '!intro-assets/**'
+  - '!.superloopy/**'
+  - '!DESIGN.md'
+  - '!NAIS3_CUSTOM_*.md'
+  - '!SPEC_v1.0.5_reference.txt'
   - '!**/.vscode/*'
   - '!src/*'
   - '!docs/*'

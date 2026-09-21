@@ -20,6 +20,7 @@ import type {
   LibraryStackSummary,
   LibraryVirtualFolder
 } from '@shared/types'
+import { imageUrl } from '../lib/constants'
 import { cn } from '../lib/utils'
 import {
   LIBRARY_ENTRY_MIME,
@@ -687,6 +688,8 @@ function ImageCardSquare({
   onDelete: () => void
   deleteFile: boolean
 }): React.JSX.Element {
+  const revision = useGenerationStore((s) => s.imageRevisions[item.filePath])
+  const src = revision ? imageUrl(item.filePath, revision) : item.thumbnail ? `data:image/webp;base64,${item.thumbnail}` : null
   return (
     <ImageContextMenu
       filePath={item.filePath}
@@ -703,9 +706,9 @@ function ImageCardSquare({
         title={`seed ${item.seed ?? '?'} · 레퍼런스/가상 폴더로 드래그 가능`}
         onClick={onOpen}
       >
-        {item.thumbnail && (
+        {src && (
           <img
-            src={`data:image/webp;base64,${item.thumbnail}`}
+            src={src}
             className="size-full object-cover"
             loading="lazy"
             draggable={false}
@@ -728,6 +731,8 @@ function ImageCardNatural({
   onDelete: () => void
   deleteFile: boolean
 }): React.JSX.Element {
+  const revision = useGenerationStore((s) => s.imageRevisions[item.filePath])
+  const src = revision ? imageUrl(item.filePath, revision) : item.thumbnail ? `data:image/webp;base64,${item.thumbnail}` : null
   return (
     <ImageContextMenu
       filePath={item.filePath}
@@ -744,9 +749,9 @@ function ImageCardNatural({
         title={`seed ${item.seed ?? '?'} · 레퍼런스/가상 폴더로 드래그 가능`}
         onClick={onOpen}
       >
-        {item.thumbnail && (
+        {src && (
           <img
-            src={`data:image/webp;base64,${item.thumbnail}`}
+            src={src}
             className="w-full"
             loading="lazy"
             draggable={false}

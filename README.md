@@ -48,6 +48,9 @@ NAIS3는 NAIS2의 후속작으로, NovelAI 이미지 생성을 빠르고 안정�
 
 **처음이라면 [쉬운 설치 설명서](MOA-START-HERE.md)부터 읽어주세요.**
 
+그림을 보며 따라 하고 싶다면 [그림 설명서 HTML 다운로드](https://github.com/seotk0319/NAIS3-Custom/releases/download/v1.0.22-custom/MOA-VISUAL-GUIDE.html)를 이용하세요.
+다운로드한 파일을 더블클릭하면 열려요. 설치 순서 그림, 실제 버튼 이름 안내, 완료 체크가 들어 있고 이미지도 파일에 포함돼 있어요.
+
 1. 릴리즈의 `nais3-custom-1.0.22-setup.exe`로 설치한 뒤 **NAIS3 Custom 1**을 엽니다.
 2. `moa-extension-0.3.11.zip`을 받고 압축을 풉니다.
 3. 설명서대로 Chrome에 모아를 넣고, 연결 코드를 한 번 붙여넣습니다.

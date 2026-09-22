@@ -1,0 +1,94 @@
+export const INBOX_PLATFORMS = {
+  eden: '에덴',
+  babe: '베이비챗',
+  luna: '루나',
+  elyn: '엘린',
+  neko: '네코',
+  teapot: '티팟',
+  crack: '크랙',
+  rplay: '알플레이',
+  genit: '젠잇'
+} as const
+export const INBOX_EVENTS = {
+  comment: '댓글',
+  reply: '답글',
+  like: '좋아요',
+  follow: '팔로우',
+  admin: '공지',
+  other: '기타'
+} as const
+export type InboxPlatform = keyof typeof INBOX_PLATFORMS
+export type InboxEvent = keyof typeof INBOX_EVENTS
+export interface InboxItem {
+  id: string
+  platform: InboxPlatform
+  event: InboxEvent
+  sourceType: string
+  title: string
+  body: string
+  actor: { id: string | null; name: string | null }
+  work: { id: string | null; title: string | null; url: string | null }
+  at: string | null
+  unread: boolean | null
+  url: string | null
+}
+export interface InboxPlatformStatus {
+  status?: string
+  lastSuccess?: string | null
+  detail?: string
+}
+export interface InboxView {
+  intervalMinutes?: number
+  collecting?: boolean
+  nextCollectionAt?: string | null
+  enabled: boolean
+  connected: boolean
+  pairCode: string | null
+  mode: string
+  collector: null | {
+    lastSeen: string
+    version: string
+    running: boolean
+    sessions?: Partial<
+      Record<InboxPlatform, { connected: boolean; expiresAt?: string | null; canRenew?: boolean }>
+    >
+  }
+  platforms: Partial<Record<InboxPlatform, InboxPlatformStatus>>
+  items: InboxItem[]
+}
+export interface InboxQuery {
+  platform?: string
+  event?: string
+  search?: string
+  page?: number
+}
+export interface InboxResult {
+  intervalMinutes: number
+  collecting: boolean
+  nextCollectionAt: string | null
+  available: boolean
+  error: string | null
+  enabled: boolean
+  paired: boolean
+  collectorOnline: boolean
+  collectorVersion: string | null
+  lastSeen: string | null
+  total: number
+  filtered: number
+  unread: number
+  page: number
+  pageSize: number
+  items: InboxItem[]
+  platforms: {
+    id: InboxPlatform
+    label: string
+    count: number
+    connected: boolean
+    status: string
+    detail: string | null
+    lastSuccess: string | null
+    expiresAt: string | null
+    canRenew: boolean
+  }[]
+  events: Record<InboxEvent, number>
+}

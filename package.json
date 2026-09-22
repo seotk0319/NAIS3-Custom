@@ -1,6 +1,6 @@
 {
   "name": "nais3-custom",
-  "version": "1.0.20",
+  "version": "1.0.22",
   "description": "NAIS3 Custom - NovelAI Image Studio 3 (커스텀 개조판)",
   "main": "./out/main/index.js",
   "author": "sunanakgo",
@@ -26,7 +26,9 @@
     "build:mac": "npm run build:app && electron-builder --mac",
     "build:linux": "npm run build:app && electron-builder --linux",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:moa": "node --test integrations/moa/api.test.mjs",
+    "build:moa": "node scripts/package-moa.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

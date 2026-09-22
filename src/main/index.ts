@@ -29,6 +29,7 @@ import {
 } from './profile'
 import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
+import { startInbox, closeInbox } from './notifications/service'
 
 // Custom 프로필이면 userData를 먼저 분리 (단일 인스턴스 잠금·DB보다 앞서야 함)
 initProfilePaths()
@@ -327,6 +328,7 @@ app.whenReady().then(() => {
   if (Number.isFinite(savedDelay) && savedDelay >= 0) queue.setDelayMs(savedDelay)
 
   registerIpcHandlers({ dbVersion, queue })
+  if (PROFILE === 1) void startInbox()
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -345,6 +347,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+let inboxClosed = false
+app.on('before-quit', (event) => {
+  if (PROFILE !== 1 || inboxClosed) return
+  event.preventDefault()
+  // Let authenticated ingestion finish its atomic write before exiting.
+  void closeInbox().finally(() => { inboxClosed = true; app.quit() })
 })
 
 app.on('quit', () => {

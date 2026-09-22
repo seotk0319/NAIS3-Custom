@@ -6,6 +6,7 @@ import { Toaster } from './components/toaster'
 import { PreviewPane } from './components/preview-pane'
 import { DirectorMode } from './components/director-mode'
 import { LibraryView } from './components/library-view'
+import { InboxView } from './components/inbox-view'
 import { InpaintHost } from './components/inpaint-host'
 import { CensorEditor } from './components/censor-editor'
 import { ArtistTagsDialog } from './components/artist-tags-dialog'
@@ -103,7 +104,7 @@ export default function App(): React.JSX.Element {
         <Titlebar />
         <div className="flex min-h-0 flex-1 gap-3 px-3 pb-3">
           <AnimatePresence initial={false}>
-            {leftOpen && (
+            {leftOpen && centerMode !== 'inbox' && (
               <motion.div
                 key="left"
                 className="relative h-full shrink-0 overflow-hidden"
@@ -124,7 +125,9 @@ export default function App(): React.JSX.Element {
               </motion.div>
             )}
           </AnimatePresence>
-          {centerMode === 'scene' ? (
+          {centerMode === 'inbox' ? (
+            <InboxView />
+          ) : centerMode === 'scene' ? (
             <SceneMode />
           ) : centerMode === 'director' ? (
             <DirectorMode />
@@ -134,7 +137,7 @@ export default function App(): React.JSX.Element {
             <PreviewPane />
           )}
           <AnimatePresence initial={false}>
-            {rightOpen && (
+            {rightOpen && centerMode !== 'inbox' && (
               <motion.div
                 key="right"
                 className="h-full shrink-0 overflow-hidden"

@@ -96,7 +96,7 @@ export function PromptPanel(): React.JSX.Element {
   const isScene = centerMode === 'scene'
   // 프롬프트/네거티브 개별 접기 — 하나를 접으면 다른 하나가 넓어짐
   const [posCollapsed, setPosCollapsed] = useState(false)
-  const [negCollapsed, setNegCollapsed] = useState(false)
+  const [negCollapsed, setNegCollapsed] = useState(true)
   // 포지티브/네거티브 세로 비율 — 사이 스플리터 드래그로 조절 (F10)
   const promptAreaRef = useRef<HTMLDivElement>(null)
   const [posRatio, setPosRatio] = useState(() => {

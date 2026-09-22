@@ -1,5 +1,6 @@
 // 메인 프로세스와 렌더러가 공유하는 타입.
 // 규칙: 렌더러는 이 타입들로만 메인과 대화한다 (IPC 계약).
+import type { InboxQuery, InboxResult } from './inbox'
 
 export interface CharacterPromptInput {
   prompt: string
@@ -389,6 +390,14 @@ export interface SceneImage {
 
 /** IPC invoke 채널 계약: 채널명 → (요청, 응답) */
 export interface IpcInvokeMap {
+  'inbox:query': { req: InboxQuery; res: InboxResult }
+  'inbox:control': { req: { enabled: boolean }; res: { enabled: boolean } }
+  'inbox:setInterval': {
+    req: { minutes: number }
+    res: { intervalMinutes: number; collecting: boolean; nextCollectionAt: string | null }
+  }
+  'inbox:copyPairCode': { req: void; res: { copied: boolean } }
+  'inbox:openSource': { req: { id: string }; res: void }
   'db:status': { req: void; res: { version: number; path: string } }
   /** 앱 버전 */
   'app:version': { req: void; res: { version: string } }

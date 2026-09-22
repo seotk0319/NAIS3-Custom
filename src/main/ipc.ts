@@ -10,6 +10,13 @@ import {
 } from 'electron'
 import type { IpcEventMap, IpcInvokeMap } from '../shared/types'
 import {
+  getInbox,
+  controlInbox,
+  copyInboxPairCode,
+  openInboxSource,
+  setInboxInterval
+} from './notifications/service'
+import {
   createCharacter,
   createFolder,
   deleteCharacter,
@@ -170,6 +177,13 @@ export function broadcast<C extends keyof IpcEventMap>(channel: C, payload: IpcE
 }
 
 export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQueue }): void {
+  if (PROFILE === 1) {
+    handle('inbox:query', (query) => getInbox(query || {}))
+    handle('inbox:control', ({ enabled }) => controlInbox(enabled))
+    handle('inbox:setInterval', ({ minutes }) => setInboxInterval(minutes))
+    handle('inbox:copyPairCode', () => copyInboxPairCode())
+    handle('inbox:openSource', ({ id }) => openInboxSource(id))
+  }
   const censorFolderFiles = new Set<string>()
   const censorPathKey = (filePath: string): string => resolve(filePath).toLowerCase()
   handle('db:status', () => ({ version: ctx.dbVersion, path: getDbPath() }))

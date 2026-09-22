@@ -42,7 +42,23 @@ NAIS3는 NAIS2의 후속작으로, NovelAI 이미지 생성을 빠르고 안정�
 
 ## 다운로드
 
-[Releases](../../releases)에서 최신 버전을 받으세요. (macOS `.dmg` / Windows `.exe`)
+[Releases](https://github.com/seotk0319/NAIS3-Custom/releases/latest)에서 최신 버전을 받으세요.
+
+### 알림 모아보기 · Windows 시작하기
+
+**처음이라면 [쉬운 설치 설명서](MOA-START-HERE.md)부터 읽어주세요.**
+
+1. 릴리즈의 `nais3-custom-1.0.22-setup.exe`로 설치한 뒤 **NAIS3 Custom 1**을 엽니다.
+2. `moa-extension-0.3.11.zip`을 받고 압축을 풉니다.
+3. 설명서대로 Chrome에 모아를 넣고, 연결 코드를 한 번 붙여넣습니다.
+4. Chrome에서 사용하는 사이트에 로그인한 뒤 모아의 **계정 API 연결**을 누릅니다.
+
+Chrome의 구글 계정 로그인만으로는 부족합니다. **알림을 받을 각 사이트의 로그인**이 필요합니다.
+새 알림을 가져오는 동안에는 NAIS3 Custom 1과 모아가 설치된 Chrome을 함께 켜두세요.
+각자의 계정으로 연결되며, 알림은 각자의 PC에 저장됩니다. 이번 알림 통합 릴리즈는 Windows x64용입니다.
+
+확장 소스와 회귀 검사는 [`integrations/moa`](integrations/moa)에 포함되어 있습니다.
+`npm run test:moa`로 검사하고 `npm run build:moa`로 배포 ZIP과 설명서를 만듭니다.
 
 ## 기술 스택
 

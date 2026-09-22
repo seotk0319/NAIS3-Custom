@@ -1,15 +1,17 @@
-import { Image, Images, LayoutGrid, Wand2, type LucideIcon } from 'lucide-react'
+import { Bell, Image, Images, LayoutGrid, Wand2, type LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import { cn } from '../lib/utils'
 import { useLayoutStore } from '../stores/layout-store'
 
-type Page = 'main' | 'scene' | 'director' | 'library'
+type Page = 'main' | 'scene' | 'director' | 'library' | 'inbox'
 
 const PAGES: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'main', label: '메인', icon: Image },
   { id: 'scene', label: '씬', icon: LayoutGrid },
   { id: 'director', label: '디렉터', icon: Wand2 },
-  { id: 'library', label: '라이브러리', icon: Images }
+  { id: 'library', label: '라이브러리', icon: Images },
+  { id: 'inbox', label: '알림', icon: Bell }
 ]
 
 /**
@@ -20,7 +22,13 @@ export function PageNav(): React.JSX.Element {
   const centerMode = useLayoutStore((s) => s.centerMode)
   const setCenterMode = useLayoutStore((s) => s.setCenterMode)
   const hiddenPages = useLayoutStore((s) => s.hiddenPages)
-  const visible = PAGES.filter((p) => p.id === 'main' || !hiddenPages.includes(p.id))
+  const [profile, setProfile] = useState(0)
+  useEffect(() => {
+    void window.nais.invoke('app:profile', undefined).then((v) => setProfile(v.profile))
+  }, [])
+  const visible = PAGES.filter(
+    (p) => (p.id !== 'inbox' || profile === 1) && (p.id === 'main' || !hiddenPages.includes(p.id))
+  )
 
   return (
     <nav className="no-drag pointer-events-auto flex items-center gap-1 rounded-full border border-line/70 bg-surface/95 p-1 shadow-md backdrop-blur">

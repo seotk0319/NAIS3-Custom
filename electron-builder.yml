@@ -7,6 +7,10 @@ publish:
   owner: seotk0319
   repo: NAIS3-Custom
 files:
+  - '!integrations/**'
+  - '!scripts/**'
+  - '!MOA-START-HERE.md'
+  - '!**/*.log*'
   - '!intro-assets/**'
   - '!.superloopy/**'
   - '!DESIGN.md'
@@ -14,7 +18,10 @@ files:
   - '!SPEC_v1.0.5_reference.txt'
   - '!**/.vscode/*'
   - '!src/*'
-  - '!docs/*'
+  - '!docs/**'
+  - '!**/inbox.json*'
+  - '!**/connection.json*'
+  - '!**/nais3.db*'
   - '!tests/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!vitest.config.{js,ts,mjs,cjs}'

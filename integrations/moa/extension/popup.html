@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>모아 수집기</title><link rel="stylesheet" href="popup.css"><script defer src="popup.js"></script></head>
+<body>
+<h1>모아 알림 API</h1><p>내 사이트 알림 → NAIS3 Custom 1</p>
+<div id="pair"><p>NAIS3 Custom 1 → 알림 → 연결 관리에서 <b>연결 코드 복사</b>를 누르고 여기에 붙여넣으세요.</p><label for="code">NAIS의 연결 코드</label><input id="code" autocomplete="off" spellcheck="false"><button id="connect">대시보드 연결</button></div>
+<div id="connected" hidden><p>이 Chrome에서 사용하는 사이트에 로그인한 뒤 아래 버튼을 누르세요. 처음 연결할 때 사이트 탭이 잠시 열려요.</p><button id="sessions">계정 API 연결</button><button id="sync">지금 API 조회</button><p>연결 정보는 이 Chrome에 저장돼요. 새 알림을 받으려면 NAIS3 Custom 1과 이 Chrome을 함께 켜두세요. 수집 주기·일시정지는 NAIS 알림 화면에서 바꿀 수 있어요.</p></div>
+<p id="status" role="status"></p><a href="guide.html" target="_blank" rel="noopener">처음 설치 / 연결 도움말 ↗</a>
+</body></html>

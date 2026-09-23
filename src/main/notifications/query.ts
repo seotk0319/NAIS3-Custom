@@ -1,4 +1,4 @@
-import { INBOX_EVENTS, INBOX_PLATFORMS } from '../../shared/inbox'
+import { INBOX_EVENTS, INBOX_EVENT_GROUPS, INBOX_PLATFORMS } from '../../shared/inbox'
 import type {
   InboxView,
   InboxQuery,
@@ -69,17 +69,51 @@ export function queryInbox(view: InboxView, query: InboxQuery = {}, now = Date.n
     .trim()
     .toLocaleLowerCase()
   const displayItems = view.items.map((item) => {
-    const title = displayText(item.title),
-      body = displayText(item.body)
-    return title === item.title && body === item.body ? item : { ...item, title, body }
+    // Genit and Neko append the raw event name ("「작품」 comment", "이름 · follow");
+    // the row already says 댓글, so drop the word and the dot that led into it.
+    const heading =
+      item.platform === 'genit' || item.platform === 'neko'
+        ? item.title.replace(/(?:\s+·)?\s+(?:comment|reply|like|follow)$/i, '')
+        : item.title
+    const title = displayText(heading)
+    let body = displayText(item.body),
+      work = item.work
+    // A Babe character like carries the character's name as its body and no work title.
+    if (item.platform === 'babe' && item.event === 'like' && work?.id && !work.title && body) {
+      work = { ...work, title: body }
+      body = ''
+    }
+    // Reaction bodies such as 독자님이 "작품"을(를) 좋아합니다 only restate the actor and the
+    // work the row already shows.
+    const actor = item.actor?.name
+    if (
+      (INBOX_EVENT_GROUPS.reaction as readonly string[]).includes(item.event) &&
+      actor &&
+      body.includes(actor) &&
+      (!work?.title || body.includes(work.title))
+    )
+      body = ''
+    return title === item.title && body === item.body && work === item.work
+      ? item
+      : { ...item, title, body, work }
   })
+  // An event filter is either one event or a named group of them.
+  const group = Object.hasOwn(INBOX_EVENT_GROUPS, query.event || '')
+    ? (INBOX_EVENT_GROUPS[query.event as keyof typeof INBOX_EVENT_GROUPS] as readonly string[])
+    : null
+  const eventMatches = (value: string): boolean =>
+    !query.event || (group ? group.includes(value) : query.event === value)
+  // A platform the person turned off keeps its stored rows but leaves the inbox.
+  const shown = (item: InboxItem): boolean => view.selection?.[item.platform] !== false
   const filtered = displayItems.filter((item) => {
     if (Object.hasOwn(counts, item.platform)) counts[item.platform]++
+    if (!shown(item)) return false
     const platformMatches = !query.platform || query.platform === item.platform
     if (platformMatches && Object.hasOwn(events, item.event)) events[item.event]++
     return (
       platformMatches &&
-      (!query.event || query.event === item.event) &&
+      eventMatches(item.event) &&
+      (!query.unread || item.unread === true) &&
       (!search ||
         [item.title, item.body, item.actor?.name, item.work?.title, item.work?.id].some((v) =>
           v?.toLocaleLowerCase().includes(search)
@@ -111,11 +145,10 @@ export function queryInbox(view: InboxView, query: InboxQuery = {}, now = Date.n
     nextCollectionAt: view.nextCollectionAt ?? null,
     error: null,
     enabled: view.enabled,
-    paired: view.connected,
     collectorOnline: !!view.collector && now - Date.parse(view.collector.lastSeen) < 120_000,
     collectorVersion: view.collector?.version || null,
     lastSeen: view.collector?.lastSeen || null,
-    total: view.items.length,
+    total: displayItems.filter(shown).length,
     filtered: filtered.length,
     unread,
     page,
@@ -137,9 +170,16 @@ export function queryInbox(view: InboxView, query: InboxQuery = {}, now = Date.n
         lastSuccess: view.platforms[id]?.lastSuccess || null,
         // The collector reports the stored token's own expiry, never the token.
         expiresAt: view.collector?.sessions?.[id]?.expiresAt || null,
-        canRenew: view.collector?.sessions?.[id]?.canRenew === true
+        canRenew: view.collector?.sessions?.[id]?.canRenew === true,
+        selected: view.selection?.[id] !== false,
+        // The service fills these from the in-app collector, which this pure view cannot see.
+        appConnected: false,
+        awaitingLogin: false,
+        loginWindowOpen: false,
+        connecting: false
       })
-    )
+    ),
+    directError: null
   }
 }
 

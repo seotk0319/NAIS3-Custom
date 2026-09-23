@@ -9,7 +9,6 @@ publish:
 files:
   - '!integrations/**'
   - '!scripts/**'
-  - '!MOA-START-HERE.md'
   - '!**/*.log*'
   - '!intro-assets/**'
   - '!.superloopy/**'

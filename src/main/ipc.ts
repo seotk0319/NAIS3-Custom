@@ -12,9 +12,11 @@ import type { IpcEventMap, IpcInvokeMap } from '../shared/types'
 import {
   getInbox,
   controlInbox,
-  copyInboxPairCode,
   openInboxSource,
-  setInboxInterval
+  setInboxInterval,
+  connectInboxPlatform,
+  disconnectInboxPlatform,
+  selectInboxPlatform
 } from './notifications/service'
 import {
   createCharacter,
@@ -181,8 +183,10 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     handle('inbox:query', (query) => getInbox(query || {}))
     handle('inbox:control', ({ enabled }) => controlInbox(enabled))
     handle('inbox:setInterval', ({ minutes }) => setInboxInterval(minutes))
-    handle('inbox:copyPairCode', () => copyInboxPairCode())
     handle('inbox:openSource', ({ id }) => openInboxSource(id))
+    handle('inbox:connect', ({ platform }) => connectInboxPlatform(platform))
+    handle('inbox:disconnect', ({ platform }) => disconnectInboxPlatform(platform))
+    handle('inbox:select', ({ platform, selected }) => selectInboxPlatform(platform, selected))
   }
   const censorFolderFiles = new Set<string>()
   const censorPathKey = (filePath: string): string => resolve(filePath).toLowerCase()

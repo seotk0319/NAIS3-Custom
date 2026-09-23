@@ -91,7 +91,7 @@
   }
   function scanCookie(){
     // Only this platform's own session cookies on its own origin are read.
-    if(platform!=='crack'&&platform!=='eden'&&platform!=='babe')return;
+    if(platform!=='crack'&&platform!=='eden'&&platform!=='babe'&&platform!=='elyn')return;
     try{
       const jar=new Map();
       for(const part of String(document.cookie||'').split(';')){
@@ -101,6 +101,12 @@
       if(platform==='crack'){
         const token=decodeURIComponent(jar.get('refresh_token')||'');
         if(token.length>=16)emitRenewal({kind:'crack',refreshToken:token});
+        return;
+      }
+      if(platform==='elyn'){
+        // Elyn's own client keeps its refresh token in this script-set cookie and rotates it.
+        const token=decodeURIComponent(jar.get('elyn-refresh-token')||'');
+        if(validSupabaseRefresh(token))emitRenewal({kind:'elyn',refreshToken:token});
         return;
       }
       if(platform==='babe'){

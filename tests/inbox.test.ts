@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { request } from 'node:http'
-import { startBridge } from '../src/main/notifications/core/bridge.mjs'
+import { createStore } from '../src/main/notifications/core/store.mjs'
 import { refineNotification, workLink } from '../src/main/notifications/core/api/model.mjs'
 import {
   queryInbox,
@@ -29,8 +28,6 @@ const item = (id: string, event: InboxItem['event'] = 'comment'): InboxItem => (
 })
 const view = (items: InboxItem[]): InboxView => ({
   enabled: true,
-  connected: true,
-  pairCode: null,
   mode: 'direct-api',
   collector: null,
   platforms: {},
@@ -83,9 +80,9 @@ describe('creator inbox projection', () => {
     expect(result.events.reply).toBe(6750)
     expect(result.items.every((i) => i.event === 'reply')).toBe(true)
   })
-  it('never sends pairing code or raw source records to the renderer', () => {
+  it('never sends raw source records to the renderer', () => {
     const raw = { ...item('1'), sourceData: { private: 'not-rendered' } }
-    const result = queryInbox({ ...view([raw]), pairCode: 'not-rendered' })
+    const result = queryInbox(view([raw]))
     expect(JSON.stringify(result)).not.toContain('not-rendered')
     expect(result.items[0].unread).toBeNull()
   })
@@ -173,12 +170,118 @@ describe('creator inbox projection', () => {
     expect(kept.url).toBe('https://genit.ai/ko/contents/other')
     // A platform that has no work page, or an id of the wrong shape, stays linkless.
     expect(refineNotification({ ...stored, platform: 'crack' as const }).url).toBe(null)
-    expect(
-      refineNotification({ ...stored, work: { ...stored.work, id: 'not-a-uuid' } }).url
-    ).toBe(null)
+    expect(refineNotification({ ...stored, work: { ...stored.work, id: 'not-a-uuid' } }).url).toBe(
+      null
+    )
     expect(workLink('neko', 'char_1788872106350_cpvotv0')).toBe(
       'https://www.nekochat.xyz/character/char_1788872106350_cpvotv0'
     )
+  })
+  it('filters by event group and unread state while counts keep describing the whole view', () => {
+    const rows = [
+      { ...item('c'), event: 'comment' as const, unread: true },
+      { ...item('r'), event: 'reply' as const, unread: false },
+      { ...item('n'), event: 'admin' as const, unread: null },
+      { ...item('l1'), event: 'like' as const, unread: true },
+      { ...item('l2'), event: 'like' as const, unread: false },
+      { ...item('f'), event: 'follow' as const, unread: null }
+    ]
+    const conversation = queryInbox(view(rows), { event: 'conversation' })
+    expect(conversation.items.map((x) => x.event).sort()).toEqual(['admin', 'comment', 'reply'])
+    const reaction = queryInbox(view(rows), { event: 'reaction' })
+    expect(reaction.items.map((x) => x.event).sort()).toEqual(['follow', 'like', 'like'])
+    const unread = queryInbox(view(rows), { event: 'reaction', unread: true })
+    expect(unread.items.map((x) => x.id)).toEqual(['teapot:personal:l1'])
+    // Tabs show the size of each group, so the counts must not shrink with the filter.
+    expect(unread.events.comment).toBe(1)
+    expect(unread.events.like).toBe(2)
+    // A single event still filters exactly as before.
+    expect(queryInbox(view(rows), { event: 'like' }).filtered).toBe(2)
+  })
+  it('files a Babe character like under reactions, including rows stored before the rule', () => {
+    const stored = {
+      ...item('1'),
+      schemaVersion: 1,
+      sourceId: 'b1',
+      channel: 'personal',
+      platform: 'babe' as const,
+      event: 'other' as const,
+      sourceType: 'characterLike',
+      classification: { evidence: 'unmapped', warnings: ['unmapped-type'] },
+      sourceData: {
+        id: 'b1',
+        type: 'characterLike',
+        title: '도령님이 제작자님의 캐릭터를 좋아해요',
+        createdAt: '2026-09-23T01:00:00Z',
+        isRead: false
+      }
+    }
+    expect(refineNotification(stored).event).toBe('like')
+  })
+  it('drops the English event word Genit and Neko append to their titles, and only that', () => {
+    const genit = (title: string): InboxItem => ({ ...item(title), platform: 'genit', title })
+    const result = queryInbox(
+      view([
+        genit('「오빠.. 진짜 싫어..♡」 comment'),
+        genit('comment 이벤트 안내'),
+        genit('「작품」 like'),
+        genit('테스트닉네임 · follow'),
+        { ...genit('neko'), platform: 'neko', title: '「테스트 작품」 like' },
+        { ...genit('unlike'), title: '「unlike」' }
+      ])
+    )
+    expect(result.items.map((x) => x.title)).toEqual([
+      '「오빠.. 진짜 싫어..♡」',
+      'comment 이벤트 안내',
+      '「작품」',
+      '테스트닉네임',
+      '「테스트 작품」',
+      '「unlike」'
+    ])
+    expect(queryInbox(view([{ ...item('t'), title: '「작품」 comment' }])).items[0].title).toBe(
+      '「작품」 comment'
+    )
+  })
+  it('keeps reaction rows from repeating the actor and work in the body', () => {
+    const babe: InboxItem = {
+      ...item('b'),
+      platform: 'babe',
+      event: 'like',
+      title: '독자A님이 제작자님의 캐릭터를 좋아해요',
+      body: '테스트 캐릭터',
+      actor: { id: null, name: '독자A' },
+      work: { id: 'c1', title: null, url: null }
+    }
+    const eden: InboxItem = {
+      ...item('e'),
+      platform: 'eden',
+      event: 'like',
+      body: '독자B님이 "테스트 작품 2"을(를) 좋아합니다',
+      actor: { id: null, name: '독자B' },
+      work: { id: 'w1', title: '테스트 작품 2', url: null }
+    }
+    const teapotFollow: InboxItem = {
+      ...item('f'),
+      event: 'follow',
+      body: '@reader_c님이 회원님을 팔로우하기 시작했습니다.',
+      actor: { id: null, name: 'reader_c' },
+      work: { id: null, title: null, url: null }
+    }
+    const milestone: InboxItem = {
+      ...item('m'),
+      event: 'like',
+      body: "'테스트 작품 3' 좋아요 50개를 달성했어요!",
+      actor: { id: null, name: 'reader_d' },
+      work: { id: 'w2', title: null, url: null }
+    }
+    const comment: InboxItem = { ...item('c'), body: '작성자님 작품 잘 봤어요' }
+    const [b, e, f, m, c] = queryInbox(view([babe, eden, teapotFollow, milestone, comment])).items
+    expect([b.body, b.work.title]).toEqual(['', '테스트 캐릭터'])
+    expect([e.body, e.work.title]).toEqual(['', '테스트 작품 2'])
+    expect(f.body).toBe('')
+    // Bodies that say something new stay: a milestone, and any comment.
+    expect(m.body).toBe("'테스트 작품 3' 좋아요 50개를 달성했어요!")
+    expect(c.body).toBe('작성자님 작품 잘 봤어요')
   })
   it('rejects non-HTTPS and credential-bearing source links', () => {
     for (const url of ['file:///C:/secret', 'javascript:alert(1)', 'https://a:b@example.com/'])
@@ -188,253 +291,125 @@ describe('creator inbox projection', () => {
 })
 
 const directories: string[] = []
-const servers: Awaited<ReturnType<typeof startBridge>>[] = []
 afterEach(async () => {
-  await Promise.all(servers.splice(0).map((s) => s.close()))
   await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true })))
 })
 async function fixture(): Promise<{
   directory: string
-  server: Awaited<ReturnType<typeof startBridge>>
-  url: string
+  store: Awaited<ReturnType<typeof createStore>>
 }> {
   const directory = await mkdtemp(join(tmpdir(), 'nais-inbox-test-'))
   directories.push(directory)
-  const server = await startBridge(directory, 0)
-  servers.push(server)
-  return { directory, server, url: `http://127.0.0.1:${server.port}` }
+  return { directory, store: await createStore(directory) }
 }
-describe('embedded collector bridge', () => {
-  it('saves the interval durably and sends a waiting gate to the existing collector', async () => {
-    const { directory, server, url } = await fixture()
-    await server.store.setInterval(120)
-    expect((await server.store.view()).intervalMinutes).toBe(120)
-    await expect(server.store.setInterval(0)).rejects.toThrow()
-    const state = await server.store.view()
-    const headers = {
-      'Content-Type': 'application/json',
-      Origin: 'chrome-extension://' + 'a'.repeat(32)
-    }
-    const pair = await fetch(url + '/api/pair', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ code: state.pairCode })
-    })
-    const { token } = (await pair.json()) as { token: string }
-    const auth = { ...headers, 'X-Moa-Key': token }
-    const heartbeat = () =>
-      fetch(url + '/api/heartbeat', {
-        method: 'POST',
-        headers: auth,
-        body: JSON.stringify({ version: '0.3.4' })
-      }).then((r) => r.json())
-    expect((await heartbeat()).enabled).toBe(true)
-    for (const platform of [
-      'eden',
-      'babe',
-      'luna',
-      'elyn',
-      'neko',
-      'teapot',
-      'crack',
-      'rplay',
-      'genit'
-    ]) {
-      await fetch(url + '/api/ingest', {
-        method: 'POST',
-        headers: auth,
-        body: JSON.stringify({
-          platform,
-          items: [],
-          channel: 'api-status',
-          transport: 'direct-api',
-          status: 'login'
-        })
-      })
-    }
-    expect((await heartbeat()).enabled).toBe(false)
-    expect((await server.store.view()).enabled).toBe(true)
-    await server.close()
-    servers.splice(servers.indexOf(server), 1)
-    const reopened = await startBridge(directory, 0)
-    servers.push(reopened)
-    expect((await reopened.store.view()).intervalMinutes).toBe(120)
-    expect((await reopened.store.view()).collecting).toBe(false)
+const apiRow = (id: string, at: string | null = null): Record<string, unknown> => ({
+  schemaVersion: 1,
+  id,
+  sourceId: id,
+  platform: 'genit',
+  event: 'comment',
+  channel: 'personal',
+  title: '제목',
+  body: '내용',
+  actor: { id: null, name: null },
+  work: { id: null, title: null, url: null },
+  at,
+  readAt: at,
+  unread: null,
+  url: null,
+  classification: { evidence: 'source-type', warnings: [] }
+})
+describe('inbox store', () => {
+  it('saves the interval durably and opens no collection window on its own', async () => {
+    const { directory, store } = await fixture()
+    await store.setInterval(120)
+    const reopened = await createStore(directory)
+    expect((await reopened.view()).intervalMinutes).toBe(120)
+    expect((await reopened.view()).collecting).toBe(false)
   })
-  it('preserves pairing and notification identity across restart, with authenticated ingestion', async () => {
-    const { directory, server, url } = await fixture()
-    const state = await server.store.view()
-    const origin = 'chrome-extension://' + 'a'.repeat(32)
-    const headers = { 'Content-Type': 'application/json', Origin: origin }
-    const pair = await fetch(url + '/api/pair', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ code: state.pairCode })
-    })
-    expect(pair.status).toBe(200)
-    const { token } = (await pair.json()) as { token: string }
-    const notification = {
-      ...item('1'),
-      schemaVersion: 1,
-      sourceId: '1',
-      channel: 'personal',
-      kind: 'comment',
-      stableId: true,
-      readAt: null,
-      classification: { evidence: 'source_type', warnings: [] }
-    }
+  it('keeps notification identity across repeated batches and a restart', async () => {
+    const { directory, store } = await fixture()
     const batch = {
-      platform: 'teapot',
+      platform: 'genit',
       channel: 'personal',
       transport: 'direct-api',
       status: 'ok',
-      items: [notification]
+      items: [apiRow('1', '2026-09-22T01:00:00Z')]
     }
-    const request = {
-      method: 'POST',
-      headers: { ...headers, 'X-Moa-Key': token },
-      body: JSON.stringify(batch)
-    }
-    expect((await fetch(url + '/api/ingest', request)).status).toBe(200)
-    expect((await fetch(url + '/api/ingest', request)).status).toBe(200)
-    expect((await server.store.view()).items).toHaveLength(1)
-    expect((await fetch(url + '/api/ingest', { ...request, headers })).status).toBe(403)
-    await server.close()
-    servers.splice(servers.indexOf(server), 1)
-    const reopened = await startBridge(directory, 0)
-    servers.push(reopened)
-    expect((await reopened.store.view()).connected).toBe(true)
-    expect((await reopened.store.view()).items[0].id).toBe(notification.id)
-    const beat = await fetch(`http://127.0.0.1:${reopened.port}/api/heartbeat`, {
-      method: 'POST',
-      headers: { ...headers, 'X-Moa-Key': token },
-      body: JSON.stringify({ version: '0.3.4', sessions: { teapot: { connected: true } } })
-    })
-    expect(beat.status).toBe(200)
+    expect(await store.ingest(batch)).toEqual({ accepted: 1, added: 1 })
+    expect(await store.ingest(batch)).toEqual({ accepted: 1, added: 0 })
+    const reopened = await createStore(directory)
+    expect((await reopened.view()).items.map((x) => x.id)).toEqual(['genit:1'])
   })
-  it('rejects cross-site access, DNS rebinding hosts and unpaired origins', async () => {
-    const { url } = await fixture()
-    expect(
-      (await fetch(url + '/api/state', { headers: { Origin: 'https://evil.example' } })).status
-    ).toBe(403)
-    const invalidHost = await new Promise<number | undefined>((resolve, reject) => {
-      request(url + '/api/state', { headers: { Host: 'evil.example' } }, (res) => {
-        res.resume()
-        resolve(res.statusCode)
-      })
-        .on('error', reject)
-        .end()
-    })
-    expect(invalidHost).toBe(403)
-    expect(
-      (await fetch(url + '/api/state', { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status
-    ).toBe(403)
-    expect(
-      (
-        await fetch(url + '/api/ingest', {
-          method: 'OPTIONS',
-          headers: { Origin: 'chrome-extension://' + 'b'.repeat(32) }
-        })
-      ).status
-    ).toBe(403)
-  })
-  it('keeps a usable session expiry and drops everything else the collector sends', async () => {
-    const { url, server } = await fixture()
-    const opened = await server.store.view()
-    const headers = {
-      'Content-Type': 'application/json',
-      Origin: 'chrome-extension://' + 'c'.repeat(32)
-    }
-    const pair = await fetch(url + '/api/pair', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ code: opened.pairCode })
-    })
-    const { token } = (await pair.json()) as { token: string }
+  it('keeps a usable session expiry and drops everything else the collector reports', async () => {
+    const { store } = await fixture()
     const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString()
-    const beat = await fetch(url + '/api/heartbeat', {
-      method: 'POST',
-      headers: { ...headers, 'X-Moa-Key': token },
-      body: JSON.stringify({
-        version: '0.3.6',
-        sessions: {
-          teapot: {
-            connected: true,
-            expiresAt,
-            canRenew: true,
-            refreshToken: 'must-never-be-stored'
-          },
-          eden: { connected: true, expiresAt: 'not-a-date', canRenew: 'yes' }
-        }
-      })
+    await store.heartbeat({
+      version: '1.0.23',
+      running: true,
+      sessions: {
+        teapot: {
+          connected: true,
+          expiresAt,
+          canRenew: true,
+          refreshToken: 'must-never-be-stored'
+        },
+        eden: { connected: true, expiresAt: 'not-a-date', canRenew: 'yes' },
+        nowhere: { connected: true }
+      }
     })
-    expect(beat.status).toBe(200)
-    const sessions = (await server.store.view()).collector?.sessions
-    expect(sessions?.teapot?.expiresAt).toBe(expiresAt)
-    expect(sessions?.teapot?.canRenew).toBe(true)
-    expect(sessions?.eden?.expiresAt).toBe(null)
-    expect(sessions?.eden?.canRenew).toBe(false)
+    const sessions = (await store.view()).collector?.sessions
+    expect(sessions?.teapot).toMatchObject({ expiresAt, canRenew: true })
+    expect(sessions?.eden).toMatchObject({ expiresAt: null, canRenew: false })
+    expect(Object.keys(sessions || {}).sort()).toEqual(['eden', 'teapot'])
     expect(JSON.stringify(sessions)).not.toContain('must-never-be-stored')
+    // With nothing signed in, no collector is claimed at all.
+    await store.heartbeat({ version: '1.0.23', running: true, sessions: {} })
+    expect((await store.view()).collector).toBeNull()
   })
   it('accepts a batch whose timestamps cannot be read and names why a batch is refused', async () => {
-    const { url, server } = await fixture()
-    const opened = await server.store.view()
-    const headers = {
-      'Content-Type': 'application/json',
-      Origin: 'chrome-extension://' + 'd'.repeat(32)
-    }
-    const pair = await fetch(url + '/api/pair', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ code: opened.pairCode })
-    })
-    const { token } = (await pair.json()) as { token: string }
-    const auth = { ...headers, 'X-Moa-Key': token }
-    const row = (id: string, at: string | null): Record<string, unknown> => ({
-      schemaVersion: 1,
-      id,
-      sourceId: id,
+    const { store } = await fixture()
+    await store.ingest({
       platform: 'genit',
-      event: 'comment',
       channel: 'personal',
-      title: '제목',
-      body: '내용',
-      actor: { id: null, name: null },
-      work: { id: null, title: null, url: null },
-      at,
-      readAt: at,
-      unread: null,
-      url: null,
-      classification: { evidence: 'source-type', warnings: [] }
+      transport: 'direct-api',
+      status: 'ok',
+      items: [apiRow('a', '2026-09-22T01:00:00Z'), apiRow('b', 'unknown'), apiRow('c', '')]
     })
-    const accepted = await fetch(url + '/api/ingest', {
-      method: 'POST',
-      headers: auth,
-      body: JSON.stringify({
-        platform: 'genit',
-        channel: 'personal',
-        transport: 'direct-api',
-        status: 'ok',
-        items: [row('a', '2026-09-22T01:00:00Z'), row('b', 'unknown'), row('c', '')]
-      })
-    })
-    expect(accepted.status).toBe(200)
-    const items = (await server.store.view()).items
+    const items = (await store.view()).items
     expect(items).toHaveLength(3)
     expect(items.filter((x) => x.at === null)).toHaveLength(2)
-    // A refusal must say which rule it broke, so the collector cannot only report a bare 400.
-    const refused = await fetch(url + '/api/ingest', {
-      method: 'POST',
-      headers: auth,
-      body: JSON.stringify({ platform: 'genit', transport: 'direct-api', items: [{ title: 'no id' }] })
-    })
-    expect(refused.status).toBe(400)
-    expect(await refused.json()).toMatchObject({ reason: 'Invalid notification ID' })
+    await expect(
+      store.ingest({ platform: 'genit', transport: 'direct-api', items: [{ title: 'no id' }] })
+    ).rejects.toThrow('Invalid notification ID')
   })
-  it('does not touch the store when the port is owned by another process', async () => {
-    const { directory, server } = await fixture()
-    const before = await readFile(join(directory, 'connection.json'))
-    await expect(startBridge(directory, server.port)).rejects.toMatchObject({ code: 'EADDRINUSE' })
-    expect(await readFile(join(directory, 'connection.json'))).toEqual(before)
+  it('forgets the retired extension without touching its old pairing file', async () => {
+    const { directory } = await fixture()
+    const pairing = JSON.stringify({
+      pairCode: null,
+      extensionOrigin: 'chrome-extension://' + 'a'.repeat(32),
+      token: 'old'
+    })
+    await writeFile(join(directory, 'connection.json'), pairing)
+    await writeFile(
+      join(directory, 'inbox.json'),
+      JSON.stringify({
+        version: 1,
+        items: {},
+        snapshots: {},
+        platforms: {},
+        enabled: true,
+        collector: {
+          lastSeen: new Date().toISOString(),
+          version: '0.3.12',
+          running: true,
+          sessions: { eden: { connected: true } }
+        }
+      })
+    )
+    const view = await (await createStore(directory)).view()
+    expect(view.collector).toBeNull()
+    expect(JSON.stringify(view)).not.toContain('chrome-extension')
+    expect(await readFile(join(directory, 'connection.json'), 'utf8')).toBe(pairing)
   })
 })

@@ -1,6 +1,6 @@
 // 메인 프로세스와 렌더러가 공유하는 타입.
 // 규칙: 렌더러는 이 타입들로만 메인과 대화한다 (IPC 계약).
-import type { InboxQuery, InboxResult } from './inbox'
+import type { InboxConnectResult, InboxQuery, InboxResult } from './inbox'
 
 export interface CharacterPromptInput {
   prompt: string
@@ -396,8 +396,12 @@ export interface IpcInvokeMap {
     req: { minutes: number }
     res: { intervalMinutes: number; collecting: boolean; nextCollectionAt: string | null }
   }
-  'inbox:copyPairCode': { req: void; res: { copied: boolean } }
   'inbox:openSource': { req: { id: string }; res: void }
+  /** Opens the sign-in browser for one platform and adopts its session once signed in. */
+  'inbox:connect': { req: { platform: string }; res: InboxConnectResult }
+  'inbox:disconnect': { req: { platform: string }; res: { ok: true } }
+  /** Turns one platform's collection and display on or off. */
+  'inbox:select': { req: { platform: string; selected: boolean }; res: { ok: true } }
   'db:status': { req: void; res: { version: number; path: string } }
   /** 앱 버전 */
   'app:version': { req: void; res: { version: string } }

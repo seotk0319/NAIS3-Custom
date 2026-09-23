@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 import {
   Bell,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Pause,
   Play,
-  RefreshCw,
   Search,
   Settings2,
   TriangleAlert,
   X
 } from 'lucide-react'
-import { INBOX_EVENTS, INBOX_PLATFORMS } from '@shared/inbox'
-import type { InboxResult, InboxItem } from '@shared/inbox'
+import { INBOX_EVENTS, INBOX_EVENT_GROUPS, INBOX_PLATFORMS } from '@shared/inbox'
+import type { InboxEvent, InboxEventGroup, InboxResult, InboxItem } from '@shared/inbox'
 import { cn } from '../lib/utils'
 
 // Nine separated hues. The previous palette repeated blue, teal and lilac, so three
@@ -29,6 +29,11 @@ const colors: Record<string, string> = {
   teapot: '#8a5fd6',
   luna: '#d65b9e'
 }
+// The raw hues are fine as bars but too light to read as small text. Mixing toward the
+// theme's ink darkens them on light themes and lightens them on dark ones, so the label
+// clears 4.5:1 in both without a second palette.
+const tone = (platform: string): string =>
+  `color-mix(in oklab, ${colors[platform]} 60%, var(--ink))`
 const statusLabels: Record<string, string> = {
   ok: '수집 정상',
   partial: '일부 수집',
@@ -38,6 +43,12 @@ const statusLabels: Record<string, string> = {
   auth_required: '계정 재연결 필요',
   unauthorized: '계정 재연결 필요'
 }
+type View = InboxEventGroup | 'all'
+const views: { id: View; label: string }[] = [
+  { id: 'conversation', label: '대화' },
+  { id: 'reaction', label: '반응' },
+  { id: 'all', label: '전체' }
+]
 const minute = 60_000,
   hour = 60 * minute
 const parsed = (value: string | null | undefined): number | null =>
@@ -63,7 +74,7 @@ function time(value: string | null | undefined): string {
 // anything older falls back to a real date.
 function ago(value: string | null | undefined, now: number): string {
   const at = parsed(value)
-  if (at === null) return '시간 정보 없음'
+  if (at === null) return '시간 없음'
   const past = now - at
   if (past < 0) return clock(at)
   if (past < minute) return '방금'
@@ -90,31 +101,86 @@ function dayLabel(value: string | null | undefined, now: number): string {
     weekday: 'short'
   })
 }
+const isReaction = (event: InboxEvent): boolean =>
+  (INBOX_EVENT_GROUPS.reaction as readonly string[]).includes(event)
+// A like on the same comment, arriving back to back, says one thing: that comment is
+// landing. One row per like said it twelve times and pushed the comments off screen.
+type Row = { kind: 'item'; item: InboxItem } | { kind: 'bundle'; key: string; items: InboxItem[] }
+function bundle(items: InboxItem[]): Row[] {
+  const rows: Row[] = []
+  for (const item of items) {
+    const last = rows.at(-1)
+    const lead = last?.kind === 'bundle' ? last.items[0] : last?.kind === 'item' ? last.item : null
+    const joins =
+      !!lead &&
+      isReaction(item.event) &&
+      lead.event === item.event &&
+      lead.platform === item.platform &&
+      lead.title === item.title &&
+      (lead.work?.id || null) === (item.work?.id || null)
+    if (joins && last?.kind === 'bundle') last.items.push(item)
+    else if (joins && last?.kind === 'item')
+      rows[rows.length - 1] = { kind: 'bundle', key: last.item.id, items: [last.item, item] }
+    else rows.push({ kind: 'item', item })
+  }
+  return rows
+}
+function people(items: InboxItem[]): string {
+  const names = [...new Set(items.map((x) => x.actor?.name).filter((x): x is string => !!x))]
+  if (!names.length) return `${items.length}명`
+  const shown = names.slice(0, 2).join(', ')
+  const rest = items.length - Math.min(2, names.length)
+  return rest > 0 ? `${shown} 외 ${rest}명` : shown
+}
 const button =
   'inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-40'
 const intervalLabel = (minutes: number): string =>
   minutes % 60 === 0 ? `${minutes / 60}시간` : `${minutes}분`
 
+function Dot(): React.JSX.Element {
+  return (
+    <span aria-hidden className="text-faint">
+      ·
+    </span>
+  )
+}
+
 export function InboxView(): React.JSX.Element {
   const [data, setData] = useState<InboxResult | null>(null)
   const [platform, setPlatform] = useState('')
+  const [view, setView] = useState<View>('conversation')
   const [event, setEvent] = useState('')
+  const [unreadOnly, setUnreadOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<InboxItem | null>(null)
+  const [open, setOpen] = useState<Set<string>>(new Set())
   const [settings, setSettings] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const [busy, setBusy] = useState(false)
+  // Sign-in checks this window started; the service also reports its own.
+  const [linking, setLinking] = useState<Set<string>>(new Set())
+  // Relative times are measured against the moment the data was fetched, which also
+  // keeps render pure; the list refetches every 10 seconds anyway.
+  const [now, setNow] = useState(0)
+  const eventQuery = event || (view === 'all' ? '' : view)
 
   useEffect(() => {
     let disposed = false,
       timer: ReturnType<typeof setTimeout>
     async function refresh(): Promise<void> {
       try {
-        const result = await window.nais.invoke('inbox:query', { platform, event, search, page })
+        const result = await window.nais.invoke('inbox:query', {
+          platform,
+          event: eventQuery,
+          unread: unreadOnly,
+          search,
+          page
+        })
         if (disposed) return
+        setNow(Date.now())
         setData(result)
         setError(result.error || '')
         setSelected((previous) =>
@@ -130,9 +196,8 @@ export function InboxView(): React.JSX.Element {
       disposed = true
       clearTimeout(timer)
     }
-  }, [platform, event, search, page, revision])
+  }, [platform, eventQuery, unreadOnly, search, page, revision])
 
-  const now = Date.now()
   const totalPages = data ? Math.max(1, Math.ceil(data.filtered / data.pageSize)) : 1
   const latest =
     data?.platforms
@@ -151,20 +216,38 @@ export function InboxView(): React.JSX.Element {
       Date.parse(p.expiresAt) - now > -hour
   )
   const preserved = broken.reduce((total, p) => total + p.count, 0)
+  const tally = (group: View): number =>
+    data
+      ? (group === 'all'
+          ? (Object.keys(INBOX_EVENTS) as InboxEvent[])
+          : (INBOX_EVENT_GROUPS[group] as readonly InboxEvent[])
+        ).reduce((total, id) => total + data.events[id], 0)
+      : 0
+  const subEvents = view === 'all' ? [] : (INBOX_EVENT_GROUPS[view] as readonly InboxEvent[])
 
   // Items arrive newest first, so each day begins exactly one group.
-  const groups: { label: string; items: InboxItem[] }[] = []
+  const grouped: { label: string; items: InboxItem[] }[] = []
   for (const item of data?.items || []) {
     const label = dayLabel(item.at, now)
-    const last = groups.at(-1)
+    const last = grouped.at(-1)
     if (last && last.label === label) last.items.push(item)
-    else groups.push({ label, items: [item] })
+    else grouped.push({ label, items: [item] })
   }
+  const days = grouped.map((day) => ({ label: day.label, rows: bundle(day.items) }))
 
   function reset(next: () => void): void {
     next()
     setPage(0)
     setSelected(null)
+    setOpen(new Set())
+  }
+  function toggleOpen(key: string): void {
+    setOpen((previous) => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
   async function toggle(): Promise<void> {
     if (!data || busy) return
@@ -177,6 +260,42 @@ export function InboxView(): React.JSX.Element {
     } finally {
       setBusy(false)
     }
+  }
+  // Sign-in can take the person minutes in the browser; each platform tracks its own check.
+  async function link(id: string, label: string): Promise<void> {
+    setLinking((previous) => new Set(previous).add(id))
+    setMessage(label + ' 로그인 상태를 확인하고 있어요. 크롬 창이 잠깐 열릴 수 있어요.')
+    try {
+      const result = await window.nais.invoke('inbox:connect', { platform: id })
+      setMessage(label + ': ' + result.message)
+    } catch {
+      setMessage(label + ' 연결을 확인하지 못했어요.')
+    } finally {
+      setLinking((previous) => {
+        const next = new Set(previous)
+        next.delete(id)
+        return next
+      })
+      setRevision((v) => v + 1)
+    }
+  }
+  async function unlink(id: string, label: string): Promise<void> {
+    try {
+      await window.nais.invoke('inbox:disconnect', { platform: id })
+      setMessage(label + ' 로그인 정보를 NAIS3에서 지웠어요. 이미 모은 알림은 그대로예요.')
+    } catch {
+      setMessage(label + ' 연결을 해제하지 못했어요.')
+    }
+    setRevision((v) => v + 1)
+  }
+  async function select(id: string, selected: boolean): Promise<void> {
+    try {
+      await window.nais.invoke('inbox:select', { platform: id, selected })
+      if (!selected && platform === id) reset(() => setPlatform(''))
+    } catch {
+      setMessage('모아보기 설정을 바꾸지 못했어요.')
+    }
+    setRevision((v) => v + 1)
   }
   async function openSource(item: InboxItem): Promise<void> {
     try {
@@ -198,6 +317,130 @@ export function InboxView(): React.JSX.Element {
       setBusy(false)
     }
   }
+
+  function renderItem(item: InboxItem, nested = false): React.JSX.Element {
+    const unread = item.unread === true
+    const actor = item.actor?.name || null
+    // An empty body used to fall back to the actor's name, which then read as content.
+    const body = item.body && item.body !== actor && item.body !== item.title ? item.body : null
+    // Many titles already quote the work (「작품」 댓글), so repeating it on the right is noise.
+    const work = item.work?.title && !item.title.includes(item.work.title) ? item.work.title : null
+    return (
+      <button
+        key={item.id}
+        onClick={() => setSelected(item)}
+        className={cn(
+          'relative flex w-full items-start gap-3 border-b border-line py-2.5 pr-4 text-left transition-colors last:border-b-0',
+          nested ? 'pl-9' : 'pl-5',
+          selected?.id === item.id ? 'bg-accent-soft' : 'hover:bg-surface-2/50'
+        )}
+      >
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-[3px]"
+          style={{ backgroundColor: colors[item.platform] }}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            {unread && (
+              <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-label="안 읽음" />
+            )}
+            <span
+              className={cn(
+                'truncate text-[13.5px] leading-snug',
+                unread ? 'font-semibold text-ink' : 'text-ink/85'
+              )}
+            >
+              {item.title}
+            </span>
+          </span>
+          <span className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[12px] leading-snug text-muted">
+            <span className="shrink-0 font-medium" style={{ color: tone(item.platform) }}>
+              {INBOX_PLATFORMS[item.platform]}
+            </span>
+            <Dot />
+            <span className="shrink-0">{INBOX_EVENTS[item.event] || '기타'}</span>
+            {actor && (
+              <>
+                <Dot />
+                <span className="max-w-40 shrink-0 truncate text-ink/70">{actor}</span>
+              </>
+            )}
+            {body && (
+              <>
+                <Dot />
+                <span className="min-w-0 truncate">{body}</span>
+              </>
+            )}
+          </span>
+        </span>
+        <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-px text-right">
+          <span className="text-[11.5px] tabular-nums text-muted">{ago(item.at, now)}</span>
+          {work && <span className="max-w-full truncate text-[11px] text-faint">{work}</span>}
+        </span>
+      </button>
+    )
+  }
+
+  function renderBundle(row: Extract<Row, { kind: 'bundle' }>): React.JSX.Element {
+    const lead = row.items[0]
+    const expanded = open.has(row.key)
+    const unread = row.items.some((x) => x.unread === true)
+    return (
+      <div key={row.key}>
+        <button
+          onClick={() => toggleOpen(row.key)}
+          aria-expanded={expanded}
+          className="relative flex w-full items-start gap-3 border-b border-line py-2.5 pl-5 pr-4 text-left transition-colors hover:bg-surface-2/50"
+        >
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-[3px]"
+            style={{ backgroundColor: colors[lead.platform] }}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-2">
+              {unread && (
+                <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-label="안 읽음" />
+              )}
+              <span
+                className={cn(
+                  'truncate text-[13.5px] leading-snug',
+                  unread ? 'font-semibold text-ink' : 'text-ink/85'
+                )}
+              >
+                {lead.title}
+              </span>
+              <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-px text-[11px] font-medium tabular-nums text-muted">
+                {row.items.length}
+              </span>
+            </span>
+            <span className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[12px] leading-snug text-muted">
+              <span className="shrink-0 font-medium" style={{ color: tone(lead.platform) }}>
+                {INBOX_PLATFORMS[lead.platform]}
+              </span>
+              <Dot />
+              <span className="shrink-0">{INBOX_EVENTS[lead.event]}</span>
+              <Dot />
+              <span className="min-w-0 truncate text-ink/70">{people(row.items)}</span>
+            </span>
+          </span>
+          <span className="flex max-w-[34%] shrink-0 items-center gap-2 pt-px text-right">
+            <span className="text-[11.5px] tabular-nums text-muted">{ago(lead.at, now)}</span>
+            <ChevronDown
+              size={14}
+              aria-hidden
+              className={cn('text-faint transition-transform', expanded && 'rotate-180')}
+            />
+          </span>
+        </button>
+        {expanded && (
+          <div className="bg-surface-2/30">{row.items.map((x) => renderItem(x, true))}</div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <section
       className="flex min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface"
@@ -218,43 +461,52 @@ export function InboxView(): React.JSX.Element {
           <span className="tabular-nums">{data?.total.toLocaleString() || '0'}</span>
         </button>
         <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-          {(data?.platforms || []).map((p) => {
-            const trouble = ['error', 'login'].includes(p.status)
-            const soon = expiring.includes(p)
-            return (
-              <button
-                key={p.id}
-                onClick={() => reset(() => setPlatform(p.id))}
-                title={`${statusLabels[p.status] || p.status} · 마지막 성공 ${time(p.lastSuccess)}`}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px]',
-                  platform === p.id ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface-2'
-                )}
-              >
-                <span
-                  aria-hidden
-                  className="h-4 w-1 shrink-0 rounded-full"
-                  style={{ backgroundColor: colors[p.id] }}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-medium text-ink">
-                    {p.label}
+          {(data?.platforms || [])
+            .filter((p) => p.selected)
+            .map((p) => {
+              const trouble = ['error', 'login'].includes(p.status)
+              const soon = expiring.includes(p)
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => reset(() => setPlatform(p.id))}
+                  title={`${statusLabels[p.status] || p.status} · 마지막 성공 ${time(p.lastSuccess)}`}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px]',
+                    platform === p.id ? 'bg-accent-soft' : 'hover:bg-surface-2'
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className="h-4 w-1 shrink-0 rounded-full"
+                    style={{ backgroundColor: colors[p.id] }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        'block truncate text-[12.5px] font-medium',
+                        platform === p.id ? 'text-accent' : 'text-ink'
+                      )}
+                    >
+                      {p.label}
+                    </span>
+                    {trouble && (
+                      <span className="mt-0.5 block truncate text-[10.5px] font-medium text-danger">
+                        {statusLabels[p.status] || p.status}
+                      </span>
+                    )}
+                    {!trouble && soon && (
+                      <span className="mt-0.5 block truncate text-[10.5px] text-faint">
+                        {p.canRenew ? '곧 자동 갱신' : '인증 곧 만료'}
+                      </span>
+                    )}
                   </span>
-                  {trouble && (
-                    <span className="mt-0.5 block truncate text-[10.5px] font-medium text-amber-600">
-                      {statusLabels[p.status] || p.status}
-                    </span>
-                  )}
-                  {!trouble && soon && (
-                    <span className="mt-0.5 block truncate text-[10.5px] text-faint">
-                      {p.canRenew ? '곧 자동 갱신' : '인증 곧 만료'}
-                    </span>
-                  )}
-                </span>
-                <span className="shrink-0 tabular-nums">{p.count.toLocaleString()}</span>
-              </button>
-            )
-          })}
+                  <span className="shrink-0 tabular-nums text-muted">
+                    {p.count.toLocaleString()}
+                  </span>
+                </button>
+              )
+            })}
         </div>
         <p className="mt-3 px-2 text-[11px] leading-relaxed text-faint">
           로그인한 계정의 알림을 모아요.
@@ -262,31 +514,49 @@ export function InboxView(): React.JSX.Element {
           원본 사이트의 읽음 상태는 바꾸지 않아요.
         </p>
       </aside>
+
       <main className="flex min-w-0 flex-1 flex-col gap-3 p-5">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-[21px] font-semibold tracking-tight">알림 모아보기</h1>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-[12px] text-muted">
-              수집 주기
-              <select
-                aria-label="수집 주기"
-                value={data?.intervalMinutes ?? 60}
-                disabled={!data?.available || busy}
-                onChange={(e) => void setIntervalMinutes(Number(e.target.value))}
-                className="rounded-lg border border-line bg-paper px-2 py-2 text-ink disabled:opacity-40"
-              >
-                {[5, 15, 30, 60, 120, 360, 1440].map((minutes) => (
-                  <option key={minutes} value={minutes}>
-                    {intervalLabel(minutes)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className={button} onClick={() => setSettings((v) => !v)}>
-              <Settings2 size={14} /> 연결 관리
-            </button>
+        <header className="flex flex-wrap items-center gap-3">
+          <h1 className="mr-auto text-[21px] font-semibold tracking-tight">알림 모아보기</h1>
+          <div className="flex w-64 items-center gap-2 rounded-lg border border-line bg-paper px-3">
+            <Search size={15} className="shrink-0 text-faint" />
+            <input
+              value={search}
+              onChange={(e) => {
+                const value = e.target.value
+                reset(() => setSearch(value))
+              }}
+              placeholder="작품, 작성자, 내용 검색"
+              aria-label="알림 검색"
+              className="min-w-0 flex-1 bg-transparent py-2 text-[13px] outline-none"
+            />
+            {search && (
+              <button aria-label="검색어 지우기" onClick={() => reset(() => setSearch(''))}>
+                <X size={13} className="text-faint" />
+              </button>
+            )}
           </div>
+          <label className="flex items-center gap-2 text-[12px] text-muted">
+            수집 주기
+            <select
+              aria-label="수집 주기"
+              value={data?.intervalMinutes ?? 60}
+              disabled={!data?.available || busy}
+              onChange={(e) => void setIntervalMinutes(Number(e.target.value))}
+              className="rounded-lg border border-line bg-paper px-2 py-2 text-ink disabled:opacity-40"
+            >
+              {[5, 15, 30, 60, 120, 360, 1440].map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {intervalLabel(minutes)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className={button} onClick={() => setSettings((v) => !v)}>
+            <Settings2 size={14} /> 연결 관리
+          </button>
         </header>
+
         {error && (
           <div
             role="alert"
@@ -298,9 +568,9 @@ export function InboxView(): React.JSX.Element {
         {!!broken.length && (
           <div
             role="status"
-            className="flex items-center gap-3 rounded-xl border border-l-[3px] border-amber-500/30 border-l-amber-500 bg-amber-500/10 px-4 py-3"
+            className="flex items-center gap-3 rounded-lg border border-danger/25 bg-danger/[0.07] px-4 py-3"
           >
-            <TriangleAlert size={18} className="shrink-0 text-amber-600" />
+            <TriangleAlert size={17} className="shrink-0 text-danger" />
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-semibold text-ink">
                 {broken.map((p) => p.label).join(', ')} 계정 인증이 풀려서 새 알림을 못 받고 있어요
@@ -321,21 +591,83 @@ export function InboxView(): React.JSX.Element {
         {settings && (
           <div className="rounded-lg border border-line bg-paper p-4 text-[12px]">
             <div className="mb-2 flex items-center justify-between">
-              <strong>수집 연결</strong>
+              <strong>플랫폼 연결</strong>
               <button aria-label="연결 관리 닫기" onClick={() => setSettings(false)}>
                 <X size={15} />
               </button>
             </div>
             <p className="leading-relaxed text-muted">
-              {data?.paired
-                ? '기존 모아 확장 프로그램과 연결되어 있어요.'
-                : 'Chrome의 모아 확장 프로그램에 연결 코드를 입력해주세요.'}{' '}
-              Chrome에 로그인된 계정으로 알림을 조회해요. 계정이 끊기면 모아 확장의 ‘계정 API
-              연결’을 눌러주세요.
+              플랫폼마다 한 번 로그인하면 NAIS3가 직접 알림을 모아요. 로그인 창은 크롬(없으면
+              엣지)으로 열리고, NAIS3 전용 프로필이라 평소 쓰는 크롬과 섞이지 않아요. 체크를 끈
+              플랫폼은 모으지도, 목록에 보여주지도 않아요.
             </p>
+            {data?.directError && <p className="mt-2 text-danger">{data.directError}</p>}
+            <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+              {(data?.platforms || []).map((p) => {
+                const checking = linking.has(p.id) || p.connecting
+                const relogin = p.appConnected && p.status === 'login'
+                const state = checking
+                  ? '로그인 상태를 확인하고 있어요…'
+                  : p.awaitingLogin
+                    ? p.loginWindowOpen
+                      ? '열린 창에서 로그인하면 알아서 연결돼요'
+                      : '로그인 창이 닫혔어요. 로그인했다면 ‘로그인 완료’를 눌러주세요'
+                    : relogin
+                      ? '다시 로그인이 필요해요'
+                      : p.appConnected
+                        ? 'NAIS3로 연결됨'
+                        : '연결 안 됨'
+                return (
+                  <li key={p.id} className="flex items-center gap-3 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={p.selected}
+                      onChange={(e) => void select(p.id, e.target.checked)}
+                      aria-label={p.label + ' 모아보기'}
+                      className="size-3.5 shrink-0 accent-accent"
+                    />
+                    <span
+                      aria-hidden
+                      className="h-4 w-1 shrink-0 rounded-full"
+                      style={{ backgroundColor: colors[p.id] }}
+                    />
+                    <span className="w-16 shrink-0 font-medium text-ink">{p.label}</span>
+                    <span
+                      className={cn(
+                        'min-w-0 flex-1 truncate',
+                        relogin ? 'text-danger' : 'text-muted'
+                      )}
+                    >
+                      {state}
+                    </span>
+                    {p.appConnected && !checking && !p.awaitingLogin && (
+                      <button
+                        className="shrink-0 text-faint hover:text-ink"
+                        onClick={() => void unlink(p.id, p.label)}
+                      >
+                        해제
+                      </button>
+                    )}
+                    <button
+                      className={button}
+                      disabled={checking || !data?.available}
+                      onClick={() => void link(p.id, p.label)}
+                    >
+                      {p.awaitingLogin
+                        ? '로그인 완료'
+                        : relogin
+                          ? '다시 로그인'
+                          : p.appConnected
+                            ? '다시 연결'
+                            : '로그인'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
             <p className="mt-2 text-faint">
-              수집기 {data?.collectorVersion || '미연결'} · 마지막 응답{' '}
-              {time(data?.lastSeen || null)} · 루나는 알림 페이지 응답을 직접 읽어요.
+              수집기 마지막 응답 {time(data?.lastSeen || null)} · 루나는 알림 페이지 응답을 직접
+              읽어요.
             </p>
             <div className="mt-3 flex items-center gap-2">
               <button
@@ -346,158 +678,117 @@ export function InboxView(): React.JSX.Element {
                 {data?.enabled ? <Pause size={13} /> : <Play size={13} />}{' '}
                 {data?.enabled ? '수집 일시정지' : '수집 재개'}
               </button>
-              {!data?.paired && (
-                <button
-                  className={button}
-                  onClick={() => {
-                    void window.nais
-                      .invoke('inbox:copyPairCode', undefined)
-                      .then((v) =>
-                        setMessage(v.copied ? '연결 코드를 복사했어요.' : '이미 연결되어 있어요.')
-                      )
-                      .catch(() => setMessage('코드를 복사하지 못했어요.'))
-                  }}
-                >
-                  연결 코드 복사
-                </button>
-              )}
               <span className="text-muted">{message}</span>
             </div>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex min-w-64 flex-1 items-center gap-2 rounded-lg border border-line bg-paper px-3 lg:max-w-72">
-            <Search size={15} className="shrink-0 text-faint" />
-            <input
-              value={search}
-              onChange={(e) => {
-                const value = e.target.value
-                reset(() => setSearch(value))
-              }}
-              placeholder="작품명, 작성자, 알림 검색"
-              aria-label="알림 검색"
-              className="min-w-0 flex-1 bg-transparent py-2 text-[13px] outline-none"
-            />
-            <button
-              title="저장된 알림 새로고침"
-              aria-label="저장된 알림 새로고침"
-              onClick={() => setRevision((v) => v + 1)}
-            >
-              <RefreshCw size={14} className="text-muted" />
-            </button>
-          </div>
-          {[['', '전체'], ...Object.entries(INBOX_EVENTS)].map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => reset(() => setEvent(id))}
-              className={cn(
-                'rounded-full border px-3 py-1.5 text-[12px]',
-                event === id
-                  ? 'border-accent/40 bg-accent-soft font-semibold text-accent'
-                  : 'border-line text-muted hover:bg-surface-2'
-              )}
-            >
-              {label}
-              {id && data ? (
-                <span className="ml-1 tabular-nums opacity-70">
-                  {data.events[id as keyof typeof INBOX_EVENTS].toLocaleString()}
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div
+            role="tablist"
+            aria-label="알림 종류"
+            className="inline-flex rounded-lg border border-line bg-surface-2/60 p-0.5"
+          >
+            {views.map((v) => (
+              <button
+                key={v.id}
+                role="tab"
+                aria-selected={view === v.id}
+                onClick={() =>
+                  reset(() => {
+                    setView(v.id)
+                    setEvent('')
+                  })
+                }
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-[12.5px] transition-colors',
+                  view === v.id
+                    ? 'bg-paper font-semibold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.06)]'
+                    : 'text-muted hover:text-ink'
+                )}
+              >
+                {v.label}
+                <span className="ml-1.5 tabular-nums text-faint">
+                  {tally(v.id).toLocaleString()}
                 </span>
-              ) : null}
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
+          {subEvents.length > 1 && (
+            <div className="flex items-center gap-0.5">
+              {[
+                ['', '모두'] as const,
+                ...subEvents.map((id) => [id, INBOX_EVENTS[id]] as const)
+              ].map(([id, label]) => (
+                <button
+                  key={id || 'any'}
+                  onClick={() => reset(() => setEvent(id))}
+                  className={cn(
+                    'rounded-md px-2 py-1 text-[12px] transition-colors',
+                    event === id
+                      ? 'bg-surface-2 font-semibold text-ink'
+                      : 'text-muted hover:text-ink'
+                  )}
+                >
+                  {label}
+                  {id && data ? (
+                    <span className="ml-1 tabular-nums text-faint">
+                      {data.events[id].toLocaleString()}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            role="switch"
+            aria-checked={unreadOnly}
+            onClick={() => reset(() => setUnreadOnly((v) => !v))}
+            className={cn(
+              'ml-auto inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors',
+              unreadOnly ? 'bg-accent-soft font-semibold text-accent' : 'text-muted hover:text-ink'
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn('size-1.5 rounded-full', unreadOnly ? 'bg-accent' : 'bg-faint')}
+            />
+            안 읽은 것만
+          </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-0.5" aria-label="알림 목록">
+
+        <div
+          className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-line bg-paper"
+          aria-label="알림 목록"
+        >
           {!data ? (
             <p className="p-10 text-center text-[13px] text-muted">알림을 불러오는 중이에요…</p>
           ) : !data.items.length ? (
             <p className="p-10 text-center text-[13px] text-muted">
-              {data.total
-                ? '조건에 맞는 알림이 없어요.'
-                : '연결된 계정의 첫 알림을 기다리고 있어요.'}
+              {!data.total
+                ? '연결된 계정의 첫 알림을 기다리고 있어요.'
+                : unreadOnly
+                  ? '안 읽은 알림이 없어요.'
+                  : '조건에 맞는 알림이 없어요.'}
             </p>
           ) : (
-            groups.map((group) => (
-              <section key={group.label} aria-label={group.label}>
-                <div className="flex items-center gap-2.5 px-0.5 pb-1.5 pt-3 first:pt-0">
-                  <span className="text-[11px] font-semibold text-faint">{group.label}</span>
-                  <span className="h-px flex-1 bg-line" />
-                  <span className="text-[11px] tabular-nums text-faint">
-                    {group.items.length.toLocaleString()}건
-                  </span>
-                </div>
-                {group.items.map((item) => {
-                  const unread = item.unread === true
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setSelected(item)}
-                      className={cn(
-                        'mb-1.5 flex w-full items-stretch overflow-hidden rounded-xl border text-left transition-colors',
-                        selected?.id === item.id
-                          ? 'border-accent/40 bg-accent-soft'
-                          : unread
-                            ? 'border-line bg-paper hover:bg-surface-2/60'
-                            : 'border-line bg-transparent hover:bg-surface-2/60'
-                      )}
-                    >
-                      <span
-                        aria-hidden
-                        className="w-[3px] shrink-0"
-                        style={{
-                          backgroundColor: colors[item.platform],
-                          opacity: unread ? 1 : 0.3
-                        }}
-                      />
-                      <span className="min-w-0 flex-1 px-3.5 py-2.5">
-                        <span className="flex items-center gap-2">
-                          <span
-                            className="text-[11px] font-semibold"
-                            style={{ color: colors[item.platform] }}
-                          >
-                            {INBOX_PLATFORMS[item.platform]}
-                          </span>
-                          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">
-                            {INBOX_EVENTS[item.event] || '기타'}
-                          </span>
-                          {unread && (
-                            <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-                              안 읽음
-                            </span>
-                          )}
-                        </span>
-                        <span
-                          className={cn(
-                            'mt-1 block truncate text-[13.5px] leading-snug',
-                            unread ? 'font-semibold text-ink' : 'text-ink/90'
-                          )}
-                        >
-                          {item.title}
-                        </span>
-                        <span className="mt-0.5 block truncate text-[12px] text-muted">
-                          {item.body || item.actor?.name || '내용 없음'}
-                        </span>
-                      </span>
-                      <span className="flex w-36 shrink-0 flex-col items-end gap-1 py-2.5 pl-2 pr-3.5 text-right xl:w-44">
-                        <span className="text-[11.5px] tabular-nums text-muted">
-                          {ago(item.at, now)}
-                        </span>
-                        {item.work?.title && (
-                          <span className="max-w-full truncate text-[11px] text-faint">
-                            {item.work.title}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  )
-                })}
+            days.map((day) => (
+              <section key={day.label} aria-label={day.label}>
+                <h3 className="sticky top-0 z-10 border-b border-line bg-paper/95 px-5 py-1.5 text-[11px] font-semibold text-faint backdrop-blur">
+                  {day.label}
+                </h3>
+                {day.rows.map((row) =>
+                  row.kind === 'bundle' ? renderBundle(row) : renderItem(row.item)
+                )}
               </section>
             ))
           )}
         </div>
+
         <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
           <span className="tabular-nums">
             {(data?.filtered || 0).toLocaleString()}건
-            {data?.unread ? ` · 안 읽음 ${data.unread.toLocaleString()}건` : ''}
+            {data?.unread && !unreadOnly ? ` · 안 읽음 ${data.unread.toLocaleString()}` : ''}
           </span>
           <span className="tabular-nums text-faint">
             {data?.collectorOnline
@@ -520,6 +811,7 @@ export function InboxView(): React.JSX.Element {
               onClick={() => {
                 setPage(Math.max(0, (data?.page || 0) - 1))
                 setSelected(null)
+                setOpen(new Set())
               }}
             >
               <ChevronLeft size={13} />
@@ -534,6 +826,7 @@ export function InboxView(): React.JSX.Element {
               onClick={() => {
                 setPage((data?.page || 0) + 1)
                 setSelected(null)
+                setOpen(new Set())
               }}
             >
               <ChevronRight size={13} />
@@ -541,6 +834,7 @@ export function InboxView(): React.JSX.Element {
           </div>
         </footer>
       </main>
+
       {selected && (
         <aside
           className="flex w-64 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line bg-paper/40 p-5 xl:w-80"
@@ -558,12 +852,11 @@ export function InboxView(): React.JSX.Element {
               className="h-4 w-1 rounded-full"
               style={{ backgroundColor: colors[selected.platform] }}
             />
-            <span className="font-semibold" style={{ color: colors[selected.platform] }}>
+            <span className="font-medium" style={{ color: tone(selected.platform) }}>
               {INBOX_PLATFORMS[selected.platform]}
             </span>
-            <span className="rounded bg-surface-2 px-2 py-1 text-muted">
-              {INBOX_EVENTS[selected.event]}
-            </span>
+            <Dot />
+            <span className="text-muted">{INBOX_EVENTS[selected.event]}</span>
           </div>
           <h3 className="text-[16px] font-semibold leading-snug">{selected.title}</h3>
           <p className="select-text whitespace-pre-wrap break-words rounded-lg border border-line bg-paper p-3 text-[13px] leading-relaxed">

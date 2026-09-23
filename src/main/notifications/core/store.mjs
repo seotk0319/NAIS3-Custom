@@ -1,5 +1,4 @@
 import {readFile,mkdir,writeFile,rename,copyFile} from 'node:fs/promises';
-import {randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 import {refineNotification,refineNotifications} from './api/model.mjs';
 import {initializeSchedule, scheduleView, advanceSchedule, validateInterval} from './schedule.mjs';
@@ -27,27 +26,28 @@ export function cleanItem(item,platform){
   }
   return base;
 }
+// Only a session's shape leaves the collector: never a token, cookie or header value.
+export function cleanSessions(sessions){return Object.fromEntries(Object.entries(sessions||{}).filter(([p])=>platformIds.includes(p)).map(([p,x])=>[p,{connected:x?.connected===true,routeCount:Number.isInteger(x?.routeCount)?Math.max(0,x.routeCount):0,queryCount:Number.isInteger(x?.queryCount)?Math.max(0,x.queryCount):0,hasAuthorization:x?.hasAuthorization===true,expiresAt:typeof x?.expiresAt==='string'&&Number.isFinite(Date.parse(x.expiresAt))?x.expiresAt:null,canRenew:x?.canRenew===true}]))}
 export async function createStore(directory){
   await mkdir(directory,{recursive:true});
-  const file=path.join(directory,'inbox.json'),authFile=path.join(directory,'connection.json');
+  const file=path.join(directory,'inbox.json');
   async function load(file,fallback){try{return JSON.parse(await readFile(file,'utf8'))}catch(e){if(e.code==='ENOENT')return fallback;throw Error(`Stored data could not be read; preserved original: ${path.basename(file)}`)}}
   let state=await load(file,{version:1,items:{},snapshots:{},platforms:{},enabled:true,collector:null});
-  let auth=await load(authFile,{pairCode:randomBytes(18).toString('hex'),extensionOrigin:null,token:null});
   if(state.version!==1||!state.items||!state.platforms||!state.snapshots)throw Error('Unsupported store; original preserved');
   state={...state,schedule:initializeSchedule(state)};
-  let pending=Promise.resolve();
-  const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
+  let pending=Promise.resolve(),appCollector=null;
+  // The retired Chrome extension's last report is not a live collector.
+  delete state.collector;
   async function atomic(file,value){await writeFile(file+'.tmp',JSON.stringify(value,null,2),'utf8');try{await copyFile(file,file+'.previous')}catch(e){if(e.code!=='ENOENT')throw e}await rename(file+'.tmp',file)}
   function change(fn){const result=pending.then(fn);pending=result.catch(()=>{});return result}
-  await atomic(authFile,auth);
   return {
-    async view(){await pending;const snapshots=state.apiMode?[]:Object.entries(state.snapshots).filter(([key])=>!(key==='babe:personal-screen'&&state.platforms.babe?.channels?.['/ko/api/notifications']?.count>0)).flatMap(([,items])=>items);const items=Object.values(state.items).filter(x=>!state.apiMode||x.schemaVersion===1),visible=state.apiMode?refineNotifications(items):[...items,...snapshots].map(displayItem);return {version:1,mode:state.apiMode?'direct-api':'legacy',enabled:state.enabled,...scheduleView(state.schedule,state.enabled),connected:!!auth.extensionOrigin,pairCode:auth.extensionOrigin?null:auth.pairCode,collector:state.collector,platforms:state.platforms,items:visible.sort((a,b)=>Date.parse(b.at||b.firstSeen)-Date.parse(a.at||a.firstSeen))}},
-    allowedOrigin(origin){return !!auth.extensionOrigin&&origin===auth.extensionOrigin},
-    authorized(origin,token){return !!auth.extensionOrigin&&origin===auth.extensionOrigin&&equal(token,auth.token)},
-    pair(origin,code){return change(async()=>{if(!/^chrome-extension:\/\/[a-p]{32}$/.test(origin||'')||auth.extensionOrigin||!equal(code,auth.pairCode))throw Error('Pairing rejected');const next={pairCode:null,extensionOrigin:origin,token:randomBytes(32).toString('hex')};await atomic(authFile,next);auth=next;return {token:auth.token}})},
+    async view(){await pending;const snapshots=state.apiMode?[]:Object.entries(state.snapshots).filter(([key])=>!(key==='babe:personal-screen'&&state.platforms.babe?.channels?.['/ko/api/notifications']?.count>0)).flatMap(([,items])=>items);const items=Object.values(state.items).filter(x=>!state.apiMode||x.schemaVersion===1),visible=state.apiMode?refineNotifications(items):[...items,...snapshots].map(displayItem);return {version:1,mode:state.apiMode?'direct-api':'legacy',enabled:state.enabled,...scheduleView(state.schedule,state.enabled),collector:appCollector,selection:{...state.selection},platforms:state.platforms,items:visible.sort((a,b)=>Date.parse(b.at||b.firstSeen)-Date.parse(a.at||a.firstSeen))}},
     control(enabled){return change(async()=>{const next={...state,enabled:!!enabled};await atomic(file,next);state=next;return {enabled:state.enabled}})},
     setInterval(minutes){return change(async()=>{validateInterval(minutes);const next={...state,schedule:{...state.schedule,intervalMinutes:minutes}};await atomic(file,next);state=next;return scheduleView(state.schedule,state.enabled)})},
-    heartbeat(detail){return change(async()=>{const sessions=Object.fromEntries(Object.entries(detail.sessions||{}).filter(([p])=>platformIds.includes(p)).map(([p,x])=>[p,{connected:x?.connected===true,routeCount:Number.isInteger(x?.routeCount)?Math.max(0,x.routeCount):0,queryCount:Number.isInteger(x?.queryCount)?Math.max(0,x.queryCount):0,hasAuthorization:x?.hasAuthorization===true,expiresAt:typeof x?.expiresAt==='string'&&Number.isFinite(Date.parse(x.expiresAt))?x.expiresAt:null,canRenew:x?.canRenew===true}]));const gate=advanceSchedule(state.schedule,state.enabled,platformIds);const next={...state,schedule:gate.schedule,collector:{lastSeen:new Date().toISOString(),version:String(detail.version||'').slice(0,40),running:detail.running===true,sessions}};await atomic(file,next);state=next;return {enabled:gate.allowed,...scheduleView(state.schedule,state.enabled)}})},
+    // The in-app collector lives in this process, so its liveness stays in memory and the
+    // file is written only when it opens a new collection window.
+    heartbeat(detail){return change(async()=>{const sessions=cleanSessions(detail.sessions);appCollector=Object.keys(sessions).length?{lastSeen:new Date().toISOString(),version:String(detail.version||'').slice(0,40),running:detail.running===true,sessions}:null;const gate=advanceSchedule(state.schedule,state.enabled,platformIds);if(gate.schedule!==state.schedule){const next={...state,schedule:gate.schedule};await atomic(file,next);state=next}return {enabled:gate.allowed,selection:{...state.selection}}})},
+    select(platform,selected){return change(async()=>{if(!platformIds.includes(platform)||typeof selected!=='boolean')throw Error('Invalid selection');const next={...state,selection:{...state.selection,[platform]:selected}};await atomic(file,next);state=next;return {selection:{...next.selection}}})},
     ingest(batch){return change(async()=>{
       const p=batch.platform;if(!platformIds.includes(p)||!Array.isArray(batch.items)||batch.items.length>1000)throw Error('Invalid batch');
       const normalized=batch.items.map(x=>cleanItem(x,p)),now=new Date().toISOString(),channel=String(batch.channel||'notifications').slice(0,100);

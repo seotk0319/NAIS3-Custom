@@ -39,6 +39,14 @@ export const renewalKinds={
     request:({renewal})=>({headers:{'Content-Type':'application/json',Platform:'web',Refresh:renewal.refreshToken},body:JSON.stringify({refreshToken:renewal.refreshToken})}),
     read:data=>({token:data.access_token,refreshToken:data.refresh_token})
   },
+  elyn:{
+    platforms:['elyn'],applyTo:['https://api.seoul.elyn.ai'],
+    // Elyn's web client posts its refresh token to its own session endpoint and gets the
+    // next access token with a rotated refresh token back under session (read 2026-09-23).
+    endpoint:()=>'https://api.seoul.elyn.ai/api/v1/auth/me',
+    request:({renewal})=>({headers:{'Content-Type':'application/json','X-Elyn-Client':'web'},body:JSON.stringify({refresh_token:renewal.refreshToken})}),
+    read:data=>({token:data?.session?.access_token,refreshToken:data?.session?.refresh_token})
+  },
   babe:{
     platforms:['babe'],applyTo:['https://api.babechatapi.com'],
     // Babe's own web client posts the refresh token as this endpoint's query parameter.
@@ -53,10 +61,11 @@ export function renewalRecord(platform,renewal){
   const kind=renewalKinds[renewal?.kind];
   if(!kind||!kind.platforms.includes(platform))throw Error('UNAPPROVED_RENEWAL_KIND');
   const refreshToken=renewal.refreshToken;
-  // Supabase uses opaque refresh tokens, including Eden's observed 12-character values.
-  // Other providers retain their existing validation; destinations remain fixed by kind.
-  const minLength=renewal.kind==='supabase'?1:16;
-  if(typeof refreshToken!=='string'||refreshToken.length<minLength||refreshToken.length>8192||renewal.kind==='supabase'&&/\s/.test(refreshToken))throw Error('UNAPPROVED_RENEWAL_TOKEN');
+  // Supabase-style sessions (Eden, and Elyn's session endpoint) use opaque refresh tokens,
+  // including Eden's observed 12-character values. Other providers keep their existing
+  // validation; destinations remain fixed by kind.
+  const opaque=renewal.kind==='supabase'||renewal.kind==='elyn',minLength=opaque?1:16;
+  if(typeof refreshToken!=='string'||refreshToken.length<minLength||refreshToken.length>8192||opaque&&/\s/.test(refreshToken))throw Error('UNAPPROVED_RENEWAL_TOKEN');
   const record={kind:renewal.kind,refreshToken,capturedAt:new Date().toISOString()};
   if(renewal.kind==='firebase'){
     if(!/^[A-Za-z0-9_-]{20,80}$/.test(String(renewal.apiKey||'')))throw Error('UNAPPROVED_RENEWAL_KEY');

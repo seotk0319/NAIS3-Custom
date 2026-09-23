@@ -6,7 +6,7 @@ export function instant(value){if(value==null||value==='')return null;if(typeof 
 export function https(value){if(!value)return null;try{const u=new URL(value);return u.protocol==='https:'?u.href:null}catch{return null}}
 const types={
   eden:{like:'like',comment:'comment',reply:'reply',follow:'follow',guestbook:'comment',guestbook_reply:'reply',guestbook_like:'like',post_comment:'comment',post_comment_like:'like',post_like:'like'},
-  babe:{characterComment:'comment',characterDonationComment:'comment',characterReplies:'reply',commentLikeV2:'like',follow:'follow'},
+  babe:{characterComment:'comment',characterDonationComment:'comment',characterReplies:'reply',commentLikeV2:'like',characterLike:'like',follow:'follow'},
   neko:{follow:'follow',character_like:'like',comment:'comment',character_comment:'comment',comment_reply:'reply'},
   genit:{creator_character_comment:'comment',creator_character_comment_reply:'reply',comment_reply:'reply',comment_liked:'like',creator_character_liked:'like',creator_character_like:'like',character_like:'like',creator_follow:'follow',user_follow:'follow',new_follower:'follow',customer_inquiry_answered:'admin',inquiry_notice:'admin'},
   rplay:{storychatsCommentByUser:'comment'},

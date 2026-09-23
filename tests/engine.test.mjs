@@ -4,12 +4,12 @@ import {mkdtemp,readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 import os from 'node:os';
 import path from 'node:path';
-import {normalize,notification,refineNotification,refineNotifications,workLink} from './extension/lib/model.mjs';
-import {collectPages,readRoute,SessionExpired,readError,renewable} from './extension/lib/client.mjs';
-import {profileUpdate,safeSessionSummary,teapotQueries,tokenExpiry,expiryByOrigin,renewableExpiry} from './extension/lib/sessions.mjs';
-import {renewSession,renewalRecord,RenewalFailed} from './extension/lib/renewal.mjs';
-import {createStore} from '../../src/main/notifications/core/store.mjs';
-import {collectEden,collectLuna,collectTeapot,parseLuna} from './extension/lib/special.mjs';
+import {normalize,notification,refineNotification,refineNotifications,workLink} from '../src/main/notifications/core/api/model.mjs';
+import {collectPages,readRoute,SessionExpired,readError,renewable} from '../src/main/notifications/core/api/client.mjs';
+import {profileUpdate,safeSessionSummary,teapotQueries,tokenExpiry,expiryByOrigin,renewableExpiry} from '../src/main/notifications/core/api/sessions.mjs';
+import {renewSession,renewalRecord,RenewalFailed} from '../src/main/notifications/core/api/renewal.mjs';
+import {createStore} from '../src/main/notifications/core/store.mjs';
+import {collectEden,collectLuna,collectTeapot,parseLuna} from '../src/main/notifications/core/api/special.mjs';
 const response=value=>new Response(JSON.stringify(value),{status:200});
 const teaToken=(overrides={})=>'test.'+Buffer.from(JSON.stringify({iss:'https://securetoken.google.com/chat-ai-7a275',aud:'chat-ai-7a275',sub:'test-self',...overrides})).toString('base64url')+'.test';
 
@@ -124,7 +124,7 @@ test('session headers remain scoped to the API origin that supplied them',()=>{
 });
 
 test('Firestore Request and URLSearchParams bodies capture only notice queries without consuming the original request',async()=>{
-  const source=await readFile(new URL('./extension/bootstrap.js',import.meta.url),'utf8'),sent=[],listeners={},originalBodies=[];
+  const source=await readFile(new URL('../src/main/notifications/core/api/capture.js',import.meta.url),'utf8'),sent=[],listeners={},originalBodies=[];
   const location={hostname:'teapotchat.com',origin:'https://teapotchat.com',href:'https://teapotchat.com/'},scheduled=[];
   class XHR{open(){}setRequestHeader(){}send(){}}
   const window={fetch:async(input,init)=>{originalBodies.push(input instanceof Request?await input.text():String(init?.body||''));return new Response('{}')},postMessage:message=>sent.push(message),addEventListener:(type,fn)=>{listeners[type]=fn}};
@@ -160,40 +160,6 @@ test('Firestore collection executes only the validated read query',async()=>{
   await assert.rejects(collectTeapot({profile:{queries:[{...profile.queries[0],structuredQuery:{from:[{collectionId:'chats'}]}}]},transport:async()=>{throw Error('must not run')},commit:async()=>{}}),/UNAPPROVED/);
 });
 
-test('extension polling reaches connected accounts past missing sessions, repeats without tabs, and keeps auth out of ingestion',async t=>{
-  const previousChrome=globalThis.chrome,previousFetch=globalThis.fetch;
-  t.after(()=>{globalThis.chrome=previousChrome;globalThis.fetch=previousFetch});
-  let now=Date.now();t.mock.method(Date,'now',()=>now);
-  const apiSessions={neko:profileUpdate('neko',{origin:'https://www.nekochat.xyz',headers:{Authorization:'account-test-secret'}}),teapot:profileUpdate('teapot',{origin:'https://firestore.googleapis.com',headers:{authorization:'Bearer '+teaToken()}})};
-  const localState={token:'local-test-key',enabled:true,apiLastRun:{},apiCheckpoints:{},apiSessions},sessionState={};
-  const area=state=>({get:async keys=>structuredClone(typeof keys==='string'?{[keys]:state[keys]}:Array.isArray(keys)?Object.fromEntries(keys.map(k=>[k,state[k]])):{...keys,...state}),set:async values=>Object.assign(state,structuredClone(values))});
-  let alarmListener,messageListener,tabCreates=0;const batches=[],requests=[];
-  globalThis.chrome={storage:{local:area(localState),session:area(sessionState)},tabs:{create:async()=>{tabCreates++;throw Error('POLL_MUST_NOT_OPEN_TAB')}},runtime:{onMessage:{addListener(fn){messageListener=fn}},onInstalled:{addListener(){}},onStartup:{addListener(){}}},alarms:{get:async()=>({}),onAlarm:{addListener(fn){alarmListener=fn}}}};
-  globalThis.fetch=async(url,init)=>{
-    requests.push({url,init});
-    if(url==='http://127.0.0.1:43127/api/heartbeat')return response({enabled:true});
-    if(url==='http://127.0.0.1:43127/api/ingest'){batches.push(JSON.parse(init.body));return response({ok:true})}
-    if(url.startsWith('https://lunatalk.chat/member/alarm?'))return new Response('<div class="alarmStats"></div>');
-    if(url.startsWith('https://www.nekochat.xyz/api/notifications?')){assert.equal(init.headers.authorization,'account-test-secret');return response({notifications:[{notificationId:'n1',type:'follow',isRead:false}],pagination:{hasMore:false}})}
-    if(url.startsWith('https://firestore.googleapis.com/v1/')){assert.equal(init.method,'POST');assert.equal(init.headers.authorization,'Bearer '+teaToken());assert.ok(url.endsWith(':runQuery'));return response([])}
-    throw Error('UNEXPECTED_REQUEST');
-  };
-  await import(`./extension/api-worker.js?scheduler-test=${now}`);
-  for(let i=0;i<5;i++)await alarmListener({name:'moa-tick'});
-  const platforms=['eden','babe','luna','elyn','neko','teapot','crack','rplay','genit'];
-  assert.deepEqual(Object.keys(localState.apiLastRun).sort(),platforms.toSorted());
-  assert.equal(batches.find(b=>b.platform==='neko').items[0].event,'follow');
-  assert.equal(batches.filter(b=>b.status==='login').length,6);
-  const firstCount=batches.length;await alarmListener({name:'moa-tick'});assert.equal(batches.length,firstCount);
-  now+=300001;for(let i=0;i<5;i++)await alarmListener({name:'moa-tick'});
-  assert.equal(batches.filter(b=>b.platform==='neko').length,2);assert.equal(tabCreates,0);
-  assert.equal(JSON.stringify(batches).includes('account-test-secret'),false);
-  assert.equal(JSON.stringify(batches).includes(teaToken()),false);
-  assert.ok(requests.filter(r=>!r.url.startsWith('http://127.0.0.1:')).every(r=>r.init.method==='GET'||r.url.startsWith('https://firestore.googleapis.com/v1/')&&r.url.endsWith(':runQuery')));
-  delete localState.apiSessions.teapot;sessionState.connectionTabs={'11':{platform:'teapot',started:now}};localState.apiLastRun.teapot=now;
-  const ack=await new Promise(resolve=>messageListener({type:'session-profile',platform:'teapot',profile:{origin:'https://firestore.googleapis.com',headers:{authorization:'Bearer '+teaToken()}}},{tab:{id:11},url:'https://teapotchat.com/notifications'},resolve));
-  assert.equal(ack.ok,true);assert.equal(localState.apiLastRun.teapot,undefined);
-});
 test('failure diagnostics separate 401, 403 and 5xx without exposing the request query',async()=>{
   const reply=(status,body,type='application/json')=>new Response(typeof body==='string'?body:JSON.stringify(body),{status,headers:{'Content-Type':type}});
   const failure=async(status,body,type)=>{let caught;
@@ -254,35 +220,6 @@ test('a refresh token is exchanged at its own endpoint and the rotated one is ke
   assert.equal(renewableExpiry({renewal:{kind:'firebase'},headersByOrigin:{'https://www.eden-chat.com':{authorization:'Bearer '+teaToken({exp})}}}),null);
   assert.equal(renewableExpiry({headersByOrigin:{}}),null);
 });
-test('a 401 mid-collection renews the bearer once and the account keeps collecting',async t=>{
-  const previousChrome=globalThis.chrome,previousFetch=globalThis.fetch;
-  t.after(()=>{globalThis.chrome=previousChrome;globalThis.fetch=previousFetch});
-  const stale='Bearer '+teaToken({exp:Math.floor(Date.now()/1000)+3600}),fresh='Bearer '+teaToken({sub:'test-self',exp:Math.floor(Date.now()/1000)+7200});
-  const teapot=profileUpdate('teapot',{origin:'https://firestore.googleapis.com',headers:{authorization:stale},renewal:{kind:'firebase',apiKey:'A'.repeat(39),refreshToken:'firebase-refresh-secret-value'}});
-  const localState={token:'k',enabled:true,apiLastRun:{},apiCheckpoints:{},apiSessions:{teapot}},sessionState={};
-  const area=state=>({get:async keys=>structuredClone(typeof keys==='string'?{[keys]:state[keys]}:Array.isArray(keys)?Object.fromEntries(keys.map(k=>[k,state[k]])):{...keys,...state}),set:async values=>Object.assign(state,structuredClone(values))});
-  let alarmListener;const batches=[],firestore=[];let renewals=0;
-  globalThis.chrome={storage:{local:area(localState),session:area(sessionState)},tabs:{create:async()=>{throw Error('MUST_NOT_OPEN_TAB')}},runtime:{onMessage:{addListener(){}},onInstalled:{addListener(){}},onStartup:{addListener(){}}},alarms:{get:async()=>({}),onAlarm:{addListener(fn){alarmListener=fn}}}};
-  globalThis.fetch=async(url,init)=>{
-    if(url==='http://127.0.0.1:43127/api/heartbeat')return response({enabled:true});
-    if(url==='http://127.0.0.1:43127/api/ingest'){batches.push(JSON.parse(init.body));return response({ok:true})}
-    if(url.startsWith('https://lunatalk.chat/member/alarm?'))return new Response('<div class="alarmStats"></div>');
-    if(url.startsWith('https://securetoken.googleapis.com/v1/token?key=')){renewals++;return response({id_token:fresh.slice(7),refresh_token:'rotated-firebase-token'})}
-    if(url.startsWith('https://firestore.googleapis.com/v1/')){firestore.push(init.headers.authorization);
-      return init.headers.authorization===fresh?response([]):new Response(JSON.stringify({error:{message:'invalid auth'}}),{status:401,headers:{'Content-Type':'application/json'}})}
-    throw Error('UNEXPECTED_REQUEST '+url);
-  };
-  await import(`./extension/api-worker.js?renewal-test=${Date.now()}`);
-  for(let i=0;i<6;i++)await alarmListener({name:'moa-tick'});
-  assert.equal(renewals,1,'the account renews once, not once per request');
-  assert.deepEqual(firestore.slice(0,2),[stale,fresh]);
-  assert.equal(localState.apiSessions.teapot.renewal.refreshToken,'rotated-firebase-token');
-  assert.equal(localState.apiSessions.teapot.headers.authorization,fresh);
-  assert.equal(batches.some(b=>b.platform==='teapot'&&b.status==='login'),false,'a renewable account must not be reported as logged out');
-  assert.equal(JSON.stringify(batches).includes('firebase-refresh-secret-value'),false);
-  assert.equal(JSON.stringify(batches).includes('rotated-firebase-token'),false);
-});
-
 test('a server that answers an expired bearer with 5xx is still renewable, but not a logout',async()=>{
   const json=(status,body)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
   assert.equal(await renewable(json(401,{})),true);
@@ -331,7 +268,7 @@ test('rplay and crack renew through their own published flows',async()=>{
 });
 
 test('a Supabase session cookie yields a refresh token, chunked and base64 encoded',async()=>{
-  const source=await readFile(new URL('./extension/bootstrap.js',import.meta.url),'utf8');
+  const source=await readFile(new URL('../src/main/notifications/core/api/capture.js',import.meta.url),'utf8');
   // Eden's own client sets cookieEncoding base64url, so the value carries - and _.
   const session={access_token:'a.b.c',refresh_token:'test12abCD34',user:{name:'테스트 작품 ?~'}};
   const encoded='base64-'+Buffer.from(JSON.stringify(session),'utf8').toString('base64url');
@@ -365,6 +302,27 @@ test('a Supabase session cookie yields a refresh token, chunked and base64 encod
   // No session cookie at all is a quiet miss, never a capture failure.
   assert.deepEqual(run('www.eden-chat.com','theme=dark'),[]);
   assert.deepEqual(run('genit.ai','refresh_token=must-not-be-read'),[]);
+});
+
+test('Elyn renews through its own session endpoint from its refresh cookie',async()=>{
+  const origin='https://api.seoul.elyn.ai',refreshToken='elynRefresh1',rotated='elynRotated2',seen=[];
+  const profile=profileUpdate('elyn',{origin,headers:{authorization:'Bearer old-elyn-access'},renewal:{kind:'elyn',refreshToken}});
+  assert.equal(safeSessionSummary(profile).canRenew,true);
+  const result=await renewSession({platform:'elyn',profile,fetchImpl:async(url,init)=>{seen.push({url,init});return new Response(JSON.stringify({session:{access_token:'new-elyn-access',refresh_token:rotated},user:{id:'u'}}),{status:200})}});
+  assert.equal(seen[0].url,origin+'/api/v1/auth/me');assert.equal(seen[0].init.method,'POST');assert.equal(seen[0].init.credentials,'omit');
+  assert.deepEqual(JSON.parse(seen[0].init.body),{refresh_token:refreshToken});assert.equal(seen[0].init.headers['X-Elyn-Client'],'web');
+  assert.equal(result.authorization,'Bearer new-elyn-access');assert.equal(result.renewal.refreshToken,rotated);assert.deepEqual(result.origins,[origin]);
+  // A reply without a session is a failed renewal, never an empty bearer.
+  await assert.rejects(renewSession({platform:'elyn',profile,fetchImpl:async()=>new Response('{}',{status:200})}),/RENEWAL_NO_TOKEN/);
+  assert.throws(()=>renewalRecord('eden',{kind:'elyn',refreshToken}),/UNAPPROVED_RENEWAL_KIND/);
+  assert.throws(()=>renewalRecord('elyn',{kind:'elyn',refreshToken:'line\nbreak'}),/UNAPPROVED_RENEWAL_TOKEN/);
+  const source=await readFile(new URL('../src/main/notifications/core/api/capture.js',import.meta.url),'utf8'),sent=[],listeners={};
+  const location={hostname:'elyn.ai',origin:'https://elyn.ai',href:'https://elyn.ai/'};
+  class XHR{open(){}setRequestHeader(){}send(){}}
+  const window={fetch:async()=>new Response('{}'),postMessage:message=>sent.push(message),addEventListener:(type,fn)=>{listeners[type]=fn}};
+  vm.runInNewContext(source,{window,location,document:{cookie:'elyn-access-token=a.b.c; elyn-refresh-token=elyn-cookie-refresh; locale=ko'},localStorage:{length:0,key:()=>null,getItem:()=>null},URL,URLSearchParams,Headers,Request,TextDecoder,atob,XMLHttpRequest:XHR,setTimeout:()=>0});
+  listeners.message({source:window,origin:location.origin,data:{source:'moa-api-start'}});
+  assert.deepEqual(sent.map(x=>x.profile?.renewal).filter(Boolean).map(x=>[x.kind,x.refreshToken]),[['elyn','elyn-cookie-refresh']]);
 });
 
 test('12-character Supabase renewal survives capture storage exchange and rotation',async()=>{

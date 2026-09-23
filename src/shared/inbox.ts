@@ -17,6 +17,13 @@ export const INBOX_EVENTS = {
   admin: '공지',
   other: '기타'
 } as const
+// Reactions outnumber conversation roughly three to one, so they get their own view
+// instead of burying the comments a creator actually needs to answer.
+export const INBOX_EVENT_GROUPS = {
+  conversation: ['comment', 'reply', 'admin', 'other'],
+  reaction: ['like', 'follow']
+} as const
+export type InboxEventGroup = keyof typeof INBOX_EVENT_GROUPS
 export type InboxPlatform = keyof typeof INBOX_PLATFORMS
 export type InboxEvent = keyof typeof INBOX_EVENTS
 export interface InboxItem {
@@ -42,17 +49,24 @@ export interface InboxView {
   collecting?: boolean
   nextCollectionAt?: string | null
   enabled: boolean
-  connected: boolean
-  pairCode: string | null
   mode: string
   collector: null | {
     lastSeen: string
     version: string
     running: boolean
     sessions?: Partial<
-      Record<InboxPlatform, { connected: boolean; expiresAt?: string | null; canRenew?: boolean }>
+      Record<
+        InboxPlatform,
+        {
+          connected: boolean
+          expiresAt?: string | null
+          canRenew?: boolean
+        }
+      >
     >
   }
+  /** Platforms the person turned off; absent means on. */
+  selection?: Partial<Record<InboxPlatform, boolean>>
   platforms: Partial<Record<InboxPlatform, InboxPlatformStatus>>
   items: InboxItem[]
 }
@@ -61,6 +75,7 @@ export interface InboxQuery {
   event?: string
   search?: string
   page?: number
+  unread?: boolean
 }
 export interface InboxResult {
   intervalMinutes: number
@@ -69,7 +84,6 @@ export interface InboxResult {
   available: boolean
   error: string | null
   enabled: boolean
-  paired: boolean
   collectorOnline: boolean
   collectorVersion: string | null
   lastSeen: string | null
@@ -89,6 +103,20 @@ export interface InboxResult {
     lastSuccess: string | null
     expiresAt: string | null
     canRenew: boolean
+    selected: boolean
+    /** NAIS3 holds a signed-in session for this platform. */
+    appConnected: boolean
+    /** A sign-in window is open and waiting for the person to finish. */
+    awaitingLogin: boolean
+    /** That sign-in window is still open, so finishing sign-in connects by itself. */
+    loginWindowOpen: boolean
+    connecting: boolean
   }[]
   events: Record<InboxEvent, number>
+  /** Why the in-app collector could not open its session store, if it could not. */
+  directError: string | null
+}
+export interface InboxConnectResult {
+  state: 'connected' | 'login-required' | 'error'
+  message: string
 }

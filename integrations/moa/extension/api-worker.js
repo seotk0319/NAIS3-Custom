@@ -1,11 +1,11 @@
 import {collectPages,endpoints,allowed,readRoute,SessionExpired,readError,traceText,renewable} from './lib/client.mjs';
 import {collectEden,collectLuna,collectTeapot} from './lib/special.mjs';
 import {normalize} from './lib/model.mjs';
-import {profileUpdate,safeSessionSummary,teapotQueries,expiryByOrigin,renewableExpiry} from './lib/sessions.mjs';
+import {profileUpdate,safeSessionSummary,teapotQueries,expiryByOrigin,renewableExpiry,tokenExpiry} from './lib/sessions.mjs';
 import {renewSession} from './lib/renewal.mjs';
 // A reconnect is the only cure for these; every other failure keeps the 'error' status.
 const NEEDS_LOGIN=new Set(['SESSION_QUERIES_MISSING','SESSION_ROUTES_MISSING','SESSION_NOTICE_ROUTES_MISSING']);
-const BASE='http://127.0.0.1:43127',VERSION='0.3.11';
+const BASE='http://127.0.0.1:43127',VERSION='0.3.12';
 const sites={eden:'https://www.eden-chat.com/',babe:'https://babechat.ai/notification?tab=my',luna:'https://lunatalk.chat/member/alarm',elyn:'https://elyn.ai/',neko:'https://www.nekochat.xyz/',teapot:'https://teapotchat.com/notifications',crack:'https://crack.wrtn.ai/',rplay:'https://rplay.live/story',genit:'https://genit.ai/ko'};
 let ticking=false,sessionWrites=Promise.resolve();
 // Profile writes are serialized so a renewal and a capture never clobber each other.
@@ -19,6 +19,26 @@ async function local(path,data,token){const r=await fetch(BASE+path,{method:'POS
   return r.json()}
 function sessionReady(platform,profile){return !!profile&&(platform!=='teapot'||teapotQueries(profile).length>0)&&(platform!=='rplay'||!!profile.routes?.['/account/getuser']);}
 async function saveSession(platform,profile){return serialize(async()=>{const apiSessions=await readSessions(),wasReady=sessionReady(platform,apiSessions[platform]);apiSessions[platform]=profileUpdate(platform,profile,apiSessions[platform]);await chrome.storage.local.set({apiSessions});if(!wasReady&&sessionReady(platform,apiSessions[platform])){const {apiLastRun={}}=await chrome.storage.local.get('apiLastRun');delete apiLastRun[platform];await chrome.storage.local.set({apiLastRun})}})}
+function babeUserId(token){try{
+  const part=String(token||'').replace(/^Bearer\s+/i,'').split('.')[1];
+  const claims=JSON.parse(atob(part.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(part.length/4)*4,'=')));
+  return typeof claims.userId==='string'||typeof claims.userId==='number'?String(claims.userId):null;
+}catch{return null}}
+async function savePassiveBabeRenewal(profile){return serialize(async()=>{
+  if(profile?.origin!=='https://api.babechatapi.com'||profile?.renewal?.kind!=='babe')throw Error('UNAPPROVED_SESSION_SENDER');
+  const apiSessions=await readSessions(),stored=apiSessions.babe;
+  if(!stored)throw Error('UNAPPROVED_SESSION_SENDER');
+  const incoming=profile.renewal.refreshToken,current=stored.renewal?.refreshToken;
+  const incomingExp=tokenExpiry(incoming),currentExp=tokenExpiry(current);
+  if(!incomingExp||Date.parse(incomingExp)<=Date.now())throw Error('UNAPPROVED_RENEWAL_TOKEN');
+  const owner=babeUserId(stored.headers?.authorization),incomingOwner=babeUserId(incoming);
+  if(!owner||!incomingOwner||owner!==incomingOwner)throw Error('RENEWAL_ACCOUNT_MISMATCH');
+  // A site tab with an older cookie must not replace a token the collector rotated.
+  if(incoming===current||currentExp&&Date.parse(incomingExp)<=Date.parse(currentExp))return;
+  apiSessions.babe=profileUpdate('babe',{origin:profile.origin,renewal:profile.renewal},stored);
+  await chrome.storage.local.set({apiSessions});
+  const {apiLastRun={}}=await chrome.storage.local.get('apiLastRun');delete apiLastRun.babe;await chrome.storage.local.set({apiLastRun});
+})}
 // One renewal per account at a time. A failure keeps the old bearer, so the account
 // still reports its real error instead of being hidden behind a renewal error.
 function renewPlatform(platform,session){
@@ -114,8 +134,16 @@ async function alarm(){if(!await chrome.alarms.get('moa-tick'))await chrome.alar
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   (async()=>{
     if(sender.tab){const {connectionTabs={}}=await chrome.storage.session.get('connectionTabs'),job=connectionTabs[sender.tab.id];
-      if(message.type==='session-ready')return {enabled:!!job};
-      if(message.type==='session-profile'){if(!job||job.platform!==message.platform||new URL(sender.url).hostname!==new URL(sites[job.platform]).hostname)throw Error('UNAPPROVED_SESSION_SENDER');await saveSession(job.platform,message.profile);return {ok:true}}
+      // A connected Babe tab can recapture its own rotated cookie after a page load.
+      // This never opens a tab, and other platforms still require explicit connection.
+      const babeTab=new URL(sender.url).hostname==='babechat.ai';
+      const passiveBabe=babeTab&&!!(await readSessions()).babe;
+      if(message.type==='session-ready')return {enabled:!!job||passiveBabe,renewalOnly:!job&&passiveBabe};
+      if(message.type==='session-profile'){
+        if(job){if(job.platform!==message.platform||new URL(sender.url).hostname!==new URL(sites[job.platform]).hostname)throw Error('UNAPPROVED_SESSION_SENDER')}
+        else{if(!(passiveBabe&&message.platform==='babe'))throw Error('UNAPPROVED_SESSION_SENDER');await savePassiveBabeRenewal(message.profile);return {ok:true}}
+        await saveSession(message.platform,message.profile);return {ok:true}
+      }
       throw Error('UNAPPROVED_ACTION');
     }
     if(sender.url!==chrome.runtime.getURL('popup.html'))throw Error('UNAPPROVED_CALLER');

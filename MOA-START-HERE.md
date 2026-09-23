@@ -1,6 +1,6 @@
 # NAIS + 모아, 처음부터 따라 하기
 
-**Windows 10/11 · NAIS3 Custom 1.0.22 · 모아 0.3.11**
+**Windows 10/11 · NAIS3 Custom 1.0.22 · 모아 0.3.12**
 
 여러 사이트의 댓글·답글·좋아요·팔로우·공지 알림을 NAIS 한곳에서 보는 기능이에요.
 컴퓨터마다 처음 한 번 연결하면 돼요. 코드를 작성하거나 별도 서버를 설치할 필요는 없어요.
@@ -10,7 +10,7 @@
 [다운로드 페이지](https://github.com/seotk0319/NAIS3-Custom/releases/tag/v1.0.22-custom)의 **Assets**를 펼쳐 아래 두 파일을 받으세요.
 
 - **nais3-custom-1.0.22-setup.exe** — NAIS 설치 프로그램
-- **moa-extension-0.3.11.zip** — Chrome에 넣을 모아 확장
+- **moa-extension-0.3.12.zip** — Chrome에 넣을 모아 확장
 
 Source code, blockmap, SHA256SUMS.txt는 처음 설치할 때 받지 않아도 돼요.
 **MOA-START-HERE.html**은 더블클릭해서 읽는 설명서예요. 확장 ZIP 안에도 같은 설명서가 들어 있어요.
@@ -32,7 +32,7 @@ Source code, blockmap, SHA256SUMS.txt는 처음 설치할 때 받지 않아도 �
 4. 주소창에 **chrome://extensions**를 입력하고 Enter를 눌러요.
 5. 오른쪽 위의 **개발자 모드**를 켜요.
 6. **압축해제된 확장 프로그램을 로드합니다**를 누르고 **moa-extension** 폴더를 골라요.
-7. **모아 · 내 알림 수집기 / 0.3.11** 카드가 보이면 성공이에요.
+7. **모아 · 내 알림 수집기 / 0.3.12** 카드가 보이면 성공이에요.
 8. Chrome 오른쪽 위 **퍼즐 아이콘**을 누르고 모아 옆의 **핀**을 눌러두면 편해요.
 
 고를 폴더는 **manifest.json** 파일이 들어 있는 폴더예요. ZIP 파일 자체를 고르는 게 아니에요.

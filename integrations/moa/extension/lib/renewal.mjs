@@ -38,6 +38,13 @@ export const renewalKinds={
     endpoint:()=>'https://crack-api.wrtn.ai/auth/v2/token/refresh',
     request:({renewal})=>({headers:{'Content-Type':'application/json',Platform:'web',Refresh:renewal.refreshToken},body:JSON.stringify({refreshToken:renewal.refreshToken})}),
     read:data=>({token:data.access_token,refreshToken:data.refresh_token})
+  },
+  babe:{
+    platforms:['babe'],applyTo:['https://api.babechatapi.com'],
+    // Babe's own web client posts the refresh token as this endpoint's query parameter.
+    endpoint:renewal=>`https://api.babechatapi.com/ko/api/auth/token/refresh?refresh_token=${encodeURIComponent(renewal.refreshToken)}`,
+    request:()=>({headers:{}}),
+    read:data=>({token:data.access_token,refreshToken:data.refresh_token})
   }
 };
 // The page supplies the secret, never the shape: an unknown kind, a wrong platform

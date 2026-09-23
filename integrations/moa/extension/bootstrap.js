@@ -39,8 +39,8 @@
   proto.open=function(method,url,...rest){requests.set(this,{method:String(method).toUpperCase(),url,headers:{}});return open.call(this,method,url,...rest)};
   proto.setRequestHeader=function(key,value){const q=requests.get(this);if(q&&allowedHeaders.has(key.toLowerCase()))q.headers[key]=value;return set.call(this,key,value)};
   proto.send=function(body){const q=requests.get(this);if(q)try{capture(q.url,q.headers,q.method,body)}catch{}return send.call(this,body)};
-  // Supabase and Firebase keep a long-lived refresh token in this origin's own
-  // storage. Reading it here is what lets a later collection renew its bearer
+  // Sites keep a long-lived refresh token in their own storage or cookies.
+  // Reading only that site's token lets a later collection renew its bearer
   // without opening a tab. Nothing else in storage is read or exported.
   const sent=new Set();
   const emitRenewal=renewal=>{const key=`${renewal.kind}:${renewal.refreshToken.slice(-12)}`;if(sent.has(key))return;sent.add(key);emit({origin:origins[platform],renewal})};
@@ -91,7 +91,7 @@
   }
   function scanCookie(){
     // Only this platform's own session cookies on its own origin are read.
-    if(platform!=='crack'&&platform!=='eden')return;
+    if(platform!=='crack'&&platform!=='eden'&&platform!=='babe')return;
     try{
       const jar=new Map();
       for(const part of String(document.cookie||'').split(';')){
@@ -101,6 +101,12 @@
       if(platform==='crack'){
         const token=decodeURIComponent(jar.get('refresh_token')||'');
         if(token.length>=16)emitRenewal({kind:'crack',refreshToken:token});
+        return;
+      }
+      if(platform==='babe'){
+        // The site's own session provider reads bc__session_refresh and rotates it.
+        const token=decodeURIComponent(jar.get('bc__session_refresh')||'');
+        if(token.length>=16&&token.length<=8192&&!/\s/.test(token))emitRenewal({kind:'babe',refreshToken:token});
         return;
       }
       const bases=new Set();

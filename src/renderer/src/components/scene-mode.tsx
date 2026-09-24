@@ -383,7 +383,9 @@ let savedGridScroll = 0
 const GRID_GAP_X = 16 // gap-x-4
 const GRID_GAP_Y = 20 // gap-y-5
 const CARD_CAPTION = 48 // 이미지 아래 mt-2(8) + 캡션 h-10(40)
+// 화면 위아래로 최소 2줄, 또는 화면 높이의 70%만큼 미리 그려 둔다 (스크롤 중 빈 틀 줄이기)
 const OVERSCAN_ROWS = 2
+const OVERSCAN_VIEWPORT = 0.7
 
 function useGridWindow(
   scrollRef: React.RefObject<HTMLDivElement | null>,
@@ -424,8 +426,9 @@ function useGridWindow(
       if (savedGridScroll > 0) s.scrollTop = savedGridScroll
     }
     const top = g.getBoundingClientRect().top - s.getBoundingClientRect().top + s.scrollTop
-    const first = Math.max(0, Math.floor((s.scrollTop - top) / rowH) - OVERSCAN_ROWS)
-    const last = Math.min(rows, Math.ceil((s.scrollTop + s.clientHeight - top) / rowH) + OVERSCAN_ROWS)
+    const overscan = Math.max(OVERSCAN_ROWS, Math.ceil((s.clientHeight * OVERSCAN_VIEWPORT) / rowH))
+    const first = Math.max(0, Math.floor((s.scrollTop - top) / rowH) - overscan)
+    const last = Math.min(rows, Math.ceil((s.scrollTop + s.clientHeight - top) / rowH) + overscan)
     const next = { start: Math.min(count, first * columns), end: Math.min(count, Math.max(first, last) * columns) }
     if (next.start !== rangeRef.current.start || next.end !== rangeRef.current.end) {
       rangeRef.current = next

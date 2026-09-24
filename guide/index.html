@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAIS3 Custom 기능 안내</title>
+<style>
+:root{--bg:#f4f4f8;--card:#fff;--ink:#16161d;--muted:#5d5d6e;--faint:#8b8b9c;--line:#e4e4ee;--accent:#4f46e5;--accent-soft:#eef0ff;--free:#0f9f6e;--free-soft:#e3f6ee;--cost:#d6455d;--cost-soft:#fde8ec;--shadow:0 1px 2px rgba(20,20,40,.05),0 8px 24px rgba(20,20,40,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0e0e13;--card:#17171f;--ink:#ececf3;--muted:#a9a9ba;--faint:#7c7c8e;--line:#2a2a36;--accent:#8b85ff;--accent-soft:#23234a;--free:#3ccf97;--free-soft:#15372b;--cost:#ff7b90;--cost-soft:#3d1c24;--shadow:none}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 Pretendard,"Pretendard Variable",-apple-system,"Segoe UI","Malgun Gothic",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+header.hero{padding:56px 0 28px}
+.hero h1{margin:0;font-size:34px;letter-spacing:-.02em}
+.hero p{margin:10px 0 0;color:var(--muted);max-width:720px}
+.hero .ver{display:inline-block;margin-left:10px;padding:2px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:13px;font-weight:600;vertical-align:middle}
+nav.tabs{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav.tabs .wrap{display:flex;gap:6px;padding-top:12px;padding-bottom:12px;overflow-x:auto}
+nav.tabs a{flex:none;padding:7px 14px;border-radius:10px;color:var(--muted);text-decoration:none;font-weight:600;font-size:14px}
+nav.tabs a:hover,nav.tabs a.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+section.tab{padding:48px 0 16px}
+section.tab>.wrap>h2{margin:0 0 6px;font-size:26px;letter-spacing:-.01em}
+section.tab>.wrap>.lead{margin:0 0 22px;color:var(--muted);max-width:760px}
+.overview{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}
+.overview img{width:100%;border-radius:10px;display:block;cursor:zoom-in}
+.legend{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px;font-size:14px}
+.legend li{display:flex;gap:10px;align-items:flex-start}
+.num{flex:none;display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;line-height:1}
+.legend a{color:var(--ink);text-decoration:none}
+.legend a:hover{color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:18px;margin-top:22px;align-items:start}
+.feat{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.feat.wide{grid-column:1/-1}
+.shot{background:repeating-conic-gradient(color-mix(in srgb,var(--line) 45%,transparent) 0 25%,transparent 0 50%) 0 0/16px 16px;border-bottom:1px solid var(--line);display:grid;place-items:center;padding:18px;min-height:120px}
+.shot img{max-width:100%;max-height:520px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.12);cursor:zoom-in;display:block}
+.feat.wide .shot img{max-height:640px}
+.body{padding:16px 18px 18px}
+.body h3{margin:0 0 6px;font-size:17px;display:flex;align-items:center;gap:8px}
+.body p{margin:0;color:var(--muted);font-size:14.5px}
+.body ul{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:14.5px}
+.body li{margin:2px 0}
+kbd{display:inline-block;padding:0 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:var(--bg);font:12px/1.6 ui-monospace,Consolas,monospace;color:var(--ink)}
+code{padding:1px 6px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font:13px ui-monospace,Consolas,monospace}
+.pill{display:inline-block;padding:0 8px;border-radius:6px;font-size:12px;font-weight:700;line-height:20px}
+.pill.free{background:var(--free-soft);color:var(--free)}.pill.cost{background:var(--cost-soft);color:var(--cost)}
+table.syntax{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+table.syntax td{padding:7px 8px;border-top:1px solid var(--line);color:var(--muted)}
+table.syntax td:first-child{white-space:nowrap;width:1%}
+.note{margin-top:22px;padding:14px 18px;border-radius:14px;background:var(--accent-soft);color:var(--ink);font-size:14px}
+.dark-pair{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}
+.dark-pair figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:var(--shadow)}
+.dark-pair img{width:100%;border-radius:10px;display:block;cursor:zoom-in}
+.dark-pair figcaption{margin-top:8px;color:var(--muted);font-size:14px;text-align:center}
+footer{padding:40px 0 60px;color:var(--faint);font-size:13px;text-align:center}
+#lb{position:fixed;inset:0;background:rgba(8,8,14,.86);display:none;place-items:center;z-index:50;cursor:zoom-out;padding:24px}
+#lb.on{display:grid}
+#lb img{max-width:100%;max-height:100%;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+@media (max-width:900px){.overview{grid-template-columns:1fr}.dark-pair{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <h1>NAIS3 Custom 기능 안내 <span class="ver">2.0.1</span></h1>
+  <p>화면마다 어떤 기능이 어디에 있는지 사진으로 정리했어요. 전체 화면의 번호를 누르면 그 기능 설명으로 바로 가고, 사진을 누르면 크게 볼 수 있어요.</p>
+</div></header>
+
+<nav class="tabs"><div class="wrap">
+  <a href="#main">메인</a><a href="#scene">씬</a><a href="#director">디렉터</a><a href="#library">라이브러리</a><a href="#inbox">알림</a><a href="#settings">설정</a><a href="#dark">다크 테마</a>
+</div></nav>
+
+<!-- 메인 -->
+<section class="tab" id="main"><div class="wrap">
+  <h2>메인</h2>
+  <p class="lead">프롬프트를 쓰고 한 장씩 생성하는 기본 화면이에요. 왼쪽 패널에서 프롬프트와 옵션을 정하고, 가운데서 결과를 보고, 오른쪽 히스토리에서 지난 이미지를 다시 꺼내 써요.</p>
+  <div class="overview">
+    <img src="img/main-overview.webp" alt="메인 화면 전체">
+    <ol class="legend">
+      <li><span class="num">1</span><a href="#m-nav">탭 전환</a></li>
+      <li><span class="num">2</span><a href="#m-top">테마 · 히스토리 패널 · 설정</a></li>
+      <li><span class="num">3</span><a href="#m-model">생성 모델 · 프롬프트 프리셋</a></li>
+      <li><span class="num">4</span><a href="#m-prompt">프롬프트 (고정 · 가변 · 디테일)</a></li>
+      <li><span class="num">5</span><a href="#m-negative">네거티브</a></li>
+      <li><span class="num">6</span><a href="#m-tools">캐릭터 · 조각 · 바이브 · 레퍼런스</a></li>
+      <li><span class="num">7</span><a href="#m-summary">파라미터 요약 줄</a></li>
+      <li><span class="num">8</span><a href="#m-switches">가속 모드 · Anlas 소모 · EXIF 제거</a></li>
+      <li><span class="num">9</span><a href="#m-generate">장수 · 생성</a></li>
+      <li><span class="num">10</span>미리보기 — 생성 중에는 단계별 진행이 보여요</li>
+      <li><span class="num">11</span><a href="#m-history">히스토리</a></li>
+    </ol>
+  </div>
+  <div class="grid">
+    <article class="feat" id="m-nav"><div class="shot"><img src="img/main-nav.webp" alt=""></div><div class="body"><h3><span class="num">1</span>탭 전환</h3><p>메인, 씬, 디렉터, 라이브러리, 알림을 오가요. 한 번 연 탭은 그대로 남아 있어서 다시 돌아와도 스크롤 위치와 작업이 유지돼요.</p><ul><li><kbd>Ctrl</kbd> <kbd>1</kbd> 메인 · <kbd>Ctrl</kbd> <kbd>2</kbd> 씬 · <kbd>Ctrl</kbd> <kbd>3</kbd> 디렉터</li><li>안 쓰는 탭은 설정 → 모양 → 표시할 탭에서 숨길 수 있어요.</li></ul></div></article>
+    <article class="feat" id="m-top"><div class="shot"><img src="img/main-top-right.webp" alt=""></div><div class="body"><h3><span class="num">2</span>테마 · 패널 · 설정</h3><p>밝게, 어둡게, 시스템 설정 따름 중에서 고르고, 오른쪽 히스토리 패널을 접었다 펴고, 설정을 열어요. 왼쪽 위 버튼은 프롬프트 패널을 접어요.</p><ul><li><kbd>Ctrl</kbd> <kbd>[</kbd> 프롬프트 패널 · <kbd>Ctrl</kbd> <kbd>]</kbd> 히스토리 패널 · <kbd>Ctrl</kbd> <kbd>,</kbd> 설정</li><li>패널을 열고 닫은 상태는 탭마다 따로 기억해요.</li></ul></div></article>
+    <article class="feat" id="m-model"><div class="shot"><img src="img/main-model.webp" alt=""></div><div class="body"><h3><span class="num">3</span>생성 모델 · 프롬프트 프리셋</h3><p>V4.5와 V5 중 생성 모델을 고르고, 자주 쓰는 프롬프트 묶음을 프리셋으로 저장했다가 불러와요.</p></div></article>
+    <article class="feat" id="m-prompt"><div class="shot"><img src="img/main-prompt.webp" alt=""></div><div class="body"><h3><span class="num">4</span>프롬프트 3분할</h3><p><b>고정</b>에는 항상 유지할 태그, <b>가변</b>에는 매번 바꿀 태그, <b>디테일</b>에는 품질·구도·세부 묘사를 적어요. 오른쪽 위 숫자는 토큰 수예요. 가중치를 준 태그는 색으로 표시돼요.</p>
+      <table class="syntax">
+        <tr><td><code># 메모</code></td><td>줄 맨 앞의 #은 주석이라 보내지 않아요</td></tr>
+        <tr><td><code>&lt;이름&gt;</code></td><td>조각 넣기. 조각이 여러 줄이면 생성할 때마다 한 줄을 무작위로 골라요</td></tr>
+        <tr><td><code>&lt;*이름&gt;</code></td><td>조각의 줄을 생성마다 순서대로 사용 (<kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>R</kbd>로 처음부터)</td></tr>
+        <tr><td><code>&lt;a|b|c&gt;</code></td><td>셋 중 하나를 무작위로</td></tr>
+        <tr><td><code>1.3::태그::</code></td><td>강조. 1보다 크면 강하게, 작으면 약하게, 음수도 돼요</td></tr>
+      </table>
+      <ul><li>한 칸으로 쓰고 싶으면 설정 → 생성 → 프롬프트 3분할을 꺼요.</li></ul></div></article>
+    <article class="feat" id="m-negative"><div class="shot"><img src="img/main-negative.webp" alt=""></div><div class="body"><h3><span class="num">5</span>네거티브</h3><p>나오지 않았으면 하는 요소를 적어요. 생성 파라미터의 UC 프리셋 뒤에 이어 붙어요. 제목을 눌러 칸을 접을 수 있어요.</p></div></article>
+    <article class="feat" id="m-tools"><div class="shot"><img src="img/main-tools.webp" alt=""></div><div class="body"><h3><span class="num">6</span>캐릭터 · 조각 · 바이브 · 레퍼런스</h3><p>자주 쓰지 않는 도구라 한 줄로 얇게 모았어요. 누르면 프롬프트 자리에 목록이 열리고, 쓰고 있는 도구는 강조돼요.</p><ul><li><b>캐릭터</b> <kbd>Ctrl</kbd> <kbd>D</kbd> — 캐릭터 프롬프트를 저장해 두고 켜고 꺼요</li><li><b>조각</b> <kbd>Ctrl</kbd> <kbd>F</kbd> — 프롬프트에 <code>&lt;이름&gt;</code>으로 넣는 문구 모음</li><li><b>바이브</b> <kbd>Ctrl</kbd> <kbd>I</kbd> — 분위기를 참고할 이미지</li><li><b>레퍼런스</b> <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd> — 캐릭터 참조 이미지</li></ul></div></article>
+    <article class="feat" id="m-characters"><div class="shot"><img src="img/main-characters.webp" alt=""></div><div class="body"><h3>캐릭터 목록</h3><p>왼쪽 스위치를 켠 캐릭터만 생성에 들어가요. 이름이나 프롬프트로 찾고, 폴더로 묶고, <b>+ 캐릭터</b>로 새로 만들어요. <b>위치 지정</b>을 켜면 캐릭터마다 화면 속 위치를 정할 수 있어요.</p></div></article>
+    <article class="feat" id="m-summary"><div class="shot"><img src="img/main-summary.webp" alt=""></div><div class="body"><h3><span class="num">7</span>파라미터 요약 줄</h3><p>지금 설정의 해상도, 스텝, 시드를 한 줄로 보여주고, 오른쪽에 이번 생성이 <span class="pill free">무료</span>인지 Anlas가 드는지 표시해요. 누르면 생성 파라미터 창이 열려요 (<kbd>Ctrl</kbd> <kbd>P</kbd>).</p></div></article>
+    <article class="feat" id="m-params"><div class="shot"><img src="img/main-params.webp" alt=""></div><div class="body"><h3>생성 파라미터</h3><p>해상도, 시드(자물쇠로 고정), 스텝, CFG, Rescale, 샘플러, 노이즈 스케줄, UC 프리셋, 퀄리티 태그, Variety+를 정해요.</p></div></article>
+    <article class="feat" id="m-switches"><div class="shot"><img src="img/main-switches.webp" alt=""></div><div class="body"><h3><span class="num">8</span>생성 옵션 스위치</h3><ul><li><b>가속 모드</b> — 설정 → NAI 계정에 등록한 계정들이 각각 한 장씩 나눠서 생성해요</li><li><b>Anlas 소모</b> — 끄면 Anlas가 드는 생성은 보내지 않아요</li><li><b>EXIF 제거</b> — 저장하는 이미지 파일에서 프롬프트와 메타데이터를 지워요</li></ul></div></article>
+    <article class="feat" id="m-generate"><div class="shot"><img src="img/main-generate.webp" alt=""></div><div class="body"><h3><span class="num">9</span>장수 · 생성</h3><p>− + 로 한 번에 뽑을 장수를 정하고 <b>생성</b>을 눌러요 (<kbd>Ctrl</kbd> <kbd>Enter</kbd>). 씬 탭에서는 이 버튼이 <b>씬 생성</b>으로 바뀌어 예약한 장수만큼 차례로 뽑아요.</p></div></article>
+    <article class="feat" id="m-history"><div class="shot"><img src="img/history-menu.webp" alt=""></div><div class="body"><h3><span class="num">11</span>히스토리</h3><p>생성한 이미지가 최신순으로 쌓여요. 누르면 가운데에서 크게 보고, 오른쪽 클릭으로 바로 다음 작업을 이어가요.</p><ul><li>I2I, 인페인트, 디렉터 툴에서 열기, 검열하기</li><li>메타데이터 보기, 이미지 복사, 다른 이름으로 저장, 파일 탐색기에서 보기</li><li>기록에서 제거 — 설정에 따라 파일은 남겨요</li></ul></div></article>
+  </div>
+</div></section>
+
+<!-- 씬 -->
+<section class="tab" id="scene"><div class="wrap">
+  <h2>씬</h2>
+  <p class="lead">씬마다 프롬프트와 해상도를 저장해 두고, 장수를 예약해 한꺼번에 뽑는 화면이에요. 씬 1,000개짜리 프리셋도 부드럽게 다룰 수 있어요.</p>
+  <div class="overview">
+    <img src="img/scene-overview.webp" alt="씬 화면 전체">
+    <ol class="legend">
+      <li><span class="num">1</span><a href="#s-header">씬 프리셋</a></li>
+      <li><span class="num">2</span><a href="#s-header">불러오기 · 폴더 · 편집 · 선별 · 더보기 · 열 수</a></li>
+      <li><span class="num">3</span><a href="#s-filters">필터와 개수</a></li>
+      <li><span class="num">4</span><a href="#s-reserve">씬마다 N장 예약</a></li>
+      <li><span class="num">5</span><a href="#s-card">씬 카드</a></li>
+      <li><span class="num">6</span><a href="#s-generate">씬 생성</a></li>
+    </ol>
+  </div>
+  <div class="grid">
+    <article class="feat wide" id="s-header"><div class="shot"><img src="img/scene-header.webp" alt=""></div><div class="body"><h3><span class="num">1</span><span class="num">2</span>프리셋과 도구 막대</h3><ul><li><b>프리셋</b> — 씬 묶음을 바꿔요. 프리셋마다 씬 목록이 따로 있어요</li><li><b>불러오기</b> — 씬 JSON을 가져와요 · <b>폴더</b> — 씬 이미지 저장 폴더를 열어요</li><li><b>연필</b> — 편집 모드 · <b>체크 목록</b> — 선별 작업 · <b>⋯</b> — 내보내기와 카드 비율</li><li><b>2 3 4 5</b> — 한 줄에 놓을 카드 수</li></ul></div></article>
+    <article class="feat" id="s-filters"><div class="shot"><img src="img/scene-filters.webp" alt=""></div><div class="body"><h3><span class="num">3</span>필터와 개수</h3><p><b>전체 씬</b>, <b>이미지 없음</b>, <b>예약됨</b>으로 걸러 봐요. 씬 개수와 이미지 장수는 단위가 달라서 따로 보여줘요. 씬 1,000개에 이미지 439장, 예약 4장처럼요.</p></div></article>
+    <article class="feat wide" id="s-reserve"><div class="shot"><img src="img/scene-filter-empty.webp" alt=""></div><div class="body"><h3><span class="num">4</span>씬마다 N장 예약</h3><p>장수를 정하고 <b>예약</b>을 누르면 여러 씬에 한 번에 걸려요. 대상은 지금 보이는 씬이에요. 편집 모드에서 고른 씬이 있으면 그 씬, 필터를 켰으면 필터에 보이는 씬, 아니면 전체예요. 막대에 "562개 씬마다"처럼 대상 수가 떠요. 옆의 달력 버튼은 같은 대상의 예약을 취소해요.</p></div></article>
+    <article class="feat" id="s-card"><div class="shot"><img src="img/scene-card.webp" alt=""></div><div class="body"><h3><span class="num">5</span>씬 카드</h3><p>대표 이미지와 씬 이름, 이미지 장수를 보여줘요. 오른쪽 아래 − + 로 이 씬만 예약 장수를 바꾸고, 숫자를 눌러 직접 입력할 수도 있어요. 예약이 있으면 왼쪽 위에 빨간 <b>예약 N</b> 배지가, 생성 대기열에 들어간 뒤에는 남은 장수가 떠요.</p><ul><li>카드를 누르면 씬 상세, 끌어서 순서 바꾸기, 오른쪽 클릭으로 이름 변경·복제·폴더 열기·삭제</li></ul></div></article>
+    <article class="feat" id="s-generate"><div class="shot"><img src="img/scene-generate.webp" alt=""></div><div class="body"><h3><span class="num">6</span>씬 생성</h3><p>모든 프리셋에 걸린 예약을 합친 장수가 버튼에 떠요. 누르면 예약이 한꺼번에 생성 대기열로 넘어가고 카드의 예약 숫자는 0으로 돌아가요. 대기열에 남은 장수는 카드 왼쪽 위에 "대기 · 남은 N장"으로 보여요. 요약 줄은 씬마다 해상도가 다르면 최대 해상도를 기준으로 무료인지 알려줘요.</p></div></article>
+    <article class="feat wide" id="s-edit"><div class="shot"><img src="img/scene-edit-bar.webp" alt=""></div><div class="body"><h3>편집 모드</h3><p>연필 버튼을 켜면 카드를 눌러 여러 씬을 고를 수 있어요 (Shift를 누르고 누르면 구간 선택). 고른 씬에 한 번에 적용할 수 있는 작업이 위에 나와요.</p><ul><li>전체 선택 · 해제 · 프리셋 이동 · 해상도 변경 · ZIP 내보내기</li><li>즐겨찾기 해제 · 이미지 비우기 · 삭제</li><li>편집 모드에서 이름 칸을 바로 고칠 수 있어요</li></ul></div></article>
+    <article class="feat" id="s-more"><div class="shot"><img src="img/scene-more.webp" alt=""></div><div class="body"><h3>더보기 메뉴</h3><p>씬 목록을 JSON으로 내보내거나, 이미지를 ZIP으로 묶어요. 카드 비율은 세로, 가로, 정사각 중에서 골라요.</p></div></article>
+    <article class="feat wide" id="s-detail"><div class="shot"><img src="img/scene-detail.webp" alt=""></div><div class="body"><h3>씬 상세</h3><p>카드를 누르면 열려요. 이 씬만의 프롬프트와 네거티브, 해상도를 정하고, 오른쪽 위에서 장수를 정해 이 씬만 바로 생성해요. 아래에는 이 씬에서 나온 이미지가 모여요.</p><ul><li><b>즐겨찾기</b> — 즐겨찾기한 이미지만 보기</li><li><b>정리</b> — 즐겨찾기하지 않은 이미지를 파일까지 모두 지워요 (되돌릴 수 없어요)</li><li><kbd>Esc</kbd>로 씬 목록으로 돌아가요</li></ul></div></article>
+    <article class="feat wide" id="s-curation"><div class="shot"><img src="img/scene-curation.webp" alt=""></div><div class="body"><h3>선별 작업</h3><p>씬을 하나씩 넘기며 마음에 드는 이미지를 고르는 화면이에요. 가운데서 크게 보고, 오른쪽에서 씬과 이미지를 골라요.</p><ul><li><kbd>←</kbd> <kbd>→</kbd> 이미지 넘기기 · <kbd>↑</kbd> <kbd>↓</kbd> 씬 넘기기 · <kbd>F</kbd> 선별(즐겨찾기) 토글</li><li><b>기준 그림</b> — 이미지 목록에서 끌어다 놓거나 더블클릭하면, 그 그림을 레퍼런스로 삼아 다시 생성할 수 있어요 (캐릭터&amp;스타일, 강도, 충실도)</li><li><b>선별 없음</b> — 이 씬 이미지를 모두 지우고 다음 씬으로 · <b>삭제 후 다음 씬</b></li></ul></div></article>
+  </div>
+</div></section>
+
+<!-- 디렉터 -->
+<section class="tab" id="director"><div class="wrap">
+  <h2>디렉터</h2>
+  <p class="lead">이미 만든 이미지를 다듬는 도구 모음이에요. 히스토리나 라이브러리에서 오른쪽 클릭 → <b>디렉터 툴에서 열기</b>로 가져오거나, 캔버스에 이미지를 끌어다 놓아요.</p>
+  <div class="overview">
+    <img src="img/director-overview.webp" alt="디렉터 화면 전체">
+    <ol class="legend">
+      <li><span class="num">1</span>캔버스 — 작업할 이미지. 결과도 여기에 바로 바뀌어 보여요</li>
+      <li><span class="num">2</span><a href="#d-bar">지우기 · 되돌리기 · 다른 이미지 열기</a></li>
+      <li><span class="num">3</span><a href="#d-top">I2I · 인페인트</a></li>
+      <li><span class="num">4</span><a href="#d-edit">편집 도구</a></li>
+    </ol>
+  </div>
+  <div class="grid">
+    <article class="feat" id="d-bar"><div class="shot"><img src="img/director-canvas-bar.webp" alt=""></div><div class="body"><h3><span class="num">2</span>캔버스 막대</h3><p>✕는 캔버스를 비우고, ↶는 도구를 쓰기 전 이미지로 되돌리고, ⤒는 다른 이미지를 열어요.</p></div></article>
+    <article class="feat" id="d-censor"><div class="shot"><img src="img/director-censor.webp" alt=""></div><div class="body"><h3>검열하기</h3><p>디렉터 도구 오른쪽 위에 있어요. 폴더를 골라 그 안의 이미지를 한꺼번에 검열해요.</p></div></article>
+    <article class="feat" id="d-top"><div class="shot"><img src="img/director-tools-top.webp" alt=""></div><div class="body"><h3><span class="num">3</span>I2I · 인페인트</h3><p>이 이미지를 메인 화면으로 보내 이어서 작업해요. <b>I2I</b>는 이미지를 바탕으로 다시 그리고, <b>인페인트</b>는 마스크로 칠한 부분만 다시 그려요.</p></div></article>
+    <article class="feat" id="d-edit"><div class="shot"><img src="img/director-tools-edit.webp" alt=""></div><div class="body"><h3><span class="num">4</span>편집 도구</h3><p>오른쪽 배지는 드는 Anlas예요. <span class="pill free">무료</span>는 Anlas가 들지 않아요.</p><ul><li><b>업스케일</b> 2x · 4x — 해상도를 키워요 <span class="pill cost">-7</span></li><li><b>배경 제거</b> — 캐릭터만 남기고 배경을 투명하게 <span class="pill cost">-65</span></li><li><b>라인아트</b> — 선화만 뽑아요 · <b>스케치</b> — 스케치풍으로 바꿔요</li></ul></div></article>
+    <article class="feat" id="d-color"><div class="shot"><img src="img/director-tools-color.webp" alt=""></div><div class="body"><h3>색칠 · 표정 변경</h3><p><b>색칠</b>은 선화에 색을 입혀요. 원하는 색을 프롬프트로 적을 수 있어요. <b>표정 변경</b>은 목록에서 표정을 고르고 필요하면 프롬프트를 더해요. 두 도구 모두 <b>약화</b>로 원본에서 얼마나 바꿀지 조절해요.</p></div></article>
+    <article class="feat" id="d-bottom"><div class="shot"><img src="img/director-tools-bottom.webp" alt=""></div><div class="body"><h3>정리 · 모자이크 · 분석 · 복구</h3><ul><li><b>이미지 정리</b> — 워터마크와 잡요소를 지워요. 말풍선을 남기는 정리도 있어요</li><li><b>모자이크</b> — 브러시로 칠한 곳을 픽셀화해요. PC에서 처리해 무료예요</li><li><b>작가 태그 분석</b> — 그림체가 닮은 작가 태그를 뽑아요 (Kaloscope)</li><li><b>그림체 복구</b> — 여러 장을 한꺼번에 넣으면 각 이미지의 메타데이터 프롬프트로 새 시드로 다시 그려요. 변화 강도로 바뀌는 정도를 정해요</li></ul></div></article>
+  </div>
+</div></section>
+
+<!-- 라이브러리 -->
+<section class="tab" id="library"><div class="wrap">
+  <h2>라이브러리</h2>
+  <p class="lead">지금까지 만든 모든 이미지를 날짜와 가상 폴더로 나눠 보는 곳이에요. 수만 장이 있어도 필요한 만큼씩 불러와서 가볍게 움직여요.</p>
+  <div class="overview">
+    <img src="img/library-overview.webp" alt="라이브러리 화면 전체">
+    <ol class="legend">
+      <li><span class="num">1</span>전체 이미지 수</li>
+      <li><span class="num">2</span><a href="#l-dates">날짜별 보기</a></li>
+      <li><span class="num">3</span><a href="#l-folders">가상 폴더</a></li>
+      <li><span class="num">4</span><a href="#l-view">보기 방식 · 열 수</a></li>
+      <li><span class="num">5</span><a href="#l-menu">이미지 목록</a></li>
+    </ol>
+  </div>
+  <div class="grid">
+    <article class="feat" id="l-dates"><div class="shot"><img src="img/library-dates.webp" alt=""></div><div class="body"><h3><span class="num">2</span>날짜별 보기</h3><p>날짜를 누르면 그날 만든 이미지만 보여요. 오른쪽 숫자는 장수예요. 7일이 지난 날짜는 접혀 있고 <b>이전 날짜 더 보기</b>로 펼쳐요.</p></div></article>
+    <article class="feat" id="l-folders"><div class="shot"><img src="img/library-folders.webp" alt=""></div><div class="body"><h3><span class="num">3</span>가상 폴더</h3><p>실제 파일은 옮기지 않고 앱 안에서만 이미지를 폴더로 묶어요. 오른쪽 위 버튼으로 폴더를 만들고, 폴더 안에 폴더를 둘 수도 있어요. <b>미분류</b>는 아직 폴더에 넣지 않은 이미지예요.</p></div></article>
+    <article class="feat" id="l-view"><div class="shot"><img src="img/library-view.webp" alt=""></div><div class="body"><h3><span class="num">4</span>보기 방식 · 열 수</h3><p>왼쪽 두 버튼으로 보기 방식을 고르고, 한 줄에 놓을 이미지 수를 2~6개로 정해요.</p></div></article>
+    <article class="feat" id="l-menu"><div class="shot"><img src="img/library-menu.webp" alt=""></div><div class="body"><h3><span class="num">5</span>이미지 오른쪽 클릭</h3><p>히스토리와 같은 메뉴예요. I2I, 인페인트, 디렉터, 검열로 바로 넘기고, 메타데이터를 보거나 파일 위치를 열 수 있어요.</p></div></article>
+  </div>
+</div></section>
+
+<!-- 알림 -->
+<section class="tab" id="inbox"><div class="wrap">
+  <h2>알림</h2>
+  <p class="lead">에덴, 베이비챗, 루나, 엘린, 네코, 티팟, 크랙, 알플레이, 젠잇의 알림을 한곳에 모아 보고, 댓글에는 여기서 바로 답글을 달아요. 각자 자기 계정으로 로그인해서 쓰고, 로그인 정보와 알림은 내 PC에만 저장돼요.</p>
+  <div class="overview">
+    <img src="img/inbox-overview.webp" alt="알림 화면 전체">
+    <ol class="legend">
+      <li><span class="num">1</span><a href="#i-platforms">플랫폼별 보기</a></li>
+      <li><span class="num">2</span><a href="#i-connect">검색 · 수집 주기 · 연결 관리</a></li>
+      <li><span class="num">3</span><a href="#i-tabs">대화 · 반응 · 전체</a></li>
+      <li><span class="num">4</span><a href="#i-tabs">종류 필터 · 안 읽은 것만</a></li>
+      <li><span class="num">5</span><a href="#i-rows">알림 목록</a></li>
+      <li><span class="num">6</span><a href="#i-reply">알림 상세 · 답글</a></li>
+    </ol>
+  </div>
+  <div class="grid">
+    <article class="feat wide" id="i-connect"><div class="shot"><img src="img/inbox-connect.webp" alt=""></div><div class="body"><h3><span class="num">2</span>연결 관리 — 처음 한 번만</h3><p>쓰는 플랫폼마다 <b>로그인</b>을 누르면 크롬(없으면 엣지) 창이 열려요. NAIS3 전용 프로필이라 평소 쓰는 크롬과 섞이지 않아요. 그 창에서 로그인하면 NAIS3가 알아서 연결하고 창을 닫아요.</p><ul><li>체크를 끈 플랫폼은 모으지도, 목록에 보여주지도 않아요</li><li>로그인이 풀린 플랫폼에는 <b>다시 로그인</b>이 떠요</li><li><b>수집 주기</b>로 5분~24시간마다 모으고, <b>수집 일시정지</b>로 멈춰요. NAIS3가 켜져 있는 동안만 모아요</li></ul></div></article>
+    <article class="feat" id="i-platforms"><div class="shot"><img src="img/inbox-platforms.webp" alt=""></div><div class="body"><h3><span class="num">1</span>플랫폼별 보기</h3><p>플랫폼을 누르면 그 플랫폼 알림만 보여요. 숫자는 알림 수예요. 원본 사이트의 읽음 상태는 바꾸지 않아요.</p></div></article>
+    <article class="feat wide" id="i-tabs"><div class="shot"><img src="img/inbox-tabs.webp" alt=""></div><div class="body"><h3><span class="num">3</span><span class="num">4</span>대화 · 반응 · 전체</h3><p><b>대화</b>에는 댓글, 답글, 공지가, <b>반응</b>에는 좋아요와 팔로우가 모여요. 반응이 훨씬 많아서 댓글이 묻히지 않도록 나눴어요. 오른쪽에서 종류를 더 좁히고, <b>안 읽은 것만</b> 볼 수도 있어요.</p></div></article>
+    <article class="feat wide" id="i-rows"><div class="shot"><img src="img/inbox-rows.webp" alt=""></div><div class="body"><h3><span class="num">5</span>알림 목록</h3><p>한 줄에 제목, 플랫폼·종류·작성자, 내용 미리보기가 들어가요. 왼쪽 색 막대와 동그라미로 플랫폼을 알아보고, 작품 썸네일이 있으면 동그라미 대신 작품 이미지가 떠요. 파란 점은 안 읽은 알림이에요.</p></div></article>
+    <article class="feat wide" id="i-reactions"><div class="shot"><img src="img/inbox-reactions.webp" alt=""></div><div class="body"><h3>반응 묶음</h3><p>같은 작품에 연달아 온 같은 반응은 한 줄로 묶어요. "User…, User… 외 1명"처럼 보이고, 오른쪽 ⌄를 누르면 펼쳐져요.</p></div></article>
+    <article class="feat" id="i-detail"><div class="shot"><img src="img/inbox-detail.webp" alt=""></div><div class="body"><h3><span class="num">6</span>알림 상세</h3><p>알림을 누르면 오른쪽에 전체 내용과 작성자, 작품, 작성 시각이 나와요. <b>원문에서 보기</b>로 해당 사이트의 그 위치를 열어요.</p></div></article>
+    <article class="feat" id="i-reply"><div class="shot"><img src="img/inbox-reply.webp" alt=""></div><div class="body"><h3>바로 답글 달기</h3><p>댓글 알림이면 답글 칸이 나와요. 보내기 전에 어떤 댓글에 다는지 원래 댓글을 먼저 보여주고, 확인되기 전에는 버튼이 꺼져 있어요. <kbd>Ctrl</kbd> <kbd>Enter</kbd>로 보내요.</p><ul><li>9개 플랫폼 모두 지원해요</li><li>내가 쓴 댓글에는 답글을 달지 않아요</li><li>크랙 "대댓글" 알림은 앱에서 답글을 달 수 없어요</li><li>크랙·네코·루나는 알림 시각으로 원래 댓글을 찾으니, 보여준 댓글이 맞는지 확인해 주세요</li></ul></div></article>
+  </div>
+</div></section>
+
+<!-- 설정 -->
+<section class="tab" id="settings"><div class="wrap">
+  <h2>설정</h2>
+  <p class="lead">오른쪽 위 톱니바퀴(<kbd>Ctrl</kbd> <kbd>,</kbd>)로 열어요.</p>
+  <div class="grid">
+    <article class="feat" id="st-look"><div class="shot"><img src="img/settings.webp" alt=""></div><div class="body"><h3>모양</h3><p>색상 모드, 테마 프리셋, 글꼴과 글자 크기, 프롬프트 칸 글자 크기, 상단에 보여줄 탭을 정해요.</p></div></article>
+    <article class="feat" id="st-gen"><div class="shot"><img src="img/settings-gen.webp" alt=""></div><div class="body"><h3>생성</h3><p>생성 과정을 실시간으로 보는 <b>스트리밍 생성</b>, <b>프롬프트 3분할</b>, 연속 생성 사이 간격, 다 끝났을 때 알림음과 Windows 알림을 정해요.</p></div></article>
+    <article class="feat" id="st-save"><div class="shot"><img src="img/settings-save.webp" alt=""></div><div class="body"><h3>저장</h3><ul><li>자동 저장, 날짜별 폴더, 메인·씬 저장 폴더</li><li>라이브러리를 기존 갤러리로 볼지 가상 폴더 탐색으로 볼지</li><li>EXIF 자동 제거, 히스토리에서 지울 때 파일도 지울지</li><li><b>이미지 포맷</b> — WEBP로 바꾸면 파일 용량이 크게 줄어요</li></ul></div></article>
+    <article class="feat" id="st-keys"><div class="shot"><img src="img/settings-keys.webp" alt=""></div><div class="body"><h3>단축키</h3><p>항목을 누르고 새 키 조합을 누르면 바뀌어요. <b>기본값</b>으로 되돌릴 수 있어요. <kbd>F5</kbd>는 작업 새로고침과 큐 초기화예요.</p></div></article>
+  </div>
+  <div class="note">설정의 <b>NAI 계정</b>에서 NovelAI 계정과 가속 모드용 계정을 등록해요. 등록한 계정은 운영체제 키체인으로 암호화해 저장해요.</div>
+</div></section>
+
+<!-- 다크 -->
+<section class="tab" id="dark"><div class="wrap">
+  <h2>다크 테마</h2>
+  <p class="lead">오른쪽 위 달 모양을 누르면 어두운 화면으로 바뀌어요. 시스템 설정 따름을 고르면 Windows 설정을 따라가요.</p>
+  <div class="dark-pair">
+    <figure><img src="img/dark-scene.webp" alt="다크 테마 씬"><figcaption>씬</figcaption></figure>
+    <figure><img src="img/dark-inbox.webp" alt="다크 테마 알림"><figcaption>알림</figcaption></figure>
+  </div>
+</div></section>
+
+<footer>NAIS3 Custom 2.0.1 · 알림 화면의 닉네임·작품명·댓글과 저장 폴더 경로는 예시로 넣은 가짜 값이에요.</footer>
+
+<div id="lb"><img alt=""></div>
+<script>
+const lb = document.getElementById('lb'), big = lb.querySelector('img');
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('.overview img, .shot img, .dark-pair img');
+  if (img) { big.src = img.src; lb.classList.add('on'); }
+});
+lb.addEventListener('click', () => lb.classList.remove('on'));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') lb.classList.remove('on'); });
+const links = [...document.querySelectorAll('nav.tabs a')];
+const io = new IntersectionObserver((es) => es.forEach((en) => { if (en.isIntersecting) links.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + en.target.id)); }), { rootMargin: '-40% 0px -55% 0px' });
+document.querySelectorAll('section.tab').forEach((s) => io.observe(s));
+</script>
+</body>
+</html>

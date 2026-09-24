@@ -11,6 +11,7 @@ files:
   - '!scripts/**'
   - '!**/*.log*'
   - '!intro-assets/**'
+  - '!guide/**'
   - '!.superloopy/**'
   - '!DESIGN.md'
   - '!NAIS3_CUSTOM_*.md'

@@ -78,16 +78,16 @@ export function parseWeights(text: string): WeightSegment[] {
 
 /**
  * 가중치 → 하이라이트 배경. 1.0은 투명(null).
- * 강조(>1) = 붉은색, 약화(<1)·음수 = 파란색. 강도는 1.05 스텝 수 비례.
+ * 강조(>1) = 붉은색, 약화(<1)·음수 = 청록색(인디고 강조색과 구분). 강도는 1.05 스텝 수 비례.
  */
 export function weightBackground(weight: number): string | null {
   if (weight === 1) return null
-  if (weight <= 0) return 'rgba(96, 145, 235, 0.45)'
+  if (weight <= 0) return 'rgba(22, 168, 196, 0.42)'
   const steps = Math.abs(Math.log(weight) / Math.log(STEP))
   const alpha = Math.min(0.1 + steps * 0.09, 0.48)
   return weight > 1
     ? `rgba(233, 94, 80, ${alpha.toFixed(3)})`
-    : `rgba(96, 145, 235, ${alpha.toFixed(3)})`
+    : `rgba(22, 168, 196, ${alpha.toFixed(3)})`
 }
 
 /** 조각 구문 <...> 하이라이트 (NAIS2의 녹색 계승) */

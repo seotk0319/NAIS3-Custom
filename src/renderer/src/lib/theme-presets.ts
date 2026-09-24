@@ -13,6 +13,10 @@ export interface Palette {
   info: string
   syntaxKeyword: string
   syntaxComment: string
+  /** 선택: 창 바탕(paper) 위에 올라가는 카드 면. 지정하면 계산값 대신 이 색을 쓴다. */
+  surface?: string
+  surface2?: string
+  line?: string
 }
 
 export interface ThemePreset {
@@ -29,12 +33,12 @@ export function buildWhimsTokens(palette: Palette, mode: ThemeMode): Record<stri
 
   return {
     '--paper': palette.neutral,
-    '--surface': m(dark ? 0.045 : 0.035),
-    '--surface-2': m(dark ? 0.095 : 0.08),
+    '--surface': palette.surface ?? m(dark ? 0.045 : 0.035),
+    '--surface-2': palette.surface2 ?? m(dark ? 0.095 : 0.08),
     '--ink': palette.ink,
     '--muted': dim(dark ? 0.42 : 0.46),
     '--faint': dim(dark ? 0.62 : 0.58),
-    '--line': m(dark ? 0.14 : 0.16),
+    '--line': palette.line ?? m(dark ? 0.14 : 0.16),
     '--accent': palette.primary,
     '--accent-soft': `color-mix(in srgb, ${palette.primary} ${dark ? 18 : 13}%, transparent)`,
     '--dialogue': palette.primary,
@@ -47,18 +51,20 @@ export function buildWhimsTokens(palette: Palette, mode: ThemeMode): Record<stri
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
-    // NAIS3 기본 테마 — 무채색 모노크롬 + 주황 강조색(primary가 --accent를 구동).
+    // NAIS3 기본 테마 — 옅은 회색 바탕 위 카드 + 인디고 강조색(primary가 --accent를 구동).
     id: 'nais3',
     name: 'NAIS3',
     dark: {
-      neutral: '#0f0f10', ink: '#e9e9ea', primary: '#eb9550', accent: '#eb9550',
-      success: '#84ac8e', warning: '#c4b184', error: '#c47a72', info: '#8fa4b5',
-      syntaxKeyword: '#a6a8b2', syntaxComment: '#606066'
+      neutral: '#0d0d11', ink: '#e8e8ee', primary: '#8b8cf5', accent: '#8b8cf5',
+      success: '#5cc896', warning: '#e0b25a', error: '#ef6f78', info: '#8fa4d5',
+      syntaxKeyword: '#a6a8c2', syntaxComment: '#606070',
+      surface: '#16161c', surface2: '#202029', line: '#2a2a34'
     },
     light: {
-      neutral: '#fafafa', ink: '#19191b', primary: '#c2610a', accent: '#c2610a',
-      success: '#4c7f5c', warning: '#8f7638', error: '#a85a52', info: '#4f7189',
-      syntaxKeyword: '#5b5d68', syntaxComment: '#8f8f95'
+      neutral: '#f3f3f7', ink: '#191f28', primary: '#5b5bd6', accent: '#5b5bd6',
+      success: '#1fa56a', warning: '#b7791f', error: '#e5484d', info: '#4f6bd5',
+      syntaxKeyword: '#5b5d78', syntaxComment: '#8f8fa0',
+      surface: '#ffffff', surface2: '#ececf2', line: '#e4e4ec'
     }
   },
   {

@@ -38,6 +38,10 @@ export interface InboxItem {
   at: string | null
   unread: boolean | null
   url: string | null
+  /** 작품 썸네일(https). 지금은 1:1 규격인 베이비챗 작품 이미지만 채운다. */
+  thumbnail?: string | null
+  /** NAIS3에서 바로 답글을 달 수 있는 알림인지 (현재 베이비챗 작품 댓글) */
+  canReply?: boolean
 }
 export interface InboxPlatformStatus {
   status?: string
@@ -115,8 +119,21 @@ export interface InboxResult {
   events: Record<InboxEvent, number>
   /** Why the in-app collector could not open its session store, if it could not. */
   directError: string | null
+  /** 플랫폼 작품 이미지를 뒤에서 채우는 중이면 true — 화면이 잠시 뒤 다시 읽는다. */
+  thumbnailsPending: boolean
 }
 export interface InboxConnectResult {
   state: 'connected' | 'login-required' | 'error'
   message: string
+}
+export interface InboxReplyResult {
+  ok: boolean
+  message: string
+}
+export interface InboxReplyTarget {
+  ok: boolean
+  message: string
+  author?: string | null
+  content?: string
+  at?: string | null
 }

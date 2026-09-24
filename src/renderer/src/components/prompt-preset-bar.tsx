@@ -97,7 +97,7 @@ export function PromptPresetBar(): React.JSX.Element {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button className="no-drag flex h-8 w-full items-center gap-1.5 rounded-md border border-line bg-surface-2/50 px-2.5 text-[13px] font-medium hover:bg-surface-2">
+          <button className="no-drag flex h-10 w-full items-center gap-1.5 rounded-xl bg-paper px-3 text-[13px] font-semibold hover:bg-surface-2">
             <span className="min-w-0 flex-1 truncate text-left">
               {active?.name ?? '프롬프트 프리셋'}
             </span>

@@ -38,7 +38,7 @@ export async function createStore(directory){
   let pending=Promise.resolve(),appCollector=null;
   // The retired Chrome extension's last report is not a live collector.
   delete state.collector;
-  async function atomic(file,value){await writeFile(file+'.tmp',JSON.stringify(value,null,2),'utf8');try{await copyFile(file,file+'.previous')}catch(e){if(e.code!=='ENOENT')throw e}await rename(file+'.tmp',file)}
+  async function atomic(file,value){await writeFile(file+'.tmp',JSON.stringify(value),'utf8');try{await copyFile(file,file+'.previous')}catch(e){if(e.code!=='ENOENT')throw e}await rename(file+'.tmp',file)}
   function change(fn){const result=pending.then(fn);pending=result.catch(()=>{});return result}
   return {
     async view(){await pending;const snapshots=state.apiMode?[]:Object.entries(state.snapshots).filter(([key])=>!(key==='babe:personal-screen'&&state.platforms.babe?.channels?.['/ko/api/notifications']?.count>0)).flatMap(([,items])=>items);const items=Object.values(state.items).filter(x=>!state.apiMode||x.schemaVersion===1),visible=state.apiMode?refineNotifications(items):[...items,...snapshots].map(displayItem);return {version:1,mode:state.apiMode?'direct-api':'legacy',enabled:state.enabled,...scheduleView(state.schedule,state.enabled),collector:appCollector,selection:{...state.selection},platforms:state.platforms,items:visible.sort((a,b)=>Date.parse(b.at||b.firstSeen)-Date.parse(a.at||a.firstSeen))}},

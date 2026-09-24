@@ -19,7 +19,13 @@ function detectProfile(): number {
 }
 
 export const PROFILE = detectProfile()
-export const APP_TITLE = `NAIS3 Custom ${PROFILE}`
+/**
+ * 내부 앱 이름. app.setName()에 쓰이고, 기본 이미지 저장 폴더(사진/<이름>)도 이 값을 따른다.
+ * 기존 사용자의 저장 경로가 바뀌지 않도록 번호를 항상 유지한다.
+ */
+export const APP_NAME = `NAIS3 Custom ${PROFILE}`
+/** 화면에 보이는 이름. 기본 프로필(1)은 번호 없이, 추가 프로필(2 이상)만 번호를 붙여 구분한다. */
+export const APP_TITLE = PROFILE === 1 ? 'NAIS3 Custom' : APP_NAME
 export const APP_USER_MODEL_ID = `com.sunanakgo.nais3.custom${PROFILE}`
 
 /**

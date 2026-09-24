@@ -147,8 +147,8 @@ export function DirectorMode(): React.JSX.Element {
       {/* 캔버스 */}
       <div
         className={cn(
-          'relative flex min-w-0 flex-1 items-center justify-center overflow-hidden rounded-xl border bg-surface',
-          dragOver ? 'border-accent' : 'border-line'
+          'relative flex min-w-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border bg-surface',
+          dragOver ? 'border-accent' : 'border-transparent'
         )}
         onDragOver={(e) => {
           // 외부 파일 또는 히스토리 썸네일(내부 드래그) 둘 다 허용
@@ -254,10 +254,10 @@ export function DirectorMode(): React.JSX.Element {
       </div>
 
       {/* 툴 패널 */}
-      <div className="flex w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-surface">
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <Wand2 size={16} className="text-accent" />
-          <h2 className="text-[14px] font-semibold">디렉터 툴</h2>
+      <div className="flex w-[320px] shrink-0 flex-col overflow-hidden rounded-2xl bg-surface">
+        <div className="flex items-center gap-2 px-4 pb-2 pt-4">
+          <Wand2 size={17} className="text-accent" />
+          <h2 className="text-[16px] font-bold">디렉터 도구</h2>
           <Button
             size="sm"
             variant="ghost"
@@ -400,8 +400,8 @@ function ToolCard({
       aria-disabled={disabled}
       onClick={() => !disabled && onRun()}
       className={cn(
-        'group rounded-xl border border-line bg-surface-2/40 p-3 transition-colors',
-        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2/70'
+        'group rounded-xl bg-paper p-3 transition-colors',
+        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2'
       )}
     >
       <div className={cn('flex items-center gap-2.5', hasOpt && 'mb-2')}>
@@ -468,8 +468,8 @@ function UpscaleCard({
       aria-disabled={disabled}
       onClick={() => !disabled && void upscale(scale)}
       className={cn(
-        'group rounded-xl border border-line bg-surface-2/40 p-3 transition-colors',
-        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2/70'
+        'group rounded-xl bg-paper p-3 transition-colors',
+        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2'
       )}
     >
       <div className="mb-2 flex items-center gap-2.5">
@@ -532,8 +532,8 @@ function SendToMainCard({
       aria-disabled={disabled}
       onClick={() => !disabled && onRun()}
       className={cn(
-        'group flex items-center gap-2.5 rounded-xl border border-line bg-surface-2/40 p-3 transition-colors',
-        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2/70'
+        'group flex items-center gap-2.5 rounded-xl bg-paper p-3 transition-colors',
+        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2'
       )}
     >
       <Icon size={18} className={color} />

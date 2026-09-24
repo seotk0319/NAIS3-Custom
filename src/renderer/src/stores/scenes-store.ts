@@ -65,6 +65,8 @@ interface ScenesState {
   refreshReservedTotal: () => Promise<void>
   adjustReserve: (id: number, delta: number) => Promise<void>
   adjustReserveAll: (delta: number) => Promise<void>
+  /** 전체(또는 편집 모드 선택) 씬의 예약을 count장으로 맞춘다 */
+  setReserveAll: (count: number) => Promise<void>
   clearReserveAll: (forceAll?: boolean) => Promise<void>
 
   // 편집 모드 일괄
@@ -339,7 +341,20 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     })
     void get().refreshReservedTotal()
   },
-  clearReserveAll: async (forceAll = false) => {
+  setReserveAll: async (count) => {
+    const n = Math.max(0, Math.floor(count))
+    const { editMode, selection } = get()
+    const ids = editMode && selection.size > 0 ? [...selection] : undefined
+    set({
+      scenes: get().scenes.map((s) => (!ids || selection.has(s.id) ? { ...s, reserveCount: n } : s))
+    })
+    await window.nais.invoke('scenes:setReserveAll', {
+      presetId: get().activePresetId,
+      count: n,
+      ids
+    })
+    void get().refreshReservedTotal()
+  },  clearReserveAll: async (forceAll = false) => {
     // 편집 모드에서 체크된 씬이 있으면 그 씬들만 취소, 아니면 전체
     const { editMode, selection } = get()
     const ids = !forceAll && editMode && selection.size > 0 ? [...selection] : undefined

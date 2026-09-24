@@ -217,8 +217,8 @@ export function PromptEditor({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-md border border-line bg-paper transition-colors',
-        negative && 'border-danger/25',
+        'relative overflow-hidden rounded-xl border border-transparent bg-paper transition-colors focus-within:border-accent/40',
+        negative && 'focus-within:border-danger/40',
         className
       )}
     >

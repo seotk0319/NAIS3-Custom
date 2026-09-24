@@ -9,13 +9,15 @@ import {
   Puzzle,
   SlidersHorizontal,
   Square,
-  UsersRound
+  UsersRound,
+  Zap
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { estimateAnlas } from '@shared/anlas'
 import { fullModelForVersion, isV5Model, tokenLimitForModel } from '@shared/nai-models'
 import { removeComments } from '@shared/nai-presets'
+import { cn } from '../lib/utils'
 import { useCharactersStore } from '../stores/characters-store'
 import { useFragmentsStore } from '../stores/fragments-store'
 import { useGenerationStore } from '../stores/generation-store'
@@ -77,6 +79,8 @@ export function PromptPanel(): React.JSX.Element {
   const stripExif = useStorageSettingsStore((s) => s.stripExif)
   const loadStorageSettings = useStorageSettingsStore((s) => s.load)
   const setStripExif = useStorageSettingsStore((s) => s.setStripExif)
+  const setAccelerationEnabled = useGenerationStore((s) => s.setAccelerationEnabled)
+  const seedLocked = useGenerationStore((s) => s.seedLocked)
 
   useEffect(() => {
     const openParams = (): void => setParamsOpen((v) => !v)
@@ -92,39 +96,49 @@ export function PromptPanel(): React.JSX.Element {
   const centerMode = useLayoutStore((s) => s.centerMode)
   // 모든 프리셋의 예약 총합 — 씬 생성 버튼 한 번으로 전부 실행
   const sceneReserved = useScenesStore((s) => s.reservedTotal)
+  const presetScenes = useScenesStore((s) => s.scenes)
   const generateReserved = useScenesStore((s) => s.generateReserved)
   const isScene = centerMode === 'scene'
-  // 프롬프트/네거티브 개별 접기 — 하나를 접으면 다른 하나가 넓어짐
+  // 프롬프트/네거티브 개별 접기 — 하나를 접으면 다른 하나가 넓어짐.
+  // 네거티브는 기본으로 펼쳐 두고(이전 작업의 네거티브가 남은 걸 바로 보게), 접은 상태는 기억한다.
   const [posCollapsed, setPosCollapsed] = useState(false)
-  const [negCollapsed, setNegCollapsed] = useState(true)
-  // 포지티브/네거티브 세로 비율 — 사이 스플리터 드래그로 조절 (F10)
+  const [negCollapsed, setNegCollapsedState] = useState(
+    () => localStorage.getItem('prompt_neg_collapsed') === '1'
+  )
+  const setNegCollapsed = (update: (v: boolean) => boolean): void =>
+    setNegCollapsedState((v) => {
+      const next = update(v)
+      localStorage.setItem('prompt_neg_collapsed', next ? '1' : '0')
+      return next
+    })
+  // 네거티브 높이(px) — 사이 스플리터 드래그로 조절. 프롬프트가 남는 높이를 모두 쓴다.
   const promptAreaRef = useRef<HTMLDivElement>(null)
-  const [posRatio, setPosRatio] = useState(() => {
-    const v = Number(localStorage.getItem('prompt_pos_ratio'))
-    return v >= 0.15 && v <= 0.85 ? v : 0.62
+  const [negHeight, setNegHeight] = useState(() => {
+    const v = Number(localStorage.getItem('prompt_neg_height'))
+    return v >= 72 && v <= 600 ? v : 120
   })
   const bothOpen = !posCollapsed && !negCollapsed
+  const negHeightRef = useRef(negHeight)
+  useEffect(() => {
+    negHeightRef.current = negHeight
+  }, [negHeight])
   const startPromptResize = (e: React.MouseEvent): void => {
     e.preventDefault()
     const area = promptAreaRef.current
     if (!area) return
     const onMove = (ev: MouseEvent): void => {
       const rect = area.getBoundingClientRect()
-      const r = Math.min(0.85, Math.max(0.15, (ev.clientY - rect.top) / rect.height))
-      setPosRatio(r)
+      const next = Math.round(rect.bottom - ev.clientY)
+      setNegHeight(Math.min(Math.max(72, next), Math.max(72, rect.height - 160)))
     }
     const onUp = (): void => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      localStorage.setItem('prompt_pos_ratio', String(posRatioRef.current))
+      localStorage.setItem('prompt_neg_height', String(negHeightRef.current))
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
-  const posRatioRef = useRef(posRatio)
-  useEffect(() => {
-    posRatioRef.current = posRatio
-  }, [posRatio])
 
   const subscriptionTier = useGenerationStore((s) => s.subscriptionTier)
   const queueCount =
@@ -182,6 +196,46 @@ export function PromptPanel(): React.JSX.Element {
     [request.width, request.height, request.steps, subscriptionTier, batchCount, enabledCrefs]
   )
 
+  // 파라미터 요약 줄: 씬 모드는 씬마다 해상도가 달라서, 예약된 씬(없으면 전체 씬) 중 가장 큰 해상도로 판단한다.
+  const summary = useMemo(() => {
+    const seedText = seedLocked && request.seed >= 0 ? `시드 ${request.seed}` : '시드 무작위'
+    if (!isScene) {
+      return {
+        text: `${request.width} × ${request.height} · ${request.steps}스텝 · ${seedText}`,
+        free: anlas.total === 0,
+        cost: anlas.total,
+        tip: anlasTooltip(anlas, batchCount)
+      }
+    }
+    const reserved = presetScenes.filter((sc) => sc.reserveCount > 0)
+    const pool = reserved.length > 0 ? reserved : presetScenes
+    const largest = pool.reduce(
+      (best, sc) => (sc.width * sc.height > best.width * best.height ? sc : best),
+      { width: request.width, height: request.height }
+    )
+    const sizes = new Set(pool.map((sc) => `${sc.width}×${sc.height}`))
+    const perImage = estimateAnlas({
+      width: largest.width,
+      height: largest.height,
+      steps: request.steps,
+      charRefCount: enabledCrefs,
+      isOpus: subscriptionTier === 'opus',
+      batchCount: 1,
+      unencodedVibes: 0
+    })
+    const sizeText =
+      sizes.size > 1 ? `씬별 해상도 (최대 ${largest.width} × ${largest.height})` : `${largest.width} × ${largest.height}`
+    return {
+      text: `${sizeText} · ${request.steps}스텝 · ${seedText}`,
+      free: perImage.total === 0,
+      cost: perImage.total,
+      tip:
+        perImage.total === 0
+          ? '예약한 씬이 모두 무료 범위예요 (Opus · 1024² 이하 · 28스텝 이하)'
+          : `가장 큰 씬 기준 장당 약 ${perImage.total} Anlas`
+    }
+  }, [isScene, presetScenes, request.width, request.height, request.steps, request.seed, seedLocked, anlas, batchCount, enabledCrefs, subscriptionTier])
+
   // 오버레이는 하나만 열림 — 서로 배타
   const only = (target: 'char' | 'frag' | 'vibe' | 'cref'): void => {
     const map = {
@@ -203,7 +257,7 @@ export function PromptPanel(): React.JSX.Element {
   }
 
   return (
-    <aside className="relative flex h-full w-full flex-col gap-3 rounded-xl border border-line bg-surface p-3">
+    <aside className="relative flex h-full w-full flex-col gap-3 rounded-2xl bg-surface p-4">
       {/* 상단 여백을 창 드래그 영역으로 (프롬프트 영역 위) */}
       <div className="drag absolute inset-x-0 top-0 h-3" />
       {/* 오버레이는 프롬프트 영역만 덮는다 — 하단 버튼들은 항상 접근 가능 (NAIS2 2.0.7 교훈)
@@ -248,7 +302,7 @@ export function PromptPanel(): React.JSX.Element {
         </AnimatePresence>
         {/* 생성 모델 — 왼쪽 패널 상단에서 V4.5 Full / V5 Full 전환 */}
         <label
-          className="flex h-8 shrink-0 cursor-pointer items-center justify-between rounded-md border border-line bg-paper px-2.5"
+          className="flex h-9 shrink-0 cursor-pointer items-center justify-between rounded-xl bg-paper px-3"
           title={`현재 NAI Diffusion ${v5Enabled ? 'V5 Full' : 'V4.5 Full'} 모델을 사용합니다`}
         >
           <span className="text-[11px] font-medium text-muted">생성 모델</span>
@@ -290,13 +344,7 @@ export function PromptPanel(): React.JSX.Element {
             className={
               'flex flex-col gap-1 overflow-hidden ' + (posCollapsed ? 'flex-none' : 'min-h-32')
             }
-            style={
-              bothOpen
-                ? { flexGrow: posRatio, flexBasis: 0 }
-                : !posCollapsed
-                  ? { flexGrow: 1 }
-                  : undefined
-            }
+            style={!posCollapsed ? { flexGrow: 1, flexBasis: 0 } : undefined}
           >
             <CollapseHeader
               label="프롬프트"
@@ -338,11 +386,11 @@ export function PromptPanel(): React.JSX.Element {
           )}
           <div
             className={
-              'flex flex-col gap-1 overflow-hidden ' + (negCollapsed ? 'flex-none' : 'min-h-24')
+              'flex flex-col gap-1 overflow-hidden ' + (negCollapsed ? 'flex-none' : 'min-h-[72px]')
             }
             style={
               bothOpen
-                ? { flexGrow: 1 - posRatio, flexBasis: 0 }
+                ? { height: negHeight, flexShrink: 0 }
                 : !negCollapsed
                   ? { flexGrow: 1 }
                   : undefined
@@ -367,8 +415,8 @@ export function PromptPanel(): React.JSX.Element {
         </div>
       </div>
 
-      {/* 도구 행: 캐릭터 / 조각 / 바이브 / 레퍼런스 */}
-      <div className="grid shrink-0 grid-cols-4 gap-1.5">
+      {/* 도구 행: 캐릭터 / 조각 / 바이브 / 레퍼런스 — 자주 쓰지 않아 얇게, 사용 중인 것만 강조 */}
+      <div className="grid shrink-0 grid-cols-4 gap-1">
         <ToolButton
           active={charOverlayOpen}
           icon={<UsersRound size={14} />}
@@ -399,18 +447,89 @@ export function PromptPanel(): React.JSX.Element {
         />
       </div>
 
-      {/* 생성 행: 파라미터 / 배치 / 생성 */}
-      <div className="flex shrink-0 items-center gap-2">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-10 w-9 shrink-0"
-          title="생성 파라미터"
-          onClick={() => setParamsOpen(true)}
+      {/* 파라미터 요약: 해상도 · 스텝 · 시드 + 무료 여부. 누르면 생성 파라미터 창 */}
+      <button
+        className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-paper px-3 text-left text-[12px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+        title={`생성 파라미터 열기\n${summary.tip}`}
+        onClick={() => setParamsOpen(true)}
+      >
+        <SlidersHorizontal size={14} className="shrink-0 text-faint" />
+        <span className="min-w-0 flex-1 truncate tabular-nums">{summary.text}</span>
+        <span
+          className={cn(
+            'shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums',
+            summary.free ? 'bg-[#1fa56a]/12 text-[#1fa56a]' : 'bg-danger/12 text-danger'
+          )}
         >
-          <SlidersHorizontal size={16} />
-        </Button>
-        <div className="flex h-10 items-center rounded-md border border-line bg-paper">
+          {summary.free ? '무료' : `${summary.cost.toLocaleString()} Anlas`}
+        </span>
+      </button>
+
+      {/* 옵션 행: 가속 모드 · Anlas 소모 · EXIF 제거 */}
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1.5 text-[12px] font-medium text-muted">
+        {queue?.accelerationAvailable && (
+          <>
+            {!!queue.pausedAccounts?.length && (
+              <span
+                className="mr-auto text-[11px] text-accent"
+                title={queue.pausedAccounts.map((a) => a.reason).join('\n')}
+              >
+                잔량 대기 {queue.pausedAccounts.length}계정
+              </span>
+            )}
+            <label
+              className="flex cursor-pointer items-center gap-1.5"
+              title={`등록 계정 ${queue.accountCount}개 · 현재 ${queue.busyAccountCount}개 생성 중`}
+            >
+              <Zap
+                size={12}
+                className={queue.accelerationEnabled ? 'text-accent' : 'text-faint'}
+              />
+              가속 모드
+              <Switch
+                aria-label={`가속 모드 ${queue.accelerationEnabled ? '켜짐' : '꺼짐'}`}
+                checked={queue.accelerationEnabled}
+                disabled={queue.running}
+                onCheckedChange={(enabled) => void setAccelerationEnabled(enabled)}
+              />
+            </label>
+            <label
+              className="flex cursor-pointer items-center gap-1.5"
+              title="ON: 기존처럼 유료 생성 허용. OFF: 메인·씬 생성 전 무료 여부 확인, 1% 미만/확인 실패 계정 대기. 이미 전송한 요청은 소급 적용하지 않으며 다른 앱과 같은 계정을 동시에 쓰면 과금 방지를 보장할 수 없습니다."
+            >
+              Anlas 소모
+              <Switch
+                aria-label={`Anlas 소모 ${queue.anlasSpendingEnabled !== false ? 'ON' : 'OFF'}`}
+                checked={queue.anlasSpendingEnabled !== false}
+                onCheckedChange={(enabled) =>
+                  void window.nais
+                    .invoke('anlasSpending:set', { enabled })
+                    .then((status) => useGenerationStore.setState({ queue: status }))
+                }
+              />
+            </label>
+          </>
+        )}
+        <label
+          className="flex cursor-pointer items-center gap-1.5"
+          title={
+            stripExif
+              ? '켜짐: 저장 이미지에서 EXIF와 프롬프트 메타데이터를 제거합니다'
+              : '꺼짐: 저장 이미지에 EXIF와 프롬프트 메타데이터를 유지합니다'
+          }
+        >
+          EXIF 제거
+          <Switch
+            aria-label={`EXIF 자동 제거 ${stripExif ? '켜짐' : '꺼짐'}`}
+            checked={stripExif}
+            onCheckedChange={(value) => void setStripExif(value)}
+          />
+        </label>
+      </div>
+
+      {/* 생성 행: 배치 / 생성 */}
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="flex h-11 items-center rounded-lg bg-paper">
           <Button
             size="icon"
             variant="ghost"
@@ -424,7 +543,7 @@ export function PromptPanel(): React.JSX.Element {
             min={1}
             max={99}
             onCommit={setBatchCount}
-            className="w-8 text-center font-mono text-[13px] text-ink"
+            className="w-8 text-center text-[13px] font-semibold tabular-nums text-ink"
           />
           <Button
             size="icon"
@@ -435,26 +554,11 @@ export function PromptPanel(): React.JSX.Element {
             <Plus size={13} />
           </Button>
         </div>
-        <label
-          className="flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-line bg-paper px-2"
-          title={
-            stripExif
-              ? '켜짐: 저장 이미지에서 EXIF와 프롬프트 메타데이터를 제거합니다'
-              : '꺼짐: 저장 이미지에 EXIF와 프롬프트 메타데이터를 유지합니다'
-          }
-        >
-          <span className="whitespace-nowrap text-[11px] font-medium text-muted">EXIF 제거</span>
-          <Switch
-            aria-label={`EXIF 자동 제거 ${stripExif ? '켜짐' : '꺼짐'}`}
-            checked={stripExif}
-            onCheckedChange={(value) => void setStripExif(value)}
-          />
-        </label>
         {generating && (
           <Button
             variant="danger"
             size="lg"
-            className={isScene ? 'flex-1' : 'shrink-0 px-3'}
+            className={isScene ? 'h-11 flex-1 rounded-xl' : 'h-11 shrink-0 rounded-xl px-3'}
             onClick={() => void cancelAll()}
           >
             <Square size={14} /> 취소 ({queueCount})
@@ -464,7 +568,7 @@ export function PromptPanel(): React.JSX.Element {
           <Button
             variant="accent"
             size="lg"
-            className="flex-1 gap-2"
+            className="h-11 flex-1 gap-2 rounded-xl text-[15px]"
             disabled={sceneReserved === 0}
             title={
               sceneReserved === 0
@@ -483,7 +587,7 @@ export function PromptPanel(): React.JSX.Element {
           <Button
             variant="accent"
             size="lg"
-            className="flex-1 gap-2"
+            className="h-11 flex-1 gap-2 rounded-xl text-[15px]"
             title={anlasTooltip(anlas, batchCount)}
             onClick={() => void generate()}
           >
@@ -510,7 +614,7 @@ function CollapseHeader({
   action?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="flex shrink-0 items-center justify-between text-[12px] font-medium text-muted">
+    <div className="flex shrink-0 items-center justify-between px-0.5 text-[12px] font-semibold text-muted">
       <button
         onClick={onToggle}
         className="flex items-center gap-1 transition-colors hover:text-ink"
@@ -781,22 +885,31 @@ function ToolButton({
   badge: number
   onClick: () => void
 }): React.JSX.Element {
+  const inUse = badge > 0
   return (
-    <div className="relative">
-      <Button
-        variant={active ? 'default' : 'ghost'}
-        className="h-8 w-full min-w-0 gap-1 px-1.5 text-[12px]"
-        onClick={onClick}
-      >
-        {icon}
-        <span className="min-w-0 truncate">{label}</span>
-      </Button>
-      {badge > 0 && (
-        // 우측 상단에 겹치는 알림 배지 (붉은 원)
-        <span className="pointer-events-none absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-danger px-1 font-mono text-[10px] font-medium text-white shadow">
+    <button
+      className={cn(
+        'flex h-8 min-w-0 items-center justify-center gap-1 rounded-lg px-1.5 text-[12px] font-semibold transition-colors',
+        active
+          ? 'bg-accent text-white dark:text-paper'
+          : inUse
+            ? 'bg-accent-soft text-accent'
+            : 'text-muted hover:bg-paper hover:text-ink'
+      )}
+      onClick={onClick}
+    >
+      {icon}
+      <span className="min-w-0 truncate">{label}</span>
+      {inUse && (
+        <span
+          className={cn(
+            'grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-bold tabular-nums',
+            active ? 'bg-white/25 text-white dark:text-paper' : 'bg-accent text-white dark:text-paper'
+          )}
+        >
           {badge}
         </span>
       )}
-    </div>
+    </button>
   )
 }

@@ -7,10 +7,10 @@ import {
   PanelRight,
   Settings,
   Square,
-  X,
-  Zap
+  X
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import nais3Icon from '../assets/nais3-icon.svg'
 import { cn } from '../lib/utils'
 import { useGenerationStore } from '../stores/generation-store'
 import { useLayoutStore } from '../stores/layout-store'
@@ -21,7 +21,6 @@ import type { V5UsageStatus } from '@shared/types'
 import { estimateV5Images, V5_ESTIMATE_BASIS } from '@shared/v5-usage'
 import { PageNav } from './page-nav'
 import { ThemeToggle } from './theme-toggle'
-import { Switch } from './ui/switch'
 
 const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
 
@@ -65,7 +64,7 @@ function UpdateButton(): React.JSX.Element | null {
 }
 
 /** Anlas 잔액 + 예상 소모(-N). 토큰 미설정(잔액 없음)이면 표시하지 않음 */
-function AnlasChips({
+function AnlasStat({
   balance,
   cost
 }: {
@@ -74,23 +73,18 @@ function AnlasChips({
 }): React.JSX.Element | null {
   if (balance === null) return null
   return (
-    <div className="no-drag mx-1 flex items-center gap-1">
-      <span
-        className="flex items-center gap-1 rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[11.5px] text-muted"
-        title="Anlas 잔액 (생성할 때마다 갱신)"
-      >
-        <Coins size={12} className="text-[#c9a34f]" />
-        {balance.toLocaleString()}
-      </span>
+    <span className="flex items-center gap-1.5" title="Anlas 잔액 (생성할 때마다 갱신)">
+      <Coins size={13} className="text-[#c9a34f]" />
+      <span className="font-semibold tabular-nums text-ink">{balance.toLocaleString()}</span>
       {cost > 0 && (
         <span
-          className="rounded-md bg-danger px-2 py-0.5 font-mono text-[11.5px] font-medium text-white"
+          className="rounded-md bg-danger/12 px-1.5 text-[11.5px] font-semibold tabular-nums text-danger"
           title="이번 생성에 소모될 Anlas (고해상도 · 캐릭터 레퍼런스 · 미인코딩 바이브 포함)"
         >
           -{cost}
         </span>
       )}
-    </div>
+    </span>
   )
 }
 
@@ -104,31 +98,36 @@ function formatDuration(seconds: number): string {
   return `${secs}초`
 }
 
-/** 공식 웹과 동일하게 V5 잔량·시간당 충전률·완충 예상 시간을 표시한다. */
-function V5UsageChip({ usage }: { usage: V5UsageStatus | null }): React.JSX.Element | null {
+/** V5 잔량과 예상 장수. 충전 속도·완충 시간은 툴팁으로 보여준다. */
+function V5UsageStat({ usage }: { usage: V5UsageStatus | null }): React.JSX.Element | null {
   if (!usage) return null
   const secondsPerPercent = usage.timeUntilNextPercent
   const refillRate = secondsPerPercent > 0 ? Math.round((3600 / secondsPerPercent) * 10) / 10 : 0
   const percentToFull = usage.isNegative ? usage.percent + 100 : 100 - usage.percent
   const fullIn = percentToFull * secondsPerPercent
   const refillText = usage.percent >= 100 ? '가득 참' : `+${refillRate}%/h`
+  const barPercent = usage.isNegative ? 0 : Math.max(0, Math.min(100, usage.percent))
 
   return (
     <span
-      className="no-drag flex items-center gap-1 rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[11.5px] text-muted"
+      className="flex items-center gap-1.5"
       title={`V5 생성 한도 잔량 ${usage.percent}%\n${
         usage.percent >= 100
           ? '충전 완료'
           : `충전 속도 ${refillRate}%/시간 · 1%당 ${formatDuration(secondsPerPercent)}\n100%까지 약 ${formatDuration(fullIn)}`
-      }\n약 ${estimateV5Images(usage).toLocaleString()}장: ${V5_ESTIMATE_BASIS}`}
+      }\n${refillText}\n약 ${estimateV5Images(usage).toLocaleString()}장: ${V5_ESTIMATE_BASIS}`}
     >
-      <span className="font-semibold text-accent">V5</span>
-      <span>
+      <span className="font-medium text-muted">V5</span>
+      <span className={cn('font-semibold tabular-nums', usage.isNegative ? 'text-danger' : 'text-ink')}>
         {usage.isNegative ? '−' : ''}
         {usage.percent}%
       </span>
-      <span>· 약 {estimateV5Images(usage).toLocaleString()}장</span>
-      <span className="text-faint">· {usage.isNegative ? '제한됨' : refillText}</span>
+      <span className="h-1 w-10 overflow-hidden rounded-full bg-surface-2">
+        <span className="block h-full rounded-full bg-[#1fa56a]" style={{ width: `${barPercent}%` }} />
+      </span>
+      <span className="tabular-nums text-muted">
+        {usage.isNegative ? '제한됨' : `약 ${estimateV5Images(usage).toLocaleString()}장`}
+      </span>
     </span>
   )
 }
@@ -141,7 +140,7 @@ function BarButton({
   return (
     <button
       className={cn(
-        'no-drag grid h-7 w-8 place-items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:pointer-events-none',
+        'no-drag grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-ink disabled:pointer-events-none',
         active && 'text-ink',
         className
       )}
@@ -159,8 +158,6 @@ export function Titlebar(): React.JSX.Element {
   const anlasBalance = useGenerationStore((s) => s.anlasBalance)
   const v5Usage = useGenerationStore((s) => s.v5Usage)
   const refreshAnlas = useGenerationStore((s) => s.refreshAnlas)
-  const queue = useGenerationStore((s) => s.queue)
-  const setAccelerationEnabled = useGenerationStore((s) => s.setAccelerationEnabled)
   const [profileTitle, setProfileTitle] = useState<string | null>(null)
 
   useEffect(() => {
@@ -201,115 +198,62 @@ export function Titlebar(): React.JSX.Element {
 
   return (
     <header
-      className="drag relative flex min-h-14 shrink-0 flex-wrap select-none items-center gap-1 bg-paper px-2 py-1"
+      className="drag relative grid h-14 shrink-0 select-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 bg-paper px-3"
       style={{ paddingLeft: isMac ? 90 : undefined }}
     >
-      <BarButton onClick={toggleLeft} active={leftOpen} title="프롬프트 패널 접기/펴기">
-        <PanelLeft size={15} />
-      </BarButton>
-
-      {profileTitle && (
-        <span className="mx-1 shrink-0 rounded-md bg-surface-2 px-2 py-0.5 text-[11.5px] font-semibold text-muted">
-          {profileTitle}
+      {/* 왼쪽: 패널 토글 · 앱 이름 · 업데이트 */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <BarButton onClick={toggleLeft} active={leftOpen} title="생성 패널 접기/펴기">
+          <PanelLeft size={16} />
+        </BarButton>
+        <img src={nais3Icon} alt="" className="ml-1 size-6 shrink-0 rounded-md" draggable={false} />
+        <span className="truncate text-[14px] font-bold text-ink">
+          {profileTitle ?? 'NAIS3 Custom'}
         </span>
-      )}
+        <UpdateButton />
+      </div>
 
-      {queue?.accelerationAvailable && (
-        <>
-          <label
-            className="no-drag mx-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-surface-2 px-2 text-[11.5px] font-medium text-muted"
-            title={`등록 계정 ${queue.accountCount}개 · 현재 ${queue.busyAccountCount}개 생성 중`}
-          >
-            <Zap size={12} className={queue.accelerationEnabled ? 'text-accent' : 'text-faint'} />
-            <span>가속 모드</span>
-            <Switch
-              aria-label={`가속 모드 ${queue.accelerationEnabled ? '켜짐' : '꺼짐'}`}
-              checked={queue.accelerationEnabled}
-              disabled={queue.running}
-              onCheckedChange={(enabled) => void setAccelerationEnabled(enabled)}
-            />
-          </label>
-          <label
-            className="no-drag mx-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-surface-2 px-2 text-[11.5px] text-muted"
-            title="ON: 기존처럼 유료 생성 허용. OFF: 메인·씬 생성 전 무료 여부 확인, 1% 미만/확인 실패 계정 대기. 이미 전송한 요청은 소급 적용하지 않으며 다른 앱과 같은 계정을 동시에 쓰면 과금 방지를 보장할 수 없습니다."
-          >
-            <Coins size={12} />
-            <span>Anlas 소모</span>
-            <Switch
-              aria-label={`Anlas 소모 ${queue.anlasSpendingEnabled !== false ? 'ON' : 'OFF'}`}
-              checked={queue.anlasSpendingEnabled !== false}
-              onCheckedChange={(enabled) =>
-                void window.nais
-                  .invoke('anlasSpending:set', { enabled })
-                  .then((status) => useGenerationStore.setState({ queue: status }))
-              }
-            />
-          </label>
-          {!!queue.pausedAccounts?.length && (
-            <span
-              className="no-drag text-[11px] text-accent"
-              title={queue.pausedAccounts.map((a) => a.reason).join('\n')}
-            >
-              잔량 대기 {queue.pausedAccounts.length}계정
-            </span>
-          )}
-        </>
-      )}
-
-      <UpdateButton />
-
-      {/* Windows는 우측에 창 컨트롤(─ □ ✕)이 있어 테마·Anlas를 좌측에 배치 */}
-      {!isMac && (
-        <>
-          <div className="no-drag mx-0.5">
-            <ThemeToggle />
-          </div>
-          <AnlasChips balance={anlasBalance} cost={anlasCost} />
-          <V5UsageChip usage={v5Usage} />
-        </>
-      )}
-
-      {/* 실제 레이아웃 공간을 차지하게 해 넓어진 계정 표시와 탭의 클릭 영역이 겹치지 않게 한다. */}
-      <div className="no-drag mx-auto flex shrink-0 items-center justify-center">
+      {/* 가운데: 탭 (창 한가운데 고정) */}
+      <div className="no-drag flex items-center justify-center">
         <PageNav />
       </div>
 
-      {isMac && (
-        <>
-          <AnlasChips balance={anlasBalance} cost={anlasCost} />
-          <V5UsageChip usage={v5Usage} />
-        </>
-      )}
-
-      <BarButton onClick={toggleRight} active={rightOpen} title="히스토리 패널 접기/펴기">
-        <PanelRight size={15} />
-      </BarButton>
-      {isMac && (
-        <div className="no-drag mx-0.5">
+      {/* 오른쪽: 잔량 · 테마 · 패널 · 설정 · 창 컨트롤 */}
+      <div className="flex min-w-0 items-center justify-end gap-1">
+        {(anlasBalance !== null || v5Usage) && (
+          <div className="no-drag mr-1 flex h-9 min-w-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-xl bg-surface px-3 text-[12.5px]">
+            <AnlasStat balance={anlasBalance} cost={anlasCost} />
+            {anlasBalance !== null && v5Usage && <span className="h-3.5 w-px shrink-0 bg-line" />}
+            <V5UsageStat usage={v5Usage} />
+          </div>
+        )}
+        <div className="no-drag mx-0.5 shrink-0">
           <ThemeToggle />
         </div>
-      )}
-      <BarButton onClick={() => setSettingsOpen(true)} title="설정">
-        <Settings size={15} />
-      </BarButton>
-
-      {!isMac && (
-        <div className="no-drag ml-1 flex items-center">
-          <BarButton className="w-9" onClick={() => ctrl('minimize')} aria-label="최소화">
-            <Minus size={15} />
-          </BarButton>
-          <BarButton className="w-9" onClick={() => ctrl('maximize')} aria-label="최대화">
-            <Square size={12} />
-          </BarButton>
-          <BarButton
-            className="w-9 hover:bg-danger hover:text-white"
-            onClick={() => ctrl('close')}
-            aria-label="닫기"
-          >
-            <X size={15} />
-          </BarButton>
-        </div>
-      )}
+        <BarButton onClick={toggleRight} active={rightOpen} title="히스토리 패널 접기/펴기">
+          <PanelRight size={16} />
+        </BarButton>
+        <BarButton onClick={() => setSettingsOpen(true)} title="설정">
+          <Settings size={16} />
+        </BarButton>
+        {!isMac && (
+          <div className="no-drag ml-1 flex shrink-0 items-center">
+            <BarButton className="w-10" onClick={() => ctrl('minimize')} aria-label="최소화">
+              <Minus size={15} />
+            </BarButton>
+            <BarButton className="w-10" onClick={() => ctrl('maximize')} aria-label="최대화">
+              <Square size={12} />
+            </BarButton>
+            <BarButton
+              className="w-10 hover:bg-danger hover:text-white"
+              onClick={() => ctrl('close')}
+              aria-label="닫기"
+            >
+              <X size={15} />
+            </BarButton>
+          </div>
+        )}
+      </div>
     </header>
   )
 }

@@ -139,7 +139,7 @@ export function StyleRestoreCard(): React.JSX.Element {
   }
 
   return (
-    <div className="rounded-xl border border-line bg-surface-2/40 p-3">
+    <div className="rounded-xl bg-paper p-3">
       <div className="mb-2 flex items-center gap-2.5">
         <RefreshCw size={18} className="text-teal-400" />
         <div className="min-w-0 flex-1">

@@ -229,14 +229,13 @@ export function LibraryView(): React.JSX.Element {
   }, [mode, selectedDate, selectedFolder, stacks])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface">
-      <div className="drag flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl bg-surface">
+      <div className="drag flex h-16 shrink-0 items-center gap-2.5 px-5">
         <HeaderIconButton tip="실제 이미지 저장 폴더 열기" onClick={() => void openStorageFolder()}>
           <FolderOpen size={16} className="text-amber-400" />
         </HeaderIconButton>
-        <Images size={16} className="text-muted" />
-        <span className="text-[14px] font-semibold">라이브러리</span>
-        <span className="font-mono text-[11px] text-faint">{total.toLocaleString()}</span>
+        <span className="text-[22px] font-bold tracking-tight">라이브러리</span>
+        <span className="text-[13px] tabular-nums text-faint">{total.toLocaleString()}장</span>
         {selectedDate && (
           <span className="no-drag rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
             {selectedDate}
@@ -252,7 +251,7 @@ export function LibraryView(): React.JSX.Element {
 
         <div className="flex-1" />
 
-        <div className="no-drag flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5">
+        <div className="no-drag flex items-center gap-0.5 rounded-lg bg-paper p-0.5">
           <SegIcon
             active={fit === 'square'}
             tip="정사각 크롭"
@@ -269,14 +268,14 @@ export function LibraryView(): React.JSX.Element {
           </SegIcon>
         </div>
 
-        <div className="no-drag flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5">
+        <div className="no-drag flex items-center gap-0.5 rounded-lg bg-paper p-0.5">
           {[2, 3, 4, 5, 6].map((value) => (
             <button
               key={value}
               onClick={() => setColsPersist(value)}
               className={cn(
-                'grid h-6 w-6 place-items-center rounded text-[12px] font-medium transition-colors',
-                cols === value ? 'bg-paper text-ink shadow-sm' : 'text-muted hover:text-ink'
+                'grid h-8 w-8 place-items-center rounded-md text-[12px] font-semibold transition-colors',
+                cols === value ? 'bg-surface text-ink shadow-sm' : 'text-faint hover:text-ink'
               )}
             >
               {value}
@@ -309,7 +308,7 @@ export function LibraryView(): React.JSX.Element {
           />
         )}
 
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           {visibleStacks.length > 0 && (
             <div className="mb-3">
               <div className="mb-2 flex items-center gap-1.5 text-[11.5px] font-medium text-muted">
@@ -406,6 +405,12 @@ function LibrarySidebar({
   onReload: () => Promise<void>
 }): React.JSX.Element {
   const tree = useMemo(() => buildFolderTree(folders), [folders])
+  // 날짜는 최근 것만 먼저 보여주고 나머지는 접는다. 선택한 날짜가 접힌 쪽이면 펼친 채로 둔다.
+  const [showAllDates, setShowAllDates] = useState(false)
+  const RECENT_DATES = 7
+  const selectedIndex = selectedDate ? dates.findIndex((d) => d.date === selectedDate) : -1
+  const expanded = showAllDates || selectedIndex >= RECENT_DATES
+  const shownDates = expanded ? dates : dates.slice(0, RECENT_DATES)
 
   const createFolder = async (parentId: number | null): Promise<void> => {
     const name = await askText(parentId == null ? '새 가상 폴더' : '새 하위 폴더', '새 폴더')
@@ -455,12 +460,12 @@ function LibrarySidebar({
   }
 
   return (
-    <aside className="no-scrollbar w-56 shrink-0 overflow-y-auto border-r border-line bg-paper/45 p-2">
+    <aside className="no-scrollbar w-56 shrink-0 overflow-y-auto px-3 pb-3">
       <SectionTitle label="날짜" />
       <SideRow active={selectedDate == null} onClick={() => onSelectDate(null)}>
         <Images size={14} /> 전체 날짜
       </SideRow>
-      {dates.map((group) => (
+      {shownDates.map((group) => (
         <SideRow
           key={group.date}
           active={selectedDate === group.date}
@@ -470,6 +475,14 @@ function LibrarySidebar({
           <Folder size={14} /> {group.date}
         </SideRow>
       ))}
+      {dates.length > RECENT_DATES && (
+        <button
+          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] font-medium text-faint transition-colors hover:bg-paper hover:text-ink"
+          onClick={() => setShowAllDates(!expanded)}
+        >
+          {expanded ? '최근 날짜만 보기' : `이전 날짜 ${dates.length - RECENT_DATES}개 더 보기`}
+        </button>
+      )}
 
       {mode === 'folders' && (
         <>
@@ -812,12 +825,14 @@ function SideRow({
     <button
       onClick={onClick}
       className={cn(
-        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] transition-colors',
-        active ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface-2 hover:text-ink'
+        'flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium transition-colors',
+        active ? 'bg-accent-soft font-semibold text-accent' : 'text-muted hover:bg-paper hover:text-ink'
       )}
     >
       {children}
-      {count != null && <span className="ml-auto font-mono text-[10px] text-faint">{count}</span>}
+      {count != null && (
+        <span className="ml-auto text-[11px] tabular-nums text-faint">{count.toLocaleString()}</span>
+      )}
     </button>
   )
 }
@@ -896,8 +911,8 @@ function SegIcon({
         <button
           onClick={onClick}
           className={cn(
-            'grid size-7 place-items-center rounded transition-colors',
-            active ? 'bg-paper text-ink shadow-sm' : 'text-muted hover:text-ink'
+            'grid size-8 place-items-center rounded-md transition-colors',
+            active ? 'bg-surface text-ink shadow-sm' : 'text-faint hover:text-ink'
           )}
         >
           {children}

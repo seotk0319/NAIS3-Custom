@@ -67,8 +67,8 @@ export function PreviewPane(): React.JSX.Element {
   return (
     <div
       className={cn(
-        'relative flex min-w-0 flex-1 items-center justify-center overflow-hidden rounded-xl border bg-surface p-2 transition-colors',
-        dragOver ? 'border-accent' : 'border-line'
+        'relative flex min-w-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border bg-surface p-2 transition-colors',
+        dragOver ? 'border-accent' : 'border-transparent'
       )}
       onDragOver={(e) => {
         // 외부 파일 또는 히스토리 썸네일(내부 드래그) 둘 다 허용

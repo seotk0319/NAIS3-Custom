@@ -31,7 +31,7 @@ export function PageNav(): React.JSX.Element {
   )
 
   return (
-    <nav className="no-drag pointer-events-auto flex items-center gap-1 rounded-full border border-line/70 bg-surface/95 p-1 shadow-md backdrop-blur">
+    <nav className="no-drag pointer-events-auto flex items-center gap-0.5 rounded-xl bg-surface-2 p-[3px]">
       {visible.map((page) => {
         const active = centerMode === page.id
         return (
@@ -39,19 +39,19 @@ export function PageNav(): React.JSX.Element {
             key={page.id}
             onClick={() => setCenterMode(page.id)}
             className={cn(
-              'relative z-0 rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors',
+              'relative z-0 h-[34px] whitespace-nowrap rounded-[9px] px-4 text-[13px] font-semibold transition-colors',
               active ? 'text-ink' : 'text-muted hover:text-ink'
             )}
           >
             {active && (
               <motion.div
                 layoutId="pageNavActive"
-                className="absolute inset-0 -z-10 rounded-full border border-ink/10 bg-ink/[0.08] shadow-sm backdrop-blur-md"
+                className="absolute inset-0 -z-10 rounded-[9px] bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.04)]"
                 transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
               />
             )}
             <span className="relative z-10 flex items-center gap-2">
-              <page.icon className="size-4" />
+              <page.icon className={cn('size-4', active && 'text-accent')} />
               {page.label}
             </span>
           </button>

@@ -81,8 +81,8 @@ test('observed Eden API metadata and offset cursor retain work, actor, reply and
 test('source labels distinguish replies, operator messages and creator/work follows',()=>{
   assert.equal(notification('genit',{id:'g',notification_type:'comment_reply',category:'comments'}).item.event,'reply');
   assert.equal(notification('genit',{id:'g',notification_type:'customer_inquiry_answered'}).item.event,'admin');
-  const story=notification('crack',{id:'c',category:'social',push:{title:'누군가가 작품명의 팬이 되었어요!'},webLink:'https://crack.wrtn.ai/detail/6aaf45f3545d882c1a7a7f17'}).item;
-  assert.equal(story.event,'follow');assert.equal(story.work.title,'작품명');assert.equal(story.work.id,'6aaf45f3545d882c1a7a7f17');
+  const story=notification('crack',{id:'c',category:'social',push:{title:'누군가가 작품명의 팬이 되었어요!'},webLink:'https://crack.wrtn.ai/detail/6a00000000000000000c0c01'}).item;
+  assert.equal(story.event,'follow');assert.equal(story.work.title,'작품명');assert.equal(story.work.id,'6a00000000000000000c0c01');
   assert.equal(notification('crack',{id:'c',push:{title:'누군가 당신의 팬이 되었어요!'}}).item.event,'follow');
   assert.equal(parseLuna('<div class="alarmStats"></div><li data-idx="1"><div class="aTit">관리자 알림</div></li>').items[0].event,'admin');
 });

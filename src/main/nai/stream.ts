@@ -11,12 +11,61 @@ export interface StreamHandlers {
   signal?: AbortSignal
 }
 
+// Received chunks are queued and each byte is copied once, into the message it belongs
+// to. Re-concatenating everything received on every chunk made one image cost hundreds
+// of full-buffer copies and a matching amount of garbage.
+class ChunkQueue {
+  private chunks: Uint8Array[] = []
+  // Consumed chunks are skipped by index, not shifted out, so tiny chunks stay linear.
+  private head = 0
+  size = 0
+  push(chunk: Uint8Array): void {
+    if (!chunk.length) return
+    this.chunks.push(chunk)
+    this.size += chunk.length
+  }
+  peekLength(): number {
+    const head = new Uint8Array(4)
+    let filled = 0
+    for (let i = this.head; i < this.chunks.length && filled < 4; i++) {
+      const chunk = this.chunks[i]
+      const n = Math.min(4 - filled, chunk.length)
+      head.set(chunk.subarray(0, n), filled)
+      filled += n
+    }
+    return ((head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3]) >>> 0
+  }
+  take(n: number): Uint8Array {
+    const out = new Uint8Array(n)
+    let filled = 0
+    while (filled < n) {
+      const chunk = this.chunks[this.head]
+      const need = n - filled
+      if (chunk.length <= need) {
+        out.set(chunk, filled)
+        filled += chunk.length
+        this.head++
+      } else {
+        out.set(chunk.subarray(0, need), filled)
+        this.chunks[this.head] = chunk.subarray(need)
+        filled += need
+      }
+    }
+    if (this.head > 1024 && this.head * 2 > this.chunks.length) {
+      this.chunks = this.chunks.slice(this.head)
+      this.head = 0
+    }
+    this.size -= n
+    return out
+  }
+}
+
 export async function readImageStream(
   body: ReadableStream<Uint8Array>,
   handlers: StreamHandlers = {}
 ): Promise<Buffer> {
   const reader = body.getReader()
-  let buffer = new Uint8Array(0)
+  const queue = new ChunkQueue()
   let finalImage: Buffer | null = null
   let apiError: string | null = null
 
@@ -28,20 +77,17 @@ export async function readImageStream(
       }
       const { done, value } = await reader.read()
       if (value) {
-        const merged = new Uint8Array(buffer.length + value.length)
-        merged.set(buffer)
-        merged.set(value, buffer.length)
-        buffer = merged
+        queue.push(value)
 
-        while (buffer.length >= 4) {
-          const length = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3]
-          if (length <= 0 || length > 50_000_000) {
+        while (queue.size >= 4) {
+          const length = queue.peekLength()
+          if (length === 0 || length > 50_000_000) {
             throw new Error(`잘못된 스트림 메시지 길이: ${length}`)
           }
-          if (buffer.length < 4 + length) break
+          if (queue.size < 4 + length) break
 
-          const message = buffer.slice(4, 4 + length)
-          buffer = buffer.slice(4 + length)
+          queue.take(4)
+          const message = queue.take(length)
 
           const decoded = msgpackDecode(message) as Record<string, unknown>
           const eventType = decoded.event_type ?? decoded.event

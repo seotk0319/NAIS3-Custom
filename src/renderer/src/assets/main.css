@@ -10,18 +10,18 @@
   font-display: swap;
 }
 
-/* NAIS3 기본 테마 (무채색) — 프리셋 적용 전 초기 페인트용 기본값 */
+/* NAIS3 기본 테마 (회색 바탕 + 흰 카드 + 인디고) — 프리셋 적용 전 초기 페인트용 기본값 */
 :root {
-  --paper: #fafafa;
-  --surface: #f1f1f2;
-  --surface-2: #e8e8ea;
-  --ink: #19191b;
-  --muted: #6d6d73;
-  --faint: #9c9ca1;
-  --line: #e3e3e6;
-  --accent: #c2610a;
-  --accent-soft: rgba(194, 97, 10, 0.13);
-  --danger: #a85a52;
+  --paper: #f3f3f7;
+  --surface: #ffffff;
+  --surface-2: #ececf2;
+  --ink: #191f28;
+  --muted: #6b7280;
+  --faint: #9aa0ab;
+  --line: #e4e4ec;
+  --accent: #5b5bd6;
+  --accent-soft: rgba(91, 91, 214, 0.13);
+  --danger: #e5484d;
   --font-ui:
     'Pretendard Variable', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable',
     'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -33,16 +33,16 @@
 }
 
 [data-theme='dark'] {
-  --paper: #0f0f10;
-  --surface: #161618;
-  --surface-2: #1e1e21;
-  --ink: #e9e9ea;
-  --muted: #8e8e94;
-  --faint: #5d5d63;
-  --line: #252528;
-  --accent: #eb9550;
-  --accent-soft: rgba(235, 149, 80, 0.14);
-  --danger: #c47a72;
+  --paper: #0d0d11;
+  --surface: #16161c;
+  --surface-2: #202029;
+  --ink: #e8e8ee;
+  --muted: #8e8e9a;
+  --faint: #5d5d6a;
+  --line: #2a2a34;
+  --accent: #8b8cf5;
+  --accent-soft: rgba(139, 140, 245, 0.18);
+  --danger: #ef6f78;
 }
 
 @theme inline {

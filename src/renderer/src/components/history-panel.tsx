@@ -61,28 +61,29 @@ export function HistoryPanel(): React.JSX.Element {
   }
 
   return (
-    <aside className="flex h-full w-[240px] flex-col rounded-xl border border-line bg-surface">
+    <aside className="flex h-full w-[240px] flex-col rounded-2xl bg-surface">
       {/* 헤더는 창 드래그 영역 */}
-      <div className="drag flex h-10 shrink-0 items-center gap-2 border-b border-line px-3">
-        <History size={14} className="text-muted" />
-        <span className="text-[13px] font-medium">히스토리</span>
-        <span className="ml-auto font-mono text-[11px] text-faint">{historyTotal}</span>
+      <div className="drag flex h-14 shrink-0 items-center gap-2 px-4">
+        <History size={15} className="text-muted" />
+        <span className="text-[15px] font-bold">히스토리</span>
+        <span className="text-[12px] tabular-nums text-faint">{historyTotal.toLocaleString()}</span>
+        <span className="flex-1" />
         {historyTotal > 0 && (
           <button
-            className="no-drag grid size-6 place-items-center rounded text-faint transition-colors hover:text-danger"
+            className="no-drag grid size-7 place-items-center rounded-lg text-faint transition-colors hover:bg-paper hover:text-danger"
             title="전체 비우기"
             onClick={() => void clearAll()}
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
           </button>
         )}
       </div>
-      {/* 스크롤바 숨김(공간 0) → 좌우 p-1.5 완전 대칭. 트랙패드/휠로 스크롤 */}
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-1.5">
+      {/* 스크롤바 숨김(공간 0) → 좌우 대칭. 트랙패드/휠로 스크롤 */}
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         {history.length === 0 ? (
           <p className="mt-8 text-center text-[12px] text-faint">아직 없음</p>
         ) : (
-          <div className="grid grid-cols-1 gap-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
             {history.map((item) => (
               <ImageContextMenu
                 key={item.id}
@@ -92,8 +93,8 @@ export function HistoryPanel(): React.JSX.Element {
               >
                 <button
                   className={cn(
-                    'group relative aspect-square overflow-hidden rounded-md border border-line bg-paper transition-all',
-                    viewingFilePath === item.filePath && 'ring-2 ring-accent'
+                    'group relative aspect-square overflow-hidden rounded-[10px] bg-paper transition-all',
+                    viewingFilePath === item.filePath && 'ring-2 ring-accent ring-offset-2 ring-offset-surface'
                   )}
                   title={`seed ${item.seed ?? '?'}`}
                   onClick={() => {

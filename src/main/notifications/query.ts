@@ -1,4 +1,6 @@
 import { INBOX_EVENTS, INBOX_EVENT_GROUPS, INBOX_PLATFORMS } from '../../shared/inbox'
+import { emptyCatalog, thumbnailFor, type PlatformImages, type WorkCatalog } from './work-images'
+import { canReply } from './direct/replies'
 import type {
   InboxView,
   InboxQuery,
@@ -55,7 +57,29 @@ export function displayText(value: string): string {
   return decodeLunaText(stripMarkup(value))
 }
 
-export function queryInbox(view: InboxView, query: InboxQuery = {}, now = Date.now()): InboxResult {
+export function canReplyTo(item: InboxItem): boolean {
+  const raw = item as InboxItem & { commentId?: string | null }
+  return canReply({
+    platform: item.platform,
+    sourceType: item.sourceType,
+    event: item.event,
+    title: item.title,
+    body: item.body,
+    at: item.at,
+    actor: { name: item.actor?.name ?? null },
+    work: { id: item.work?.id ?? null },
+    commentId: raw.commentId ?? null,
+    url: item.url
+  })
+}
+
+export function queryInbox(
+  view: InboxView,
+  query: InboxQuery = {},
+  now = Date.now(),
+  catalog: WorkCatalog = emptyCatalog(),
+  platformImages: PlatformImages = {}
+): InboxResult {
   const events = Object.fromEntries(Object.keys(INBOX_EVENTS).map((k) => [k, 0])) as Record<
     InboxEvent,
     number
@@ -136,7 +160,9 @@ export function queryInbox(view: InboxView, query: InboxQuery = {}, now = Date.n
     work: item.work,
     at: item.at,
     unread: item.unread,
-    url: item.url
+    url: item.url,
+    thumbnail: thumbnailFor(item, catalog, platformImages),
+    canReply: canReplyTo(item)
   }))
   return {
     available: true,
@@ -179,7 +205,8 @@ export function queryInbox(view: InboxView, query: InboxQuery = {}, now = Date.n
         connecting: false
       })
     ),
-    directError: null
+    directError: null,
+    thumbnailsPending: false
   }
 }
 

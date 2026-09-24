@@ -24,6 +24,17 @@ import {
   type EngineRequest
 } from './engine.mjs'
 import { LoginBrowser, type BrowserCookie } from './login-browser'
+import { ReplyError } from './babe-reply'
+import { imageReadAllowed, IMAGE_ROUTES, readWorkImage } from './work-image-routes'
+import {
+  checkContent,
+  REPLY_ADAPTERS,
+  writeAllowed,
+  type ReplyComment,
+  type ReplyContext,
+  type ReplyItem,
+  type WriteSend
+} from './replies'
 import {
   CAPTURE_SCRIPT,
   DIRECT_PLATFORMS,
@@ -85,6 +96,18 @@ export function createDirectCollector(options: {
   collect(): Promise<void>
   connect(platform: DirectPlatformId): Promise<ConnectResult>
   disconnect(platform: DirectPlatformId): Promise<void>
+  /** 알림이 가리키는 원래 댓글을 찾는다 (보내기 전 확인용). */
+  resolveReply(platform: DirectPlatformId, item: ReplyItem): Promise<ReplyComment>
+  /** 원래 댓글을 다시 찾아 그 댓글에 답글을 단다. */
+  reply(
+    platform: DirectPlatformId,
+    item: ReplyItem,
+    content: string
+  ): Promise<{ replyId: string | null; target: ReplyComment }>
+  /** 베이비챗 내 작품 목록(이름·대표 이미지) 원본 응답. 썸네일 기준표를 만든다. */
+  babeWorks(): Promise<unknown>
+  /** 그 플랫폼 작품의 대표 이미지 주소 (로그인 계정으로 읽음). 연결 안 된 플랫폼은 null. */
+  workImage(platform: string, workId: string): Promise<string | null>
   status(): Promise<{
     error: string | null
     platforms: Record<DirectPlatformId, DirectPlatformState>
@@ -569,6 +592,80 @@ export function createDirectCollector(options: {
     }
   }
 
+  // 답글 쓰기는 수집용 transport(읽기 전용)와 분리한다. 플랫폼마다 그 사이트의 댓글 주소로만
+  // 보낼 수 있고, 만료된 토큰은 수집과 같은 방식으로 한 번 갱신한다.
+  async function replyContext(
+    platform: DirectPlatformId
+  ): Promise<{ adapter: (typeof REPLY_ADAPTERS)[string]; ctx: ReplyContext }> {
+    const adapter = REPLY_ADAPTERS[platform]
+    if (!adapter) throw new ReplyError('REPLY_UNSUPPORTED')
+    const s = await ready()
+    const current = s.platforms[platform]
+    if (!current) throw new ReplyError('LOGIN_REQUIRED')
+    const holder = { profile: current.profile }
+    // 쓰기 주소는 writeAllowed로 그 플랫폼 댓글 주소로만 제한돼 있다. 그 주소에 따로 기록된
+    // 헤더가 없으면 같은 플랫폼 세션의 기본 헤더를 쓴다 (예: 티팟 함수 호출, 스토리챗 목록).
+    const headersFor = (origin: string): Record<string, string> =>
+      holder.profile.headersByOrigin?.[origin] ||
+      holder.profile.headers ||
+      Object.values(holder.profile.headersByOrigin || {})[0] ||
+      {}
+    const send: WriteSend = async (url, init) => {
+      if (!writeAllowed(platform, url)) throw new ReplyError('UNAPPROVED_WRITE_ROUTE')
+      const origin = new URL(url).origin
+      const form = init.form
+        ? (): FormData => {
+            const data = new FormData()
+            for (const [key, value] of Object.entries(init.form!)) data.append(key, value)
+            return data
+          }
+        : null
+      const call = (): Promise<Response> =>
+        ses.fetch(url, {
+          method: init.method,
+          headers: {
+            ...(form ? {} : headersFor(origin)),
+            ...(init.body ? { 'content-type': 'application/json' } : {}),
+            ...init.headers
+          },
+          body: form ? form() : init.body,
+          credentials: 'include',
+          redirect: 'error',
+          signal: AbortSignal.timeout(15_000)
+        })
+      const response = await call()
+      if (
+        !response.ok &&
+        (await renewable(response.clone())) &&
+        (await renewPlatform(platform, holder).catch(() => false))
+      )
+        return call()
+      return response
+    }
+    const ctx: ReplyContext = {
+      send,
+      async cookie(domain, name) {
+        const found = await ses.cookies.get({ domain, name })
+        return found[0]?.value ?? null
+      },
+      accountId(origin) {
+        const token = String(headersFor(origin).authorization || '').replace(/^Bearer\s+/i, '')
+        try {
+          const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString())
+          const id = payload.sub ?? payload.user_id
+          return typeof id === 'string' ? id : null
+        } catch {
+          return null
+        }
+      },
+      route(path) {
+        const value = (holder.profile.routes as Record<string, unknown> | undefined)?.[path]
+        return typeof value === 'string' ? value : null
+      }
+    }
+    return { adapter, ctx }
+  }
+
   return {
     start() {
       stopped = false
@@ -586,6 +683,74 @@ export function createDirectCollector(options: {
     },
     connect,
     collect: tick,
+    async workImage(platform, workId) {
+      const route = IMAGE_ROUTES[platform]
+      if (!route) return null
+      // 요청이 필요 없는 플랫폼(알플레이)은 로그인 없이도 주소를 만든다.
+      if (!route.url) return readWorkImage(platform, workId, () => Promise.reject(new Error('NO_READ')))
+      const s = await ready()
+      const current = s.platforms[platform as DirectPlatformId]
+      if (!current) return null
+      const holder = { profile: current.profile }
+      const read = async (url: string): Promise<Response> => {
+        if (!imageReadAllowed(platform, url)) throw new Error('UNAPPROVED_READ_ROUTE')
+        const origin = new URL(url).origin
+        const call = (): Promise<Response> =>
+          ses.fetch(url, {
+            headers:
+              holder.profile.headersByOrigin?.[origin] ||
+              (origin === allowed[platform as DirectPlatformId]?.origin ? holder.profile.headers : {}) ||
+              {},
+            credentials: 'include',
+            redirect: 'error',
+            signal: AbortSignal.timeout(15_000)
+          })
+        const response = await call()
+        if (
+          !response.ok &&
+          (await renewable(response.clone())) &&
+          (await renewPlatform(platform as DirectPlatformId, holder).catch(() => false))
+        )
+          return call()
+        return response
+      }
+      return readWorkImage(platform, workId, read)
+    },
+    async babeWorks() {
+      const s = await ready()
+      const current = s.platforms.babe
+      if (!current) throw new ReplyError('LOGIN_REQUIRED')
+      const holder = { profile: current.profile }
+      const url = 'https://api.babechatapi.com/ko/api/characters/my'
+      const origin = new URL(url).origin
+      const call = (): Promise<Response> =>
+        ses.fetch(url, {
+          headers: holder.profile.headersByOrigin?.[origin] || holder.profile.headers || {},
+          credentials: 'include',
+          redirect: 'error',
+          signal: AbortSignal.timeout(15_000)
+        })
+      let response = await call()
+      if (
+        !response.ok &&
+        (await renewable(response.clone())) &&
+        (await renewPlatform('babe', holder).catch(() => false))
+      )
+        response = await call()
+      if (!response.ok) throw new ReplyError('WORKS_FAILED', response.status)
+      return response.json()
+    },
+    async resolveReply(platform, item) {
+      const { adapter, ctx } = await replyContext(platform)
+      return adapter.resolve(ctx, item)
+    },
+    async reply(platform, item, content) {
+      const text = checkContent(content)
+      const { adapter, ctx } = await replyContext(platform)
+      const target = await adapter.resolve(ctx, item)
+      const { replyId } = await adapter.post(ctx, target, text)
+      return { replyId, target }
+    },
     async disconnect(platform) {
       awaitingLogin.delete(platform)
       watches.delete(platform)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Bell,
   ChevronDown,
@@ -8,12 +8,19 @@ import {
   Pause,
   Play,
   Search,
+  Send,
   Settings2,
   TriangleAlert,
   X
 } from 'lucide-react'
 import { INBOX_EVENTS, INBOX_EVENT_GROUPS, INBOX_PLATFORMS } from '@shared/inbox'
-import type { InboxEvent, InboxEventGroup, InboxResult, InboxItem } from '@shared/inbox'
+import type {
+  InboxEvent,
+  InboxEventGroup,
+  InboxResult,
+  InboxItem,
+  InboxReplyTarget
+} from '@shared/inbox'
 import { cn } from '../lib/utils'
 
 // Nine separated hues. The previous palette repeated blue, teal and lilac, so three
@@ -154,11 +161,70 @@ export function InboxView(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<InboxItem | null>(null)
+  // 답글: 알림별 입력값과 보낸 기록(이번 실행 동안만 기억)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [replying, setReplying] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, { ok: boolean; message: string }>>({})
+  const [replied, setReplied] = useState<Record<string, string>>({})
+  // 답글 대상 확인: 알림별로 한 번 불러와 기억한다 (크랙·네코는 시각으로 찾으므로 보여주고 보낸다).
+  const [targets, setTargets] = useState<Record<string, InboxReplyTarget | 'loading'>>({})
+  const replyTarget = selected ? targets[selected.id] : undefined
+  const selectedId = selected?.canReply ? selected.id : null
+  // 알림마다 한 번만 요청한다. 결과는 알림 id로 저장하므로 다른 알림을 보는 중에 와도 안전하다.
+  const requested = useRef(new Set<string>())
+  useEffect(() => {
+    if (!selectedId || requested.current.has(selectedId)) return
+    requested.current.add(selectedId)
+    const timer = setTimeout(() =>
+      setTargets((previous) => ({ ...previous, [selectedId]: 'loading' }))
+    )
+    void window.nais
+      .invoke('inbox:replyTarget', { id: selectedId })
+      .catch(() => ({ ok: false, message: '원래 댓글을 불러오지 못했어요.' }))
+      .then((result) => {
+        clearTimeout(timer)
+        // 실패는 다시 열었을 때 한 번 더 시도할 수 있게 둔다.
+        if (!result.ok) requested.current.delete(selectedId)
+        setTargets((previous) => ({ ...previous, [selectedId]: result }))
+      })
+  }, [selectedId])
+  const replyText = selected ? drafts[selected.id] || '' : ''
+  const replyNote = selected ? notes[selected.id] || null : null
+  const setReplyText = (value: string): void => {
+    if (selected) setDrafts((previous) => ({ ...previous, [selected.id]: value }))
+  }
+  async function sendReply(item: InboxItem): Promise<void> {
+    const content = (drafts[item.id] || '').trim()
+    const target = targets[item.id]
+    if (!content || replying || !target || target === 'loading' || !target.ok) return
+    setReplying(item.id)
+    setNotes((previous) => {
+      const next = { ...previous }
+      delete next[item.id]
+      return next
+    })
+    try {
+      const result = await window.nais.invoke('inbox:reply', { id: item.id, content })
+      setNotes((previous) => ({ ...previous, [item.id]: result }))
+      if (result.ok) {
+        setReplied((previous) => ({ ...previous, [item.id]: content }))
+        setDrafts((previous) => ({ ...previous, [item.id]: '' }))
+      }
+    } catch {
+      setNotes((previous) => ({
+        ...previous,
+        [item.id]: { ok: false, message: '답글을 달지 못했어요. 잠시 뒤 다시 해주세요.' }
+      }))
+    } finally {
+      setReplying(null)
+    }
+  }
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [settings, setSettings] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
+  const pendingRef = useRef(false)
   const [busy, setBusy] = useState(false)
   // Sign-in checks this window started; the service also reports its own.
   const [linking, setLinking] = useState<Set<string>>(new Set())
@@ -182,6 +248,7 @@ export function InboxView(): React.JSX.Element {
         if (disposed) return
         setNow(Date.now())
         setData(result)
+        pendingRef.current = result.thumbnailsPending === true
         setError(result.error || '')
         setSelected((previous) =>
           previous ? result.items.find((item) => item.id === previous.id) || null : null
@@ -189,7 +256,8 @@ export function InboxView(): React.JSX.Element {
       } catch {
         if (!disposed) setError('알림을 불러오지 못했어요. 잠시 뒤 다시 확인해주세요.')
       }
-      if (!disposed) timer = setTimeout(() => void refresh(), 10_000)
+      // 작품 이미지를 뒤에서 채우는 중이면 조금 일찍 다시 읽어 썸네일을 바로 채운다.
+      if (!disposed) timer = setTimeout(() => void refresh(), pendingRef.current ? 3_000 : 10_000)
     }
     timer = setTimeout(() => void refresh(), search ? 180 : 0)
     return () => {
@@ -340,6 +408,7 @@ export function InboxView(): React.JSX.Element {
           className="absolute inset-y-0 left-0 w-[3px]"
           style={{ backgroundColor: colors[item.platform] }}
         />
+        <WorkThumb item={item} className="mt-0.5 size-9 shrink-0 rounded-lg text-[13px]" />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             {unread && (
@@ -353,6 +422,11 @@ export function InboxView(): React.JSX.Element {
             >
               {item.title}
             </span>
+            {replied[item.id] && (
+              <span className="shrink-0 rounded-md bg-accent-soft px-1.5 py-px text-[11px] font-semibold text-accent">
+                답글 보냄
+              </span>
+            )}
           </span>
           <span className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[12px] leading-snug text-muted">
             <span className="shrink-0 font-medium" style={{ color: tone(item.platform) }}>
@@ -398,6 +472,7 @@ export function InboxView(): React.JSX.Element {
             className="absolute inset-y-0 left-0 w-[3px]"
             style={{ backgroundColor: colors[lead.platform] }}
           />
+          <WorkThumb item={lead} className="mt-0.5 size-9 shrink-0 rounded-lg text-[13px]" />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-2">
               {unread && (
@@ -443,7 +518,7 @@ export function InboxView(): React.JSX.Element {
 
   return (
     <section
-      className="flex min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface"
+      className="flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface"
       aria-label="알림 모아보기"
     >
       <aside className="flex w-48 shrink-0 flex-col border-r border-line bg-paper/50 p-3 xl:w-56">
@@ -858,6 +933,9 @@ export function InboxView(): React.JSX.Element {
             <Dot />
             <span className="text-muted">{INBOX_EVENTS[selected.event]}</span>
           </div>
+          {selected.thumbnail && (
+            <WorkThumb item={selected} className="aspect-[3/4] w-full rounded-xl text-[40px]" />
+          )}
           <h3 className="text-[16px] font-semibold leading-snug">{selected.title}</h3>
           <p className="select-text whitespace-pre-wrap break-words rounded-lg border border-line bg-paper p-3 text-[13px] leading-relaxed">
             {selected.body || '내용 없음'}
@@ -877,6 +955,70 @@ export function InboxView(): React.JSX.Element {
               {selected.unread === null ? '제공되지 않음' : selected.unread ? '읽지 않음' : '읽음'}
             </dd>
           </dl>
+          {selected.canReply && (
+            <div className="flex flex-col gap-2">
+              <p className="text-[12px] font-semibold text-muted">
+                <span style={{ color: tone(selected.platform) }}>
+                  {INBOX_PLATFORMS[selected.platform]}
+                </span>{' '}
+                · 답글 달 댓글
+              </p>
+              {replyTarget === undefined || replyTarget === 'loading' ? (
+                <p className="rounded-xl bg-surface-2 px-3 py-2.5 text-[12px] text-faint">
+                  원래 댓글을 찾고 있어요…
+                </p>
+              ) : replyTarget.ok ? (
+                <div className="rounded-xl border border-line px-3 py-2.5 text-[12px]">
+                  <p className="font-semibold text-ink">
+                    {replyTarget.author || '작성자 미확인'}
+                    <span className="ml-1.5 font-normal text-faint">{time(replyTarget.at ?? null)}</span>
+                  </p>
+                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-muted">
+                    {replyTarget.content}
+                  </p>
+                </div>
+              ) : (
+                <p className="rounded-xl bg-danger/10 px-3 py-2.5 text-[12px] text-danger">
+                  {replyTarget.message}
+                </p>
+              )}
+              {replied[selected.id] && (
+                <p className="rounded-lg bg-accent-soft px-3 py-2 text-[12px] text-accent">
+                  보낸 답글: {replied[selected.id]}
+                </p>
+              )}
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault()
+                    void sendReply(selected)
+                  }
+                }}
+                maxLength={1000}
+                rows={3}
+                placeholder="답글을 입력하세요 (Ctrl+Enter로 보내기)"
+                className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-faint focus:ring-2 focus:ring-accent/40"
+              />
+              <button
+                disabled={
+                  !replyText.trim() ||
+                  replying !== null ||
+                  !(replyTarget && replyTarget !== 'loading' && replyTarget.ok)
+                }
+                onClick={() => void sendReply(selected)}
+                className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-[13px] font-semibold text-white disabled:opacity-40 dark:text-paper"
+              >
+                <Send size={14} /> {replying === selected.id ? '보내는 중…' : '답글 보내기'}
+              </button>
+              {replyNote && (
+                <p className={cn('text-[12px]', replyNote.ok ? 'text-accent' : 'text-danger')}>
+                  {replyNote.message}
+                </p>
+              )}
+            </div>
+          )}
           <button
             disabled={!selected.url}
             onClick={() => void openSource(selected)}
@@ -890,5 +1032,43 @@ export function InboxView(): React.JSX.Element {
         </aside>
       )}
     </section>
+  )
+}
+
+/** 알림이 가리키는 작품 이름 (「」 안 또는 작품 제목). */
+function workNameOf(item: InboxItem): string | null {
+  if (item.work?.title) return item.work.title
+  return /「(.+?)」/.exec(item.title || '')?.[1] ?? null
+}
+
+/**
+ * 작품 썸네일 한 칸. 원본 비율이 1:1~2:3로 달라도 틀 하나에 꽉 채워 자르고,
+ * 세로 그림은 얼굴이 있는 위쪽 20% 지점을 기준으로 자른다. 이미지가 없거나 못 불러오면
+ * 플랫폼 색 바탕에 작품 첫 글자를 둔다 — 모든 줄이 같은 모양으로 보이게.
+ */
+function WorkThumb({ item, className }: { item: InboxItem; className: string }): React.JSX.Element {
+  const [failed, setFailed] = useState<string | null>(null)
+  const src = item.thumbnail && failed !== item.thumbnail ? item.thumbnail : null
+  if (src)
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        draggable={false}
+        onError={() => setFailed(src)}
+        className={cn('bg-surface-2 object-cover object-[center_20%]', className)}
+      />
+    )
+  const name = workNameOf(item)
+  const letter = (name || INBOX_PLATFORMS[item.platform] || '?').trim().replace(/^re:\s*/i, '').charAt(0)
+  return (
+    <span
+      aria-hidden
+      className={cn('grid place-items-center font-bold text-white', className)}
+      style={{ backgroundColor: `color-mix(in oklab, ${colors[item.platform]} 78%, black)` }}
+    >
+      {letter}
+    </span>
   )
 }

@@ -16,6 +16,8 @@ import {
   setInboxInterval,
   connectInboxPlatform,
   disconnectInboxPlatform,
+  replyInbox,
+  previewReply,
   selectInboxPlatform
 } from './notifications/service'
 import {
@@ -185,6 +187,8 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     handle('inbox:setInterval', ({ minutes }) => setInboxInterval(minutes))
     handle('inbox:openSource', ({ id }) => openInboxSource(id))
     handle('inbox:connect', ({ platform }) => connectInboxPlatform(platform))
+    handle('inbox:reply', ({ id, content }) => replyInbox(String(id || ''), String(content || '')))
+    handle('inbox:replyTarget', ({ id }) => previewReply(String(id || '')))
     handle('inbox:disconnect', ({ platform }) => disconnectInboxPlatform(platform))
     handle('inbox:select', ({ platform, selected }) => selectInboxPlatform(platform, selected))
   }

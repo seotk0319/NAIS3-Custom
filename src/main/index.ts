@@ -1,7 +1,5 @@
 import { app, shell, BrowserWindow, dialog, net, protocol } from 'electron'
-import { existsSync } from 'fs'
 import { join } from 'path'
-import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import sharp from 'sharp'
 import icon from '../../resources/icon.png?asset'
@@ -12,6 +10,9 @@ import { processWildcards } from './fragments/processor'
 import { removeComments } from '../shared/nai-presets'
 import { fragmentSource } from './fragments/repo'
 import { saveGeneratedImage } from './images/storage'
+import { sniffImage, thumbAllowed } from './notifications/work-images'
+import { serveImageFile } from './images/serve'
+import { createPreviewGate } from './nai/preview-gate'
 import { broadcast, registerIpcHandlers } from './ipc'
 import { logBalance } from './nai/anlas-log'
 import { logGeneratedImage } from './nai/account-usage'
@@ -21,6 +22,7 @@ import { enabledCharRefRows, enabledVibeRows } from './refs/repo'
 import { snapNaiResolution } from './nai/resolution'
 import { prepareCharRefs, prepareExtraCharRefs, prepareVibes } from './refs/prepare'
 import {
+  APP_NAME,
   APP_TITLE,
   APP_USER_MODEL_ID,
   PROFILE,
@@ -35,8 +37,8 @@ import { startInbox, closeInbox } from './notifications/service'
 initProfilePaths()
 // 프로필별 창/작업표시줄 아이콘 — 짝수 프로필(Custom 2 등)은 색반전 아이콘으로 구분
 const appIcon = SHOULD_INVERT_ICON ? iconInverted : icon
-// 앱 이름 (dev 메뉴바·dock에서 'Electron' 대신 표시). 프로필이면 'NAIS3 Custom N'
-app.setName(APP_TITLE)
+// 내부 앱 이름 'NAIS3 Custom N' — 기본 저장 폴더 이름이 이 값을 따르므로 표시용 제목과 분리한다.
+app.setName(APP_NAME)
 
 // 중복 실행 방지 (특히 Windows) — 두 번째 실행은 기존 창을 앞으로
 if (!app.requestSingleInstanceLock()) {
@@ -53,7 +55,9 @@ if (!app.requestSingleInstanceLock()) {
 
 // 생성 이미지 폴더만 렌더러에 노출하는 전용 프로토콜 (CSP/webSecurity 우회 없이 로컬 파일 표시)
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'nais-image', privileges: { secure: true, supportFetchAPI: true, stream: true } }
+  { scheme: 'nais-image', privileges: { secure: true, supportFetchAPI: true, stream: true } },
+  // 알림 작품 썸네일: 베이비챗 응답에 나온 이미지 호스트만 본체가 대신 받아 준다
+  { scheme: 'nais-thumb', privileges: { secure: true, supportFetchAPI: true, stream: true } }
 ])
 
 function createWindow(): void {
@@ -95,8 +99,28 @@ function createWindow(): void {
   }
 }
 
+const previewGate = createPreviewGate()
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId(APP_USER_MODEL_ID)
+
+  protocol.handle('nais-thumb', async (request) => {
+    try {
+      const image = new URL(request.url).searchParams.get('u') ?? ''
+      if (!thumbAllowed(image)) return new Response(null, { status: 404 })
+      const response = await net.fetch(image, { redirect: 'error' })
+      if (!response.ok) return new Response(null, { status: 404 })
+      // 크랙처럼 이미지를 binary/octet-stream으로 보내는 서버가 있어 머리 바이트로 형식을 판단한다.
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      const type = sniffImage(bytes)
+      if (!type || bytes.length > 12 * 1024 * 1024) return new Response(null, { status: 404 })
+      return new Response(bytes, {
+        headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400' }
+      })
+    } catch {
+      return new Response(null, { status: 404 })
+    }
+  })
 
   protocol.handle('nais-image', async (request) => {
     try {
@@ -115,8 +139,8 @@ app.whenReady().then(() => {
           })
         }
       }
-      if (!filePath || !existsSync(filePath)) return new Response(null, { status: 404 })
-      return await net.fetch(pathToFileURL(filePath).toString())
+      if (!filePath) return new Response(null, { status: 404 })
+      return serveImageFile(filePath)
     } catch {
       // 파일이 이동·삭제되어도 썸네일 요청 실패가 메인 프로세스 예외로 번지지 않게 한다.
       return new Response(null, { status: 404 })
@@ -255,11 +279,16 @@ app.whenReady().then(() => {
             request,
             buildOpts,
             (stepIx, preview) => {
+              // Step numbers always flow; the preview image only when someone can see it.
+              const visible = BrowserWindow.getAllWindows().some(
+                (w) => w.isVisible() && !w.isMinimized()
+              )
               broadcast('generation:progress', {
                 id,
                 stepIx,
                 totalSteps: request.steps,
-                previewPng: preview?.toString('base64')
+                previewPng:
+                  preview && previewGate.allow(visible) ? preview.toString('base64') : undefined
               })
             },
             signal
@@ -354,7 +383,10 @@ app.on('before-quit', (event) => {
   if (PROFILE !== 1 || inboxClosed) return
   event.preventDefault()
   // Let authenticated ingestion finish its atomic write before exiting.
-  void closeInbox().finally(() => { inboxClosed = true; app.quit() })
+  void closeInbox().finally(() => {
+    inboxClosed = true
+    app.quit()
+  })
 })
 
 app.on('quit', () => {

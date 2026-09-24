@@ -59,6 +59,7 @@ const NEEDS_LOGIN = new Set([
   'SESSION_NOTICE_ROUTES_MISSING'
 ])
 const RUN_EVERY = 5 * 60_000
+const SIGNED_OUT_AFTER = 10_000
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export interface DirectStore {
@@ -446,7 +447,11 @@ export function createDirectCollector(options: {
           }
         }
         // Late renewal tokens are worth a few seconds; a complete capture ends early.
-        if (Date.now() - started >= 4_000 && captureComplete(platform, profile)) break
+        const elapsed = Date.now() - started
+        if (elapsed >= 4_000 && captureComplete(platform, profile)) break
+        // A signed-in site sends its first API call within a few seconds. Nothing usable by
+        // now means signed out, so the person is not kept waiting for the full window.
+        if (elapsed >= SIGNED_OUT_AFTER && !sessionReady(platform, profile)) break
       }
     } finally {
       await tab.close()
@@ -518,6 +523,13 @@ export function createDirectCollector(options: {
       // The person is still signing in: another platform opens as a tab in that window.
       if (!browser?.alive && profileInUse(options.profileDir)) {
         if (!openLogin) return { state: 'login-required', detail: null }
+        await openSignInWindow(options.profileDir, SITES[platform])
+        waitForSignIn(platform)
+        return { state: 'login-required', detail: null }
+      }
+      // Never connected and not mid sign-in: there is nothing to check yet, so the sign-in
+      // window opens at once. Closing it runs the check anyway.
+      if (openLogin && !browser?.alive && !s.platforms[platform] && !awaitingLogin.has(platform)) {
         await openSignInWindow(options.profileDir, SITES[platform])
         waitForSignIn(platform)
         return { state: 'login-required', detail: null }

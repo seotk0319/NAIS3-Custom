@@ -25,7 +25,7 @@ import { bindSceneEvents } from './stores/scenes-store'
 import { bindShortcuts, refreshWork, useShortcutsStore } from './stores/shortcuts-store'
 import { bindUpdateEvents } from './stores/update-store'
 import { bindNavMouse } from './lib/nav-history'
-import { useLayoutStore } from './stores/layout-store'
+import { useLayoutStore, type CenterMode } from './stores/layout-store'
 import { useThemeStore } from './stores/theme-store'
 
 export default function App(): React.JSX.Element {
@@ -35,21 +35,28 @@ export default function App(): React.JSX.Element {
   const setSettingsOpen = useLayoutStore((s) => s.setSettingsOpen)
   const centerMode = useLayoutStore((s) => s.centerMode)
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth)
-  // 가운데 화면은 패널을 여닫아도 다시 그리지 않는다 (씬 1,000개 같은 큰 화면이 통째로 다시 그려져 끊김)
-  const center = useMemo(
+  // 한 번 연 가운데 화면은 지우지 않고 숨겨 둔다. 탭을 옮길 때마다 씬 1,000개·디렉터 같은 큰 화면을
+  // 새로 만들고 지우느라 끊기던 것을 없앤다. 패널을 여닫아도 가운데 화면은 다시 그리지 않는다.
+  const [visited, setVisited] = useState<CenterMode[]>(() => [centerMode])
+  if (!visited.includes(centerMode)) setVisited([...visited, centerMode])
+  const views = useMemo(
     () =>
-      centerMode === 'inbox' ? (
-        <InboxView />
-      ) : centerMode === 'scene' ? (
-        <SceneMode />
-      ) : centerMode === 'director' ? (
-        <DirectorMode />
-      ) : centerMode === 'library' ? (
-        <LibraryView />
-      ) : (
-        <PreviewPane />
-      ),
-    [centerMode]
+      visited.map((mode) => ({
+        mode,
+        node:
+          mode === 'inbox' ? (
+            <InboxView />
+          ) : mode === 'scene' ? (
+            <SceneMode />
+          ) : mode === 'director' ? (
+            <DirectorMode />
+          ) : mode === 'library' ? (
+            <LibraryView />
+          ) : (
+            <PreviewPane />
+          )
+      })),
+    [visited]
   )
   const [ready, setReady] = useState(false)
   const [resizing, setResizing] = useState(false)
@@ -141,7 +148,14 @@ export default function App(): React.JSX.Element {
               </motion.div>
             )}
           </AnimatePresence>
-          {center}
+          {views.map(({ mode, node }) => (
+            <div
+              key={mode}
+              className={mode === centerMode ? 'flex min-h-0 min-w-0 flex-1' : 'hidden'}
+            >
+              {node}
+            </div>
+          ))}
           <AnimatePresence initial={false}>
             {rightOpen && centerMode !== 'inbox' && (
               <motion.div

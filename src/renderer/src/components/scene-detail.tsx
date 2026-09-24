@@ -9,6 +9,7 @@ import { useScenesStore, appendPrompt, composeScenePrompt } from '../stores/scen
 import { useCharactersStore } from '../stores/characters-store'
 import { askConfirm } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
+import { useLayoutStore } from '../stores/layout-store'
 import { cn } from '../lib/utils'
 import { setImagePathDrag } from '../lib/image-drag'
 import { ImageContextMenu } from './image-context-menu'
@@ -123,6 +124,7 @@ export function SceneDetail({ scene }: { scene: Scene }): React.JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (useLayoutStore.getState().centerMode !== 'scene') return // 다른 탭에 숨어 있을 때
       if (lightboxIdx >= 0) return
       select(null)
     }

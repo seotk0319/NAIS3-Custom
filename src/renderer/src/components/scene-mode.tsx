@@ -35,6 +35,7 @@ import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@d
 import { AnimatePresence, motion } from 'motion/react'
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -377,6 +378,99 @@ function IconBtn({
 // 씬 그리드 스크롤 위치 — 다른 페이지/씬 상세를 다녀와도 위치 복원 (언마운트돼도 유지)
 let savedGridScroll = 0
 
+// 씬이 많을 때(1,000개 등) 모든 카드를 그리면 패널 여닫기·탭 이동마다 카드 전체를 다시 배치·생성해 끊긴다.
+// 카드 높이는 폭과 비율로 정해지므로, 화면 근처 줄만 그리고 위아래는 같은 높이의 여백(padding)으로 채운다.
+const GRID_GAP_X = 16 // gap-x-4
+const GRID_GAP_Y = 20 // gap-y-5
+const CARD_CAPTION = 48 // 이미지 아래 mt-2(8) + 캡션 h-10(40)
+const OVERSCAN_ROWS = 2
+
+function useGridWindow(
+  scrollRef: React.RefObject<HTMLDivElement | null>,
+  gridRef: React.RefObject<HTMLDivElement | null>,
+  count: number,
+  columns: number,
+  aspect: string
+): { start: number; end: number } {
+  const [range, setRange] = useState(() => ({ start: 0, end: Math.min(count, columns * 6) }))
+  const rangeRef = useRef(range)
+  const rowHRef = useRef(0)
+  const restoredRef = useRef(false)
+
+  const applyPadding = useCallback(() => {
+    const g = gridRef.current
+    const rowH = rowHRef.current
+    if (!g || rowH <= 0) return
+    const rows = Math.ceil(count / columns)
+    const { start, end } = rangeRef.current
+    g.style.paddingTop = `${Math.floor(start / columns) * rowH}px`
+    g.style.paddingBottom = `${Math.max(0, rows - Math.ceil(end / columns)) * rowH}px`
+  }, [gridRef, count, columns])
+
+  const measure = useCallback(() => {
+    const s = scrollRef.current
+    const g = gridRef.current
+    if (!s || !g) return
+    const [aw, ah] = aspect.split('/').map(Number)
+    const cardW = (g.clientWidth - (columns - 1) * GRID_GAP_X) / columns
+    if (!(cardW > 0) || !aw || !ah) return // 숨겨진 탭(display:none)이면 건너뛴다
+    const rowH = (cardW * ah) / aw + CARD_CAPTION + GRID_GAP_Y
+    rowHRef.current = rowH
+    const rows = Math.ceil(count / columns)
+    if (!restoredRef.current) {
+      // 첫 측정 때 여백을 먼저 깔아야 저장된 스크롤 위치로 돌아갈 수 있다
+      restoredRef.current = true
+      g.style.paddingBottom = `${rows * rowH}px`
+      if (savedGridScroll > 0) s.scrollTop = savedGridScroll
+    }
+    const top = g.getBoundingClientRect().top - s.getBoundingClientRect().top + s.scrollTop
+    const first = Math.max(0, Math.floor((s.scrollTop - top) / rowH) - OVERSCAN_ROWS)
+    const last = Math.min(rows, Math.ceil((s.scrollTop + s.clientHeight - top) / rowH) + OVERSCAN_ROWS)
+    const next = { start: Math.min(count, first * columns), end: Math.min(count, Math.max(first, last) * columns) }
+    if (next.start !== rangeRef.current.start || next.end !== rangeRef.current.end) {
+      rangeRef.current = next
+      setRange(next)
+    } else {
+      applyPadding()
+    }
+  }, [scrollRef, gridRef, count, columns, aspect, applyPadding])
+
+  // 새 범위를 그린 직후 여백을 맞춘다 (그리기와 여백이 한 프레임 안에서 같이 바뀌게)
+  useLayoutEffect(applyPadding, [range, applyPadding])
+  useLayoutEffect(measure, [measure])
+
+  useEffect(() => {
+    const s = scrollRef.current
+    if (!s) return
+    let raf = 0
+    const onScroll = (): void => {
+      if (s.clientWidth > 0) savedGridScroll = s.scrollTop
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        measure()
+      })
+    }
+    let hidden = s.clientWidth === 0
+    const ro = new ResizeObserver(() => {
+      // 숨겨졌던 탭이 다시 보이면 떠날 때의 스크롤 위치로 돌아간다
+      const nowHidden = s.clientWidth === 0
+      if (hidden && !nowHidden && savedGridScroll > 0) s.scrollTop = savedGridScroll
+      hidden = nowHidden
+      measure()
+    })
+    s.addEventListener('scroll', onScroll, { passive: true })
+    ro.observe(s)
+    return () => {
+      cancelAnimationFrame(raf)
+      s.removeEventListener('scroll', onScroll)
+      ro.disconnect()
+    }
+  }, [scrollRef, measure])
+
+  return range
+}
+
 function SceneGrid(): React.JSX.Element {
   const scenes = useScenesStore((s) => s.scenes)
   const activePresetId = useScenesStore((s) => s.activePresetId)
@@ -403,15 +497,8 @@ function SceneGrid(): React.JSX.Element {
     (s) => s.queue?.items.some((i) => i.state === 'generating' || i.state === 'pending') ?? false
   )
 
-  // 스크롤 위치 복원 — 마운트 직후 + 씬 목록이 늦게 로드된 경우 한 번 더
   const scrollRef = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = savedGridScroll
-  }, [])
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el && savedGridScroll > 0 && el.scrollTop === 0) el.scrollTop = savedGridScroll
-  }, [scenes.length])
+  const gridRef = useRef<HTMLDivElement>(null)
 
   // 드래그 재정렬 (5px 이동해야 시작 — 클릭과 구분).
   // DragOverlay 사용: 드래그 중엔 가벼운 클론이 커서를 따라가고 원본은 숨겨 프레임 저하 방지
@@ -487,6 +574,9 @@ function SceneGrid(): React.JSX.Element {
     return { label: '모든 씬', chip: '씬마다' }
   }, [editMode, selection, filter, visibleScenes])
   const targetLabel = reserveTarget.label
+  // 격자 칸 수 = 씬 + (전체 보기일 때) 씬 추가 버튼
+  const gridCount = visibleScenes.length + (filter === 'all' ? 1 : 0)
+  const gridWindow = useGridWindow(scrollRef, gridRef, gridCount, columns, CARD_ASPECT[cardOrientation])
   const targetEmpty = reserveTarget.ids !== undefined && reserveTarget.ids.length === 0
   const targetReserved = useMemo(() => {
     if (reserveTarget.ids === undefined) return stats.reserved > 0
@@ -696,9 +786,6 @@ function SceneGrid(): React.JSX.Element {
           <div
             ref={scrollRef}
             data-scene-scroll
-            onScroll={(e) => {
-              savedGridScroll = e.currentTarget.scrollTop
-            }}
             className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 no-scrollbar"
           >
             <DndContext
@@ -713,10 +800,11 @@ function SceneGrid(): React.JSX.Element {
                 strategy={rectSortingStrategy}
               >
                 <div
+                  ref={gridRef}
                   className="grid gap-x-4 gap-y-5"
                   style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
                 >
-                  {visibleScenes.map((scene) => (
+                  {visibleScenes.slice(gridWindow.start, gridWindow.end).map((scene) => (
                     <SceneCard
                       key={scene.id}
                       scene={scene}
@@ -725,7 +813,7 @@ function SceneGrid(): React.JSX.Element {
                       remaining={remainingByScene.get(scene.id) ?? 0}
                     />
                   ))}
-                  {filter === 'all' && (
+                  {filter === 'all' && gridWindow.end === gridCount && (
                     <button
                       onClick={() => void create('새 씬')}
                       className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line text-faint transition hover:text-accent"
@@ -916,41 +1004,6 @@ function dndStyle(sortable: ReturnType<typeof useSortable>): CSSProperties {
   }
 }
 
-// 씬이 많을 때(1,000개 등) 모든 카드를 다 그리면 패널 여닫기·창 크기 변경 때마다
-// 카드 전체를 다시 배치해서 끊긴다. 스크롤 칸에서 멀리 있는 카드는 같은 크기의 빈 틀만 그린다.
-const NEAR_MARGIN = '1200px 0px'
-const nearObservers = new WeakMap<Element, IntersectionObserver>()
-const nearCallbacks = new WeakMap<Element, (near: boolean) => void>()
-
-function useNearScroll(ref: React.RefObject<HTMLDivElement | null>): boolean {
-  const [near, setNear] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    const root = el?.closest('[data-scene-scroll]')
-    if (!el || !root) {
-      setNear(true)
-      return
-    }
-    let io = nearObservers.get(root)
-    if (!io) {
-      io = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) nearCallbacks.get(e.target)?.(e.isIntersecting)
-        },
-        { root, rootMargin: NEAR_MARGIN }
-      )
-      nearObservers.set(root, io)
-    }
-    nearCallbacks.set(el, setNear)
-    io.observe(el)
-    return () => {
-      io.unobserve(el)
-      nearCallbacks.delete(el)
-    }
-  }, [ref])
-  return near
-}
-
 const SceneCard = memo(function SceneCard(props: {
   scene: Scene
   live: string | null
@@ -958,23 +1011,7 @@ const SceneCard = memo(function SceneCard(props: {
   remaining: number
 }): React.JSX.Element {
   const sortable = useSortable({ id: `scene-${props.scene.id}` })
-  const boxRef = useRef<HTMLDivElement>(null)
-  const near = useNearScroll(boxRef)
-  const cardOrientation = useScenesStore((s) => s.cardOrientation)
-  return (
-    <div ref={boxRef}>
-      {near || sortable.isDragging ? (
-        <SceneCardBody {...props} sortable={sortable} />
-      ) : (
-        <div ref={sortable.setNodeRef} className="select-none" style={dndStyle(sortable)}>
-          <div className="rounded-xl bg-paper" style={{ aspectRatio: CARD_ASPECT[cardOrientation] }} />
-          <div className="mt-2 flex h-10 items-center px-0.5">
-            <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{props.scene.name}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
+  return <SceneCardBody {...props} sortable={sortable} />
 })
 
 function SceneCardBody({

@@ -29,6 +29,7 @@ import { openCensor } from '../stores/censor-store'
 import { useMetadataStore } from '../stores/metadata-store'
 import { buildSceneRequest, useScenesStore } from '../stores/scenes-store'
 import { toast } from '../stores/toast-store'
+import { useLayoutStore } from '../stores/layout-store'
 import { Button } from './ui/button'
 import {
   ContextMenu,
@@ -162,6 +163,7 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (inpaint) return
+      if (useLayoutStore.getState().centerMode !== 'scene') return // 다른 탭에 숨어 있을 때
       if (useMetadataStore.getState().open) return // 메타데이터 팝업 중엔 이동 금지
       const t = e.target as HTMLElement | null
       if (

@@ -55,6 +55,7 @@ import { cn } from '../lib/utils'
 import { SceneCuration } from './scene-curation'
 import { SceneDetail } from './scene-detail'
 import { SceneCardImage } from './scene-card-image'
+import { formatEta, useQueueRun } from '../lib/queue-run'
 import { PresetManager } from './preset-manager'
 import { SortableList, SortableRow } from './sortable-list'
 import { Button } from './ui/button'
@@ -701,6 +702,8 @@ function SceneGrid(): React.JSX.Element {
             </div>
           </div>
 
+          <RunProgress />
+
           {/* 요약 줄: 씬 개수와 이미지 장수를 나눠 보여주고, 씬마다 몇 장씩 뽑을지 정한다 */}
           <div className="flex min-w-0 flex-wrap items-center gap-2 px-5 pb-4">
             {(
@@ -1044,6 +1047,8 @@ function SceneCardBody({
     scene.thumbnailPath ? s.imageRevisions[scene.thumbnailPath] : undefined
   )
   const checked = selection.has(scene.id)
+  // 이번 생성 묶음에서 이 씬에 걸린 장수 ("생성 중 12 / 20")
+  const runTotal = useQueueRun((s) => s.run?.perScene.get(scene.id) ?? 0)
   // Fetch the existing 512px thumbnail on demand, not the full-resolution original.
   // Revision keys keep whitepaint/undo edits fresh without invalidating other cards.
   const src = scene.thumbnailPath
@@ -1130,9 +1135,22 @@ function SceneCardBody({
                     title={`이 씬 큐 잔여 ${remaining}장`}
                   >
                     {generating && <Loader2 size={11} className="animate-spin" />}
-                    {generating ? '생성 중' : '대기'} · 남은 {remaining}장
+                    {generating
+                      ? runTotal > 1
+                        ? `생성 중 ${(runTotal - remaining).toLocaleString()} / ${runTotal.toLocaleString()}`
+                        : '생성 중'
+                      : `대기 · 남은 ${remaining}장`}
                   </span>
                 )}
+              </div>
+            )}
+            {/* 이 씬의 이번 묶음 진행 막대 (여러 장을 뽑을 때만) */}
+            {generating && runTotal > 1 && (
+              <div className="absolute inset-x-3 bottom-3 h-1.5 overflow-hidden rounded-full bg-black/30">
+                <i
+                  className="block h-full rounded-full bg-accent transition-[width] duration-500"
+                  style={{ width: `${((runTotal - remaining) / runTotal) * 100}%` }}
+                />
               </div>
             )}
 
@@ -1261,6 +1279,38 @@ function SceneCardBody({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  )
+}
+
+/**
+ * 씬 생성 진행 줄: 이번 묶음의 완료 장수 / 전체 장수, 막대, 씬 완료 수, 속도와 남은 시간.
+ * 씬 개수와 이미지 장수는 단위가 달라 큰 숫자는 장수로, 씬은 옆의 작은 글씨로 센다.
+ */
+function RunProgress(): React.JSX.Element | null {
+  const run = useQueueRun((s) => s.run)
+  if (!run || run.sceneTotal === 0 || run.total === 0) return null
+  const finished = run.done + run.failed + run.cancelled
+  const pct = Math.min(100, (finished / run.total) * 100)
+  const eta = run.perMinute ? formatEta(run.remaining / run.perMinute) : null
+  return (
+    <div className="flex min-w-0 items-center gap-4 px-5 pb-3">
+      <div className="shrink-0 whitespace-nowrap text-[13px] text-muted">
+        <b className="mr-0.5 text-[20px] font-bold tabular-nums text-ink">{run.done.toLocaleString()}</b>/{' '}
+        {run.total.toLocaleString()}장
+      </div>
+      <div className="h-2 min-w-16 flex-1 overflow-hidden rounded-full bg-paper">
+        <i
+          className="block h-full rounded-full bg-accent transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="shrink-0 truncate whitespace-nowrap text-[12px] tabular-nums text-faint">
+        씬 {run.sceneDone.toLocaleString()} / {run.sceneTotal.toLocaleString()}개 완료
+        {run.failed > 0 && <span className="text-danger"> · 실패 {run.failed.toLocaleString()}</span>}
+        {run.perMinute ? ` · 분당 약 ${Math.round(run.perMinute)}장` : ''}
+        {eta ? ` · ${eta} 남음` : ' · 남은 시간 계산 중'}
+      </div>
+    </div>
   )
 }
 

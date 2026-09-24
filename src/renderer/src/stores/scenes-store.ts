@@ -66,8 +66,9 @@ interface ScenesState {
   adjustReserve: (id: number, delta: number) => Promise<void>
   adjustReserveAll: (delta: number) => Promise<void>
   /** 전체(또는 편집 모드 선택) 씬의 예약을 count장으로 맞춘다 */
-  setReserveAll: (count: number) => Promise<void>
-  clearReserveAll: (forceAll?: boolean) => Promise<void>
+  /** ids를 주면 그 씬만, 없으면 편집 모드 선택 씬, 그것도 없으면 프리셋 전체 */
+  setReserveAll: (count: number, ids?: number[]) => Promise<void>
+  clearReserveAll: (forceAll?: boolean, ids?: number[]) => Promise<void>
 
   // 편집 모드 일괄
   bulkMove: (presetId: number) => Promise<void>
@@ -341,12 +342,15 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     })
     void get().refreshReservedTotal()
   },
-  setReserveAll: async (count) => {
+  setReserveAll: async (count, idsArg) => {
     const n = Math.max(0, Math.floor(count))
     const { editMode, selection } = get()
-    const ids = editMode && selection.size > 0 ? [...selection] : undefined
+    const ids = idsArg ?? (editMode && selection.size > 0 ? [...selection] : undefined)
+    // 빈 목록을 본체에 넘기면 전체로 처리되므로 여기서 멈춘다.
+    if (ids && ids.length === 0) return
+    const target = ids ? new Set(ids) : null
     set({
-      scenes: get().scenes.map((s) => (!ids || selection.has(s.id) ? { ...s, reserveCount: n } : s))
+      scenes: get().scenes.map((s) => (!target || target.has(s.id) ? { ...s, reserveCount: n } : s))
     })
     await window.nais.invoke('scenes:setReserveAll', {
       presetId: get().activePresetId,
@@ -354,12 +358,17 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
       ids
     })
     void get().refreshReservedTotal()
-  },  clearReserveAll: async (forceAll = false) => {
-    // 편집 모드에서 체크된 씬이 있으면 그 씬들만 취소, 아니면 전체
+  },
+  clearReserveAll: async (forceAll = false, idsArg) => {
+    // ids를 주면 그 씬만, 편집 모드에서 체크된 씬이 있으면 그 씬들만 취소, 아니면 전체
     const { editMode, selection } = get()
-    const ids = !forceAll && editMode && selection.size > 0 ? [...selection] : undefined
+    const ids = forceAll
+      ? undefined
+      : (idsArg ?? (editMode && selection.size > 0 ? [...selection] : undefined))
+    if (ids && ids.length === 0) return
+    const target = ids ? new Set(ids) : null
     set({
-      scenes: get().scenes.map((s) => (!ids || selection.has(s.id) ? { ...s, reserveCount: 0 } : s))
+      scenes: get().scenes.map((s) => (!target || target.has(s.id) ? { ...s, reserveCount: 0 } : s))
     })
     if (forceAll) {
       await window.nais.invoke('scenes:clearAllReservations', undefined)

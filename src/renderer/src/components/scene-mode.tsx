@@ -474,7 +474,25 @@ function SceneGrid(): React.JSX.Element {
           : scenes,
     [scenes, filter]
   )
-  const targetLabel = editMode && selection.size > 0 ? `선택한 씬 ${selection.size}개` : '모든 씬'
+  // 일괄 예약·취소 대상: 편집 모드 선택 → 지금 필터에 보이는 씬 → 전체 씬
+  const reserveTarget = useMemo((): { ids?: number[]; label: string; chip: string } => {
+    if (editMode && selection.size > 0) {
+      return { ids: [...selection], label: `선택한 씬 ${selection.size}개`, chip: `선택 ${selection.size}개` }
+    }
+    if (filter !== 'all') {
+      const n = visibleScenes.length
+      const kind = filter === 'empty' ? '이미지 없는 씬' : '예약된 씬'
+      return { ids: visibleScenes.map((sc) => sc.id), label: `${kind} ${n.toLocaleString()}개`, chip: `${n.toLocaleString()}개 씬마다` }
+    }
+    return { label: '모든 씬', chip: '씬마다' }
+  }, [editMode, selection, filter, visibleScenes])
+  const targetLabel = reserveTarget.label
+  const targetEmpty = reserveTarget.ids !== undefined && reserveTarget.ids.length === 0
+  const targetReserved = useMemo(() => {
+    if (reserveTarget.ids === undefined) return stats.reserved > 0
+    const ids = new Set(reserveTarget.ids)
+    return scenes.some((sc) => sc.reserveCount > 0 && ids.has(sc.id))
+  }, [reserveTarget, scenes, stats.reserved])
 
   async function exportJson(): Promise<void> {
     await window.nais.invoke('scenes:exportJson', { presetId: activePresetId })
@@ -629,7 +647,7 @@ function SceneGrid(): React.JSX.Element {
               className="flex h-9 shrink-0 items-center gap-1 rounded-lg bg-paper pl-3 pr-1 text-[12px] font-medium text-muted"
               title={`${targetLabel}의 예약을 이 장수로 맞춥니다`}
             >
-              {editMode && selection.size > 0 ? `선택 ${selection.size}개` : '씬마다'}
+              {reserveTarget.chip}
               <EditableCount
                 value={perScene}
                 min={1}
@@ -645,7 +663,8 @@ function SceneGrid(): React.JSX.Element {
               <Button
                 variant="accent"
                 className="ml-1 h-7 rounded-md px-2.5 text-[12px]"
-                onClick={() => void setReserveAll(perScene)}
+                disabled={targetEmpty}
+                onClick={() => void setReserveAll(perScene, reserveTarget.ids)}
               >
                 예약
               </Button>
@@ -653,8 +672,8 @@ function SceneGrid(): React.JSX.Element {
             <IconBtn
               icon={<CalendarX size={16} />}
               tip={`${targetLabel} 예약 취소`}
-              disabled={stats.reserved === 0}
-              onClick={() => void clearReserveAll()}
+              disabled={!targetReserved}
+              onClick={() => void clearReserveAll(false, reserveTarget.ids)}
             />
           </div>
 
@@ -992,15 +1011,27 @@ const SceneCard = memo(function SceneCard({
               </div>
             )}
 
-            {/* 좌측 상단: 생성 중 · 큐 잔여 장수 */}
-            {remaining > 0 && (
-              <span
-                className="absolute left-2 top-2 flex h-6 items-center gap-1 rounded-lg bg-accent px-2 text-[11px] font-bold text-white shadow dark:text-paper"
-                title={`이 씬 큐 잔여 ${remaining}장`}
-              >
-                {generating && <Loader2 size={11} className="animate-spin" />}
-                {generating ? '생성 중' : '대기'} · 남은 {remaining}장
-              </span>
+            {/* 좌측 상단: 예약 장수 · 생성 중/큐 잔여 장수 */}
+            {(scene.reserveCount > 0 || remaining > 0) && (
+              <div className="absolute left-2 top-2 flex items-center gap-1">
+                {scene.reserveCount > 0 && (
+                  <span
+                    className="flex h-6 items-center rounded-lg bg-danger px-2 text-[11px] font-bold text-white shadow"
+                    title={`예약 ${scene.reserveCount}장`}
+                  >
+                    예약 {scene.reserveCount.toLocaleString()}
+                  </span>
+                )}
+                {remaining > 0 && (
+                  <span
+                    className="flex h-6 items-center gap-1 rounded-lg bg-accent px-2 text-[11px] font-bold text-white shadow dark:text-paper"
+                    title={`이 씬 큐 잔여 ${remaining}장`}
+                  >
+                    {generating && <Loader2 size={11} className="animate-spin" />}
+                    {generating ? '생성 중' : '대기'} · 남은 {remaining}장
+                  </span>
+                )}
+              </div>
             )}
 
             {/* 우측 상단 — 편집 체크박스 / 3점 메뉴 */}

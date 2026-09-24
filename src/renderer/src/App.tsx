@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { HistoryPanel } from './components/history-panel'
 import { LoadingScreen } from './components/loading-screen'
 import { Toaster } from './components/toaster'
@@ -35,6 +35,22 @@ export default function App(): React.JSX.Element {
   const setSettingsOpen = useLayoutStore((s) => s.setSettingsOpen)
   const centerMode = useLayoutStore((s) => s.centerMode)
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth)
+  // 가운데 화면은 패널을 여닫아도 다시 그리지 않는다 (씬 1,000개 같은 큰 화면이 통째로 다시 그려져 끊김)
+  const center = useMemo(
+    () =>
+      centerMode === 'inbox' ? (
+        <InboxView />
+      ) : centerMode === 'scene' ? (
+        <SceneMode />
+      ) : centerMode === 'director' ? (
+        <DirectorMode />
+      ) : centerMode === 'library' ? (
+        <LibraryView />
+      ) : (
+        <PreviewPane />
+      ),
+    [centerMode]
+  )
   const [ready, setReady] = useState(false)
   const [resizing, setResizing] = useState(false)
 
@@ -125,17 +141,7 @@ export default function App(): React.JSX.Element {
               </motion.div>
             )}
           </AnimatePresence>
-          {centerMode === 'inbox' ? (
-            <InboxView />
-          ) : centerMode === 'scene' ? (
-            <SceneMode />
-          ) : centerMode === 'director' ? (
-            <DirectorMode />
-          ) : centerMode === 'library' ? (
-            <LibraryView />
-          ) : (
-            <PreviewPane />
-          )}
+          {center}
           <AnimatePresence initial={false}>
             {rightOpen && centerMode !== 'inbox' && (
               <motion.div

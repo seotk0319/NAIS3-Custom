@@ -695,6 +695,7 @@ function SceneGrid(): React.JSX.Element {
           {/* 카드 그리드 (열 수만큼 폭에 꽉 차게). scrollbar-gutter로 스크롤바 등장 시 밀림 방지 */}
           <div
             ref={scrollRef}
+            data-scene-scroll
             onScroll={(e) => {
               savedGridScroll = e.currentTarget.scrollTop
             }}
@@ -915,17 +916,80 @@ function dndStyle(sortable: ReturnType<typeof useSortable>): CSSProperties {
   }
 }
 
-const SceneCard = memo(function SceneCard({
+// 씬이 많을 때(1,000개 등) 모든 카드를 다 그리면 패널 여닫기·창 크기 변경 때마다
+// 카드 전체를 다시 배치해서 끊긴다. 스크롤 칸에서 멀리 있는 카드는 같은 크기의 빈 틀만 그린다.
+const NEAR_MARGIN = '1200px 0px'
+const nearObservers = new WeakMap<Element, IntersectionObserver>()
+const nearCallbacks = new WeakMap<Element, (near: boolean) => void>()
+
+function useNearScroll(ref: React.RefObject<HTMLDivElement | null>): boolean {
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    const root = el?.closest('[data-scene-scroll]')
+    if (!el || !root) {
+      setNear(true)
+      return
+    }
+    let io = nearObservers.get(root)
+    if (!io) {
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) nearCallbacks.get(e.target)?.(e.isIntersecting)
+        },
+        { root, rootMargin: NEAR_MARGIN }
+      )
+      nearObservers.set(root, io)
+    }
+    nearCallbacks.set(el, setNear)
+    io.observe(el)
+    return () => {
+      io.unobserve(el)
+      nearCallbacks.delete(el)
+    }
+  }, [ref])
+  return near
+}
+
+const SceneCard = memo(function SceneCard(props: {
+  scene: Scene
+  live: string | null
+  generating: boolean
+  remaining: number
+}): React.JSX.Element {
+  const sortable = useSortable({ id: `scene-${props.scene.id}` })
+  const boxRef = useRef<HTMLDivElement>(null)
+  const near = useNearScroll(boxRef)
+  const cardOrientation = useScenesStore((s) => s.cardOrientation)
+  return (
+    <div ref={boxRef}>
+      {near || sortable.isDragging ? (
+        <SceneCardBody {...props} sortable={sortable} />
+      ) : (
+        <div ref={sortable.setNodeRef} className="select-none" style={dndStyle(sortable)}>
+          <div className="rounded-xl bg-paper" style={{ aspectRatio: CARD_ASPECT[cardOrientation] }} />
+          <div className="mt-2 flex h-10 items-center px-0.5">
+            <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{props.scene.name}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})
+
+function SceneCardBody({
   scene,
   live,
   generating,
-  remaining
+  remaining,
+  sortable
 }: {
   scene: Scene
   live: string | null
   generating: boolean
   /** 이 씬의 큐 잔여 장수(대기+생성 중). 0이면 배지 숨김 */
   remaining: number
+  sortable: ReturnType<typeof useSortable>
 }): React.JSX.Element {
   const editMode = useScenesStore((s) => s.editMode)
   const cardOrientation = useScenesStore((s) => s.cardOrientation)
@@ -939,8 +1003,6 @@ const SceneCard = memo(function SceneCard({
   const thumbnailRevision = useGenerationStore((s) =>
     scene.thumbnailPath ? s.imageRevisions[scene.thumbnailPath] : undefined
   )
-  const sortable = useSortable({ id: `scene-${scene.id}` })
-
   const checked = selection.has(scene.id)
   // Fetch the existing 512px thumbnail on demand, not the full-resolution original.
   // Revision keys keep whitepaint/undo edits fresh without invalidating other cards.
@@ -1089,7 +1151,7 @@ const SceneCard = memo(function SceneCard({
           </div>
 
           {/* 이미지 아래: 이름 · 이미지 장수 · 예약 +/- */}
-          <div className="mt-2 flex items-center gap-2 px-0.5">
+          <div className="mt-2 flex h-10 items-center gap-2 px-0.5">
             <div className="min-w-0 flex-1">
               {editMode ? (
                 <input
@@ -1160,7 +1222,7 @@ const SceneCard = memo(function SceneCard({
       </ContextMenuContent>
     </ContextMenu>
   )
-})
+}
 
 function MenuItem({
   icon,

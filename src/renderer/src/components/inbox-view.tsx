@@ -673,8 +673,9 @@ export function InboxView(): React.JSX.Element {
             </div>
             <p className="leading-relaxed text-muted">
               플랫폼마다 한 번 로그인하면 NAIS3가 직접 알림을 모아요. 로그인 창은 크롬(없으면
-              엣지)으로 열리고, NAIS3 전용 프로필이라 평소 쓰는 크롬과 섞이지 않아요. 체크를 끈
-              플랫폼은 모으지도, 목록에 보여주지도 않아요.
+              엣지)으로 열리고, NAIS3 전용 프로필이라 평소 쓰는 크롬과 섞이지 않아요. 로그인한 뒤
+              그 창을 닫으면 NAIS3가 연결을 마쳐요. 체크를 끈 플랫폼은 모으지도, 목록에 보여주지도
+              않아요.
             </p>
             {data?.directError && <p className="mt-2 text-danger">{data.directError}</p>}
             <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
@@ -685,7 +686,7 @@ export function InboxView(): React.JSX.Element {
                   ? '로그인 상태를 확인하고 있어요…'
                   : p.awaitingLogin
                     ? p.loginWindowOpen
-                      ? '열린 창에서 로그인하면 알아서 연결돼요'
+                      ? '로그인한 뒤 창을 닫으면 알아서 연결돼요'
                       : '로그인 창이 닫혔어요. 로그인했다면 ‘로그인 완료’를 눌러주세요'
                     : relogin
                       ? '다시 로그인이 필요해요'

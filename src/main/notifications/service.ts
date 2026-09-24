@@ -212,7 +212,7 @@ export async function getInbox(query: InboxQuery): Promise<InboxResult> {
 
 const DIRECT_MESSAGES: Record<string, string> = {
   BROWSER_NOT_FOUND: '크롬이나 엣지를 찾지 못했어요. 둘 중 하나를 설치한 뒤 다시 눌러주세요.',
-  BROWSER_ALREADY_OPEN: 'NAIS3 로그인 창이 이미 열려 있어요. 그 창을 닫은 뒤 다시 눌러주세요.',
+  BROWSER_ALREADY_OPEN: 'NAIS3 로그인 창이 아직 열려 있어요. 그 창을 닫은 뒤 다시 눌러주세요.',
   BROWSER_START_TIMEOUT: '로그인 창을 열지 못했어요. 잠시 뒤 다시 눌러주세요.',
   ENCRYPTION_UNAVAILABLE: '이 PC에서 로그인 정보를 암호화할 수 없어서 저장하지 않았어요.',
   UNSUPPORTED_SESSION_STORE: '로그인 정보 파일을 읽지 못했어요. 파일은 그대로 두었어요.',
@@ -235,7 +235,7 @@ export async function connectInboxPlatform(platform: string): Promise<InboxConne
   if (result.state === 'login-required')
     return {
       state: 'login-required',
-      message: '로그인 창을 열었어요. 창에서 로그인하면 알아서 연결돼요.'
+      message: '로그인 창을 열었어요. 로그인한 뒤 그 창을 닫으면 알아서 연결돼요.'
     }
   return { state: 'error', message: directMessage(result.detail || 'UNKNOWN') }
 }

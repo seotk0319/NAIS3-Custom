@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { closeSync, existsSync, openSync } from 'node:fs'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { connectCdp, type CdpConnection } from './cdp'
@@ -7,7 +7,10 @@ import { connectCdp, type CdpConnection } from './cdp'
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Google refuses sign-in inside embedded browsers, so accounts are signed in through the
-// person's own Chrome (or Edge) in a profile that belongs to NAIS3 alone.
+// person's own Chrome (or Edge) in a profile that belongs to NAIS3 alone. Google also
+// refuses a browser started for remote control ("this browser or app may not be secure"),
+// so the window a person signs in on is an ordinary one; only after it closes does NAIS3
+// reopen the same profile under DevTools to read the sessions.
 export function browserCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   const roots = [env['PROGRAMFILES'], env['PROGRAMFILES(X86)'], env['LOCALAPPDATA']].filter(
     (root): root is string => !!root
@@ -16,6 +19,60 @@ export function browserCandidates(env: NodeJS.ProcessEnv = process.env): string[
     ...roots.map((root) => join(root, 'Google', 'Chrome', 'Application', 'chrome.exe')),
     ...roots.map((root) => join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe'))
   ]
+}
+
+function findBrowser(): string {
+  const executable = browserCandidates().find((path) => existsSync(path))
+  if (!executable) throw new Error('BROWSER_NOT_FOUND')
+  return executable
+}
+
+/**
+ * Whether a browser is running on this profile. Chrome holds the profile's lockfile open
+ * while it runs and removes it on exit, so this sees windows NAIS3 did not start itself.
+ */
+export function profileInUse(profileDir: string): boolean {
+  try {
+    closeSync(openSync(join(profileDir, 'lockfile'), 'r+'))
+    return false
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
+  }
+}
+
+/** Waits until no browser holds the profile, so the next start owns it. */
+export async function profileReleased(profileDir: string, timeoutMs = 8_000): Promise<boolean> {
+  const started = Date.now()
+  while (profileInUse(profileDir)) {
+    if (Date.now() - started > timeoutMs) return false
+    await sleep(250)
+  }
+  return true
+}
+
+/**
+ * Opens the sign-in page in an ordinary browser window: no DevTools port and nothing
+ * attached, exactly what the person would get by starting the browser themselves. If a
+ * window is already open on this profile, the page opens there as a new tab.
+ */
+export async function openSignInWindow(profileDir: string, url: string): Promise<void> {
+  const executable = findBrowser()
+  await mkdir(profileDir, { recursive: true })
+  const child = spawn(
+    executable,
+    ['--user-data-dir=' + profileDir, '--no-first-run', '--no-default-browser-check', url],
+    { stdio: 'ignore', windowsHide: false, detached: true }
+  )
+  child.once('error', () => undefined)
+  child.unref()
+  const started = Date.now()
+  while (Date.now() - started < 15_000) {
+    if (profileInUse(profileDir)) return
+    if (child.exitCode !== null && child.exitCode !== 0) throw new Error('BROWSER_START_TIMEOUT')
+    await sleep(200)
+  }
+  throw new Error('BROWSER_START_TIMEOUT')
 }
 
 export interface BrowserCookie {
@@ -48,9 +105,10 @@ export class LoginBrowser {
   ) {}
 
   static async launch(profileDir: string): Promise<LoginBrowser> {
-    const executable = browserCandidates().find((path) => existsSync(path))
-    if (!executable) throw new Error('BROWSER_NOT_FOUND')
+    const executable = findBrowser()
     await mkdir(profileDir, { recursive: true })
+    // An ordinary window on this profile would swallow the launch; the caller checks first.
+    if (profileInUse(profileDir)) throw new Error('BROWSER_ALREADY_OPEN')
     // Port 0 lets the browser pick a free port and report it in this file.
     const portFile = join(profileDir, 'DevToolsActivePort')
     await rm(portFile, { force: true })
@@ -150,8 +208,13 @@ export class LoginBrowser {
   async close(): Promise<void> {
     await this.cdp.send('Browser.close').catch(() => undefined)
     this.cdp.close()
-    setTimeout(() => {
-      if (this.child.exitCode === null) this.child.kill()
-    }, 5_000).unref()
+    const started = Date.now()
+    while (this.child.exitCode === null && this.child.signalCode === null) {
+      if (Date.now() - started > 5_000) {
+        this.child.kill()
+        break
+      }
+      await sleep(100)
+    }
   }
 }

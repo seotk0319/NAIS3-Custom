@@ -23,7 +23,13 @@ import {
   type SessionProfile,
   type EngineRequest
 } from './engine.mjs'
-import { LoginBrowser, type BrowserCookie } from './login-browser'
+import {
+  LoginBrowser,
+  openSignInWindow,
+  profileInUse,
+  profileReleased,
+  type BrowserCookie
+} from './login-browser'
 import { ReplyError } from './babe-reply'
 import { imageReadAllowed, IMAGE_ROUTES, readWorkImage } from './work-image-routes'
 import {
@@ -41,13 +47,8 @@ import {
   SITES,
   captureComplete,
   cookieBelongs,
-  cookieNames,
   cookieOnly,
-  hostBelongs,
-  loginSignal,
   sessionReady,
-  startWatch,
-  type LoginWatch,
   type DirectPlatformId
 } from './platforms'
 import { createVault, type DirectState } from './vault'
@@ -123,10 +124,10 @@ export function createDirectCollector(options: {
     timer: NodeJS.Timeout | null = null,
     watchTimer: NodeJS.Timeout | null = null,
     watching = false,
+    signInOpen = false,
     ticking = false,
     stopped = false
   const awaitingLogin = new Set<DirectPlatformId>(),
-    watches = new Map<DirectPlatformId, LoginWatch>(),
     connecting = new Set<DirectPlatformId>(),
     renewing = new Map<DirectPlatformId, Promise<boolean>>(),
     lastRenewal = new Map<DirectPlatformId, string>()
@@ -506,46 +507,55 @@ export function createDirectCollector(options: {
     await persist()
   }
 
-  // A quiet attempt is the watcher's: it never opens a window or a tab, and a failure
-  // leaves the person to finish signing in.
-  async function attempt(platform: DirectPlatformId, quiet: boolean): Promise<ConnectResult> {
+  // Reads the platform's session from the NAIS3 profile under DevTools. The sign-in window
+  // must be closed first: Google refuses to sign in on a browser under remote control, and
+  // one profile can only be open once. `openLogin` opens that window when no session is found.
+  async function attempt(platform: DirectPlatformId, openLogin: boolean): Promise<ConnectResult> {
     if (connecting.has(platform)) return { state: 'error', detail: 'CONNECT_IN_PROGRESS' }
     connecting.add(platform)
     try {
       const s = await ready()
-      if (quiet && !browser?.alive) return { state: 'login-required', detail: null }
-      const open = await openBrowser()
-      const profile = await capture(open, platform)
-      if (profile) {
-        await importCookies(platform, await open.cookies())
-        s.userAgent = open.userAgent
-        ses.setUserAgent(open.userAgent)
-        s.platforms[platform] = { profile, connectedAt: new Date().toISOString() }
-        delete s.checkpoints[platform]
-        delete s.lastRun[platform]
-        await persist()
-        // The first collection is the proof: a signed-out site answers it with 401/403.
-        const result = await runPlatform(platform)
-        if (result.status !== 'login') {
-          awaitingLogin.delete(platform)
-          watches.delete(platform)
-          if (!awaitingLogin.size) await closeBrowser()
-          await heartbeat().catch(() => undefined)
-          return { state: 'connected', detail: result.status === 'error' ? result.detail : null }
-        }
-        await forget(platform)
+      // The person is still signing in: another platform opens as a tab in that window.
+      if (!browser?.alive && profileInUse(options.profileDir)) {
+        if (!openLogin) return { state: 'login-required', detail: null }
+        await openSignInWindow(options.profileDir, SITES[platform])
+        waitForSignIn(platform)
+        return { state: 'login-required', detail: null }
       }
-      if (!quiet) {
-        // One sign-in tab per platform: asking again does not stack tabs.
-        const urls = await open.pageUrls().catch(() => [] as string[])
-        if (!urls.some((url) => hostBelongs(platform, url))) await open.openTab(SITES[platform])
-        awaitingLogin.add(platform)
-        if (!watches.has(platform)) watches.set(platform, startWatch(Date.now()))
-        if (!watchTimer) {
-          watchTimer = setInterval(() => void watchTick(), 2_000)
-          watchTimer.unref()
+      let connected: ConnectResult | null = null
+      try {
+        const open = await openBrowser()
+        const profile = await capture(open, platform)
+        if (profile) {
+          await importCookies(platform, await open.cookies())
+          s.userAgent = open.userAgent
+          ses.setUserAgent(open.userAgent)
+          s.platforms[platform] = { profile, connectedAt: new Date().toISOString() }
+          delete s.checkpoints[platform]
+          delete s.lastRun[platform]
+          await persist()
+          // The first collection is the proof: a signed-out site answers it with 401/403.
+          const result = await runPlatform(platform)
+          if (result.status !== 'login')
+            connected = {
+              state: 'connected',
+              detail: result.status === 'error' ? result.detail : null
+            }
+          else await forget(platform)
         }
+      } finally {
+        // The DevTools browser only lives for the check; another check may still be using it.
+        if (connecting.size === 1) await closeBrowser()
+      }
+      if (connected) {
+        awaitingLogin.delete(platform)
         await heartbeat().catch(() => undefined)
+        return connected
+      }
+      if (openLogin) {
+        await profileReleased(options.profileDir)
+        await openSignInWindow(options.profileDir, SITES[platform])
+        waitForSignIn(platform)
       }
       return { state: 'login-required', detail: null }
     } catch (error) {
@@ -554,43 +564,48 @@ export function createDirectCollector(options: {
       connecting.delete(platform)
     }
   }
-  const connect = (platform: DirectPlatformId): Promise<ConnectResult> => attempt(platform, false)
+  const connect = (platform: DirectPlatformId): Promise<ConnectResult> => attempt(platform, true)
 
   function stopWatching(): void {
     if (watchTimer) clearInterval(watchTimer)
     watchTimer = null
   }
-  // Watches the sign-in window from the browser side only: tab addresses and cookie
-  // names. Nothing is attached to the page the person is signing in on.
+  function waitForSignIn(platform: DirectPlatformId): void {
+    awaitingLogin.add(platform)
+    signInOpen = true
+    if (!watchTimer) {
+      watchTimer = setInterval(() => void watchTick(), 1_500)
+      watchTimer.unref()
+    }
+    void heartbeat().catch(() => undefined)
+  }
+  // Watches only whether the sign-in window is still open (the profile's lockfile), never
+  // the page itself. Once it closes, each platform waiting for sign-in is checked once;
+  // one still signed out keeps its "로그인 완료" button for another try.
   async function watchTick(): Promise<void> {
     if (watching || stopped) return
     watching = true
     try {
-      if (!awaitingLogin.size) return stopWatching()
-      const open = browser
-      if (!open?.alive) return
-      const [cookies, urls] = await Promise.all([open.cookies(), open.pageUrls()])
-      for (const platform of [...awaitingLogin]) {
-        const watch = watches.get(platform)
-        if (!watch || connecting.has(platform)) continue
-        const seen = { names: cookieNames(platform, cookies), urls }
-        const next = loginSignal(platform, watch, seen, Date.now())
-        watches.set(platform, next.watch)
-        if (!next.fire) continue
-        const result = await attempt(platform, true)
-        // A false alarm becomes the new normal, so the same cookies do not fire again.
-        const after = watches.get(platform)
-        if (result.state !== 'connected' && after) {
-          const now = await open.cookies().catch(() => cookies)
-          watches.set(platform, { ...after, baseline: cookieNames(platform, now), pending: null })
-        }
+      if (!awaitingLogin.size) {
+        signInOpen = false
+        return stopWatching()
       }
+      if (browser?.alive || connecting.size) return
+      if (profileInUse(options.profileDir)) {
+        signInOpen = true
+        return
+      }
+      if (!signInOpen) return
+      signInOpen = false
+      for (const platform of [...awaitingLogin]) await attempt(platform, false)
+      await heartbeat().catch(() => undefined)
     } catch {
-      /* The window closed or the browser went away; the button still works. */
+      /* The next tick or the button tries again. */
     } finally {
       watching = false
     }
   }
+
 
   // 답글 쓰기는 수집용 transport(읽기 전용)와 분리한다. 플랫폼마다 그 사이트의 댓글 주소로만
   // 보낼 수 있고, 만료된 토큰은 수집과 같은 방식으로 한 번 갱신한다.
@@ -753,7 +768,6 @@ export function createDirectCollector(options: {
     },
     async disconnect(platform) {
       awaitingLogin.delete(platform)
-      watches.delete(platform)
       await forget(platform)
       await heartbeat().catch(() => undefined)
     },
@@ -768,7 +782,7 @@ export function createDirectCollector(options: {
               connected: !!s?.platforms[p],
               awaitingLogin: awaitingLogin.has(p),
               connecting: connecting.has(p),
-              windowOpen: browser?.alive === true
+              windowOpen: signInOpen
             }
           ])
         ) as Record<DirectPlatformId, DirectPlatformState>

@@ -398,7 +398,8 @@ export function InboxView(): React.JSX.Element {
         key={item.id}
         onClick={() => setSelected(item)}
         className={cn(
-          'relative flex w-full items-start gap-3 border-b border-line py-2.5 pr-4 text-left transition-colors last:border-b-0',
+          // 화면 밖 줄은 배치·그리기를 건너뛴다 (탭을 처음 열 때 수백 줄을 한꺼번에 배치하던 90ms 제거)
+          'relative flex w-full items-start gap-3 border-b border-line py-2.5 pr-4 text-left transition-colors [contain-intrinsic-size:auto_64px] [content-visibility:auto] last:border-b-0',
           nested ? 'pl-9' : 'pl-5',
           selected?.id === item.id ? 'bg-accent-soft' : 'hover:bg-surface-2/50'
         )}
@@ -461,7 +462,7 @@ export function InboxView(): React.JSX.Element {
     const expanded = open.has(row.key)
     const unread = row.items.some((x) => x.unread === true)
     return (
-      <div key={row.key}>
+      <div key={row.key} className="[contain-intrinsic-size:auto_64px] [content-visibility:auto]">
         <button
           onClick={() => toggleOpen(row.key)}
           aria-expanded={expanded}
@@ -673,8 +674,8 @@ export function InboxView(): React.JSX.Element {
             </div>
             <p className="leading-relaxed text-muted">
               플랫폼마다 한 번 로그인하면 NAIS3가 직접 알림을 모아요. 로그인 창은 크롬(없으면
-              엣지)으로 열리고, NAIS3 전용 프로필이라 평소 쓰는 크롬과 섞이지 않아요. 로그인한 뒤
-              그 창을 닫으면 NAIS3가 연결을 마쳐요. 체크를 끈 플랫폼은 모으지도, 목록에 보여주지도
+              엣지)으로 열리고, NAIS3 전용 프로필이라 평소 쓰는 크롬과 섞이지 않아요. 로그인한 뒤 그
+              창을 닫으면 NAIS3가 연결을 마쳐요. 체크를 끈 플랫폼은 모으지도, 목록에 보여주지도
               않아요.
             </p>
             {data?.directError && <p className="mt-2 text-danger">{data.directError}</p>}
@@ -980,7 +981,9 @@ export function InboxView(): React.JSX.Element {
                 <div className="rounded-xl border border-line px-3 py-2.5 text-[12px]">
                   <p className="font-semibold text-ink">
                     {replyTarget.author || '작성자 미확인'}
-                    <span className="ml-1.5 font-normal text-faint">{time(replyTarget.at ?? null)}</span>
+                    <span className="ml-1.5 font-normal text-faint">
+                      {time(replyTarget.at ?? null)}
+                    </span>
                   </p>
                   <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-muted">
                     {replyTarget.content}
@@ -1071,7 +1074,10 @@ function WorkThumb({ item, className }: { item: InboxItem; className: string }):
       />
     )
   const name = workNameOf(item)
-  const letter = (name || INBOX_PLATFORMS[item.platform] || '?').trim().replace(/^re:\s*/i, '').charAt(0)
+  const letter = (name || INBOX_PLATFORMS[item.platform] || '?')
+    .trim()
+    .replace(/^re:\s*/i, '')
+    .charAt(0)
   return (
     <span
       aria-hidden

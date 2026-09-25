@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { imageUrl } from '../lib/constants'
 import { useGenerationStore } from '../stores/generation-store'
@@ -30,6 +30,21 @@ export function Lightbox({
     return () => window.removeEventListener('keydown', onKey)
   }, [index, filePaths.length, onIndex, onClose])
 
+  // 마우스 휠로 이전/다음 이미지. 터치패드처럼 잘게 오는 휠은 모아서 한 칸만 넘긴다.
+  const wheel = useRef({ sum: 0, last: 0 })
+  const onWheel = (e: React.WheelEvent): void => {
+    const w = wheel.current
+    const now = performance.now()
+    if (now - w.last > 250) w.sum = 0
+    w.sum += Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+    if (Math.abs(w.sum) < 40 || now - w.last < 120) return
+    const step = w.sum > 0 ? 1 : -1
+    w.sum = 0
+    w.last = now
+    const next = Math.min(filePaths.length - 1, Math.max(0, index + step))
+    if (next !== index) onIndex(next)
+  }
+
   if (index < 0 || index >= filePaths.length) return null
   const hasPrev = index > 0
   const hasNext = index < filePaths.length - 1
@@ -38,6 +53,7 @@ export function Lightbox({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
       onClick={onClose}
+      onWheel={onWheel}
     >
       <button
         className="absolute right-4 top-4 grid size-10 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"

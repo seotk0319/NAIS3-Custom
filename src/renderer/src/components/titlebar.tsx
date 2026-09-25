@@ -127,10 +127,11 @@ function V5UsageStat({ usage }: { usage: V5UsageStatus | null }): React.JSX.Elem
         {usage.isNegative ? '−' : ''}
         {usage.percent}%
       </span>
-      <span className="h-1 w-10 overflow-hidden rounded-full bg-surface-2">
+      {/* 좁은 창에서는 덜 중요한 것부터 숨긴다: 약 N장(1420px 미만) → 막대(1300px 미만). 소모량 칩(-N)이 붙어도 안 잘리는 폭 */}
+      <span className="hidden h-1 w-10 overflow-hidden rounded-full bg-surface-2 min-[1300px]:block">
         <span className="block h-full rounded-full bg-[#1fa56a]" style={{ width: `${barPercent}%` }} />
       </span>
-      <span className="tabular-nums text-muted">
+      <span className="hidden tabular-nums text-muted min-[1420px]:inline">
         {usage.isNegative ? '제한됨' : `약 ${estimateV5Images(usage).toLocaleString()}장`}
       </span>
     </span>
@@ -206,16 +207,24 @@ export function Titlebar(): React.JSX.Element {
       className="drag relative grid h-14 shrink-0 select-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 bg-paper px-3"
       style={{ paddingLeft: isMac ? 90 : undefined }}
     >
-      {/* 왼쪽: 패널 토글 · 앱 이름 · 업데이트 */}
+      {/* 왼쪽: 패널 토글 · 앱 이름 · 업데이트 · 잔량 (오른쪽은 버튼이 많아 좁은 창에서 잘려서 여기로) */}
       <div className="flex min-w-0 items-center gap-1.5">
         <BarButton onClick={toggleLeft} active={leftOpen} title="생성 패널 접기/펴기">
           <PanelLeft size={16} />
         </BarButton>
         <img src={nais3Icon} alt="" className="ml-1 size-6 shrink-0 rounded-md" draggable={false} />
-        <span className="truncate text-[14px] font-bold text-ink">
+        {/* 1200px 미만에서는 앱 이름 글자를 숨기고 로고만 남겨 잔량 표시 자리를 만든다 */}
+        <span className="hidden shrink-0 whitespace-nowrap text-[14px] font-bold text-ink min-[1200px]:inline">
           {profileTitle ?? 'NAIS3 Custom'}
         </span>
         <UpdateButton />
+        {(anlasBalance !== null || v5Usage) && (
+          <div className="no-drag ml-2 flex h-9 min-w-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-xl bg-surface px-3 text-[12.5px]">
+            <AnlasStat balance={anlasBalance} cost={anlasCost} />
+            {anlasBalance !== null && v5Usage && <span className="h-3.5 w-px shrink-0 bg-line" />}
+            <V5UsageStat usage={v5Usage} />
+          </div>
+        )}
       </div>
 
       {/* 가운데: 탭 (창 한가운데 고정) */}
@@ -223,15 +232,8 @@ export function Titlebar(): React.JSX.Element {
         <PageNav />
       </div>
 
-      {/* 오른쪽: 잔량 · 테마 · 패널 · 설정 · 창 컨트롤 */}
+      {/* 오른쪽: 테마 · 패널 · 설정 · 창 컨트롤 */}
       <div className="flex min-w-0 items-center justify-end gap-1">
-        {(anlasBalance !== null || v5Usage) && (
-          <div className="no-drag mr-1 flex h-9 min-w-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-xl bg-surface px-3 text-[12.5px]">
-            <AnlasStat balance={anlasBalance} cost={anlasCost} />
-            {anlasBalance !== null && v5Usage && <span className="h-3.5 w-px shrink-0 bg-line" />}
-            <V5UsageStat usage={v5Usage} />
-          </div>
-        )}
         <div className="no-drag mx-0.5 shrink-0">
           <ThemeToggle />
         </div>

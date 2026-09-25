@@ -6,6 +6,7 @@ import sharp from 'sharp'
 import type { DirectorMethod, HistoryItem, ImageMetadata } from '../../shared/types'
 import { getDb } from '../db'
 import { getSetting } from '../db/settings'
+import { localDateRange } from '../library/repo'
 import { sanitizeImageMetadata } from './strip-metadata'
 
 /**
@@ -272,8 +273,12 @@ export function listImages(
   // 그림체 월드컵 이미지는 월드컵 탭에서만 본다 (히스토리·라이브러리에 수백 장이 섞이지 않게)
   where.push("kind != 'arena'")
   if (filter?.date) {
-    where.push("date(created_at, 'localtime') = ?")
-    values.push(filter.date)
+    // 줄마다 시간대 변환하던 date(…,'localtime') 대신 범위 조건 (idx_images_created 사용)
+    const range = localDateRange(filter.date)
+    if (range) {
+      where.push('created_at >= ? AND created_at < ?')
+      values.push(range[0], range[1])
+    }
   }
   if (filter?.unfiledOnly) {
     where.push('library_folder_id IS NULL')

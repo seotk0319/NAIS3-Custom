@@ -56,7 +56,8 @@ type GenerateFn = (
  * - 이미 pending이 남은 동안에는 새 묶음을 받지 않아 씬 대량 생성 사이에 작업이 끼지 않음
  */
 export class GenerationQueue extends EventEmitter {
-  private static readonly MAX_TERMINAL_ITEMS = 500
+  // 화면은 끝난 항목의 id·상태만 본다 (누적 수는 counts). 500개를 싣고 다니면 알림 한 번이 1.5MB였다.
+  private static readonly MAX_TERMINAL_ITEMS = 120
   private items = new Map<string, InternalQueueItem>()
   private controllers = new Map<string, AbortController>()
   private activeAccounts = new Map<string, string>()
@@ -421,6 +422,14 @@ export class GenerationQueue extends EventEmitter {
     const { allowedAccountIds: _allowedAccountIds, ...publicItem } = item
     const request = { ...item.request }
     delete request.source
+    if (item.state !== 'generating') {
+      // 대기·완료 항목은 화면이 sceneId만 쓴다 — 프롬프트 전문은 싣지 않는다 (대기 1,000장이면 수 MB)
+      request.prompt = ''
+      request.negativePrompt = ''
+      request.characterPrompts = []
+      delete request.promptParts
+      delete request.extraCharRefs
+    }
     return { ...publicItem, request }
   }
 

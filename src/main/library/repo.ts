@@ -14,15 +14,52 @@ interface FolderRow {
 }
 
 export function listLibraryDates(): LibraryDateGroup[] {
-  return getDb()
+  // images 한 줄엔 썸네일 BLOB이 들어 있어 표를 훑으면 3만 장에 3~5초 본체가 멈췄다.
+  // created_at 인덱스만 읽어(covering) UTC 10분 단위로 묶고, 월드컵 이미지는 kind 인덱스로 따로 빼며,
+  // 로컬 날짜 변환은 여기서 한다 (시간대가 :30·:45인 곳도 맞게).
+  const db = getDb()
+  const all = db
+    .prepare('SELECT substr(created_at, 1, 15) AS bucket, COUNT(*) AS count FROM images GROUP BY bucket')
+    .all() as { bucket: string; count: number }[]
+  const arena = db
     .prepare(
-      `SELECT date(created_at, 'localtime') AS date, COUNT(*) AS count
-       FROM images
-       WHERE kind != 'arena'
-       GROUP BY date(created_at, 'localtime')
-       ORDER BY date DESC`
+      "SELECT substr(created_at, 1, 15) AS bucket, COUNT(*) AS count FROM images WHERE kind = 'arena' GROUP BY bucket"
     )
-    .all() as LibraryDateGroup[]
+    .all() as { bucket: string; count: number }[]
+  const minus = new Map(arena.map((r) => [r.bucket, r.count]))
+  const rows = all.map((r) => ({ bucket: r.bucket, count: r.count - (minus.get(r.bucket) ?? 0) }))
+  const byDate = new Map<string, number>()
+  for (const r of rows) {
+    if (r.count <= 0) continue
+    const d = new Date(r.bucket.replace(' ', 'T') + '0:00Z')
+    if (Number.isNaN(d.getTime())) continue
+    const key = localDateKey(d)
+    byDate.set(key, (byDate.get(key) ?? 0) + r.count)
+  }
+  return [...byDate.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
+    .map(([date, count]) => ({ date, count }))
+}
+
+function localDateKey(d: Date): string {
+  return (
+    d.getFullYear() +
+    '-' +
+    String(d.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(d.getDate()).padStart(2, '0')
+  )
+}
+
+/** 로컬 날짜(YYYY-MM-DD) 하루를 created_at(UTC 'YYYY-MM-DD HH:MM:SS') 범위로 — 인덱스를 탄다 */
+export function localDateRange(date: string): [string, string] | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return null
+  const fmt = (d: Date): string => d.toISOString().slice(0, 19).replace('T', ' ')
+  const y = Number(m[1])
+  const mo = Number(m[2]) - 1
+  const day = Number(m[3])
+  return [fmt(new Date(y, mo, day)), fmt(new Date(y, mo, day + 1))]
 }
 
 export function listLibraryFolders(): {

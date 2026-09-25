@@ -231,8 +231,10 @@ describe('GenerationQueue', () => {
     await vi.waitFor(() => expect(queue.status().counts.done).toBe(600), { timeout: 10_000 })
 
     const status = queue.status()
-    expect(status.items).toHaveLength(500)
+    expect(status.items).toHaveLength(120)
     expect(status.items.every((item) => item.state === 'done')).toBe(true)
+    // 끝난 항목은 화면에 프롬프트를 싣지 않는다
+    expect(status.items.every((item) => item.request.prompt === '')).toBe(true)
     expect(status.counts).toMatchObject({ done: 600, pending: 0, generating: 0 })
   })
 })

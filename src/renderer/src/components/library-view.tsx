@@ -30,6 +30,7 @@ import {
   setLibraryEntryDrag
 } from '../lib/image-drag'
 import { useGenerationStore } from '../stores/generation-store'
+import { useLayoutStore } from '../stores/layout-store'
 import { useStorageSettingsStore } from '../stores/storage-settings-store'
 import { askConfirm, askText } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
@@ -156,12 +157,20 @@ export function LibraryView(): React.JSX.Element {
     return () => window.removeEventListener('nais:library-view-mode', onMode)
   }, [loadStorageSettings])
 
+  // 라이브러리는 미리 만들어 숨겨 두는 탭이다. 숨어 있는 동안 새 이미지마다 목록·날짜를 다시 읽으면
+  // 씬 생성 중 본체가 계속 막혔다 — 숨어 있을 땐 미루고, 열 때 바뀐 게 있으면 한 번 읽는다.
+  const visible = useLayoutStore((s) => s.centerMode === 'library')
+  const lastLoad = useRef<{ total: number; reload: unknown } | null>(null)
   useEffect(() => {
+    const prev = lastLoad.current
+    if (prev && prev.total === historyTotal && prev.reload === reload) return
+    if (prev && !visible) return
+    lastLoad.current = { total: historyTotal, reload }
     queueMicrotask(() => {
       void reload()
       void loadNavigation()
     })
-  }, [historyTotal, loadNavigation, reload])
+  }, [historyTotal, loadNavigation, reload, visible])
 
   useEffect(() => {
     const el = sentinelRef.current

@@ -129,7 +129,7 @@ import {
 } from './prompts/repo'
 import { exportAll, importAll } from './backup/repo'
 import { importNais2 } from './backup/nais2'
-import { startUpdateDownload } from './updater'
+import { checkForUpdate, installUpdateNow, startUpdateDownload } from './updater'
 import { countTokens } from './nai/tokenizer'
 import {
   addRefImages,
@@ -398,6 +398,8 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('update:start', () => {
     startUpdateDownload()
   })
+  handle('update:check', () => checkForUpdate())
+  handle('update:install', () => installUpdateNow(() => ctx.queue.status()))
 
   handle('backup:export', async () => {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]

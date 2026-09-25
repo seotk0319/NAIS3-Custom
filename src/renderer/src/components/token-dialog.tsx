@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   Palette,
   Plus,
+  RefreshCw,
   RotateCcw,
   Trash2,
   Upload
@@ -831,7 +832,13 @@ function AboutSection(): React.JSX.Element {
   const updateStatus = useUpdateStore((s) => s.status)
   const updateVersion = useUpdateStore((s) => s.version)
   const updatePercent = useUpdateStore((s) => s.percent)
+  const updateMessage = useUpdateStore((s) => s.message)
+  const updatePortable = useUpdateStore((s) => s.portable)
+  const updateBusy = useUpdateStore((s) => s.busy)
+  const checkUpdate = useUpdateStore((s) => s.check)
   const startUpdate = useUpdateStore((s) => s.start)
+  const installUpdate = useUpdateStore((s) => s.install)
+  const releasePage = 'https://github.com/seotk0319/NAIS3-Custom/releases/latest'
 
   useEffect(() => {
     void window.nais.invoke('app:version', undefined).then((r) => setVersion(r.version))
@@ -844,20 +851,51 @@ function AboutSection(): React.JSX.Element {
       <p className="mt-1">NovelAI Image Studio 3</p>
       <p className="font-mono text-[11.5px] text-faint">버전 {version || '…'}</p>
 
-      {/* 업데이트 상태 */}
-      <div className="mt-1">
+      {/* 업데이트: 이 저장소 GitHub 릴리스 기준 */}
+      <div className="mt-1 flex flex-wrap items-center gap-2">
         {updateStatus === 'available' ? (
           <Button variant="accent" className="gap-1.5" onClick={startUpdate}>
-            <Download size={14} /> 새 버전 {updateVersion} 업데이트
+            <Download size={14} />
+            {updatePortable ? '릴리스 페이지 열기' : `${updateVersion} 받기`}
           </Button>
         ) : updateStatus === 'downloading' ? (
-          <span className="text-[12px] text-accent">업데이트 다운로드 중 {updatePercent}%…</span>
+          <span className="text-[12px] text-accent">새 버전 받는 중 {updatePercent}%…</span>
         ) : updateStatus === 'downloaded' ? (
-          <span className="text-[12px] text-accent">업데이트 설치 — 곧 재시작됩니다</span>
+          <Button variant="accent" className="gap-1.5" onClick={installUpdate}>
+            <RotateCcw size={14} /> 재시작해서 설치
+          </Button>
         ) : (
-          <span className="text-[12px] text-faint">최신 버전입니다</span>
+          <Button
+            variant="ghost"
+            className="gap-1.5 border border-line"
+            disabled={updateStatus === 'checking'}
+            onClick={checkUpdate}
+          >
+            <RefreshCw size={14} className={cn(updateStatus === 'checking' && 'animate-spin')} />
+            {updateStatus === 'checking' ? '확인 중…' : '업데이트 확인'}
+          </Button>
+        )}
+        {(updateStatus === 'available' || updateStatus === 'downloaded') && (
+          <button
+            className="text-[12px] text-faint underline-offset-2 hover:text-ink hover:underline"
+            onClick={() => window.open(releasePage, '_blank')}
+          >
+            바뀐 내용 보기
+          </button>
         )}
       </div>
+      <p className="text-[12px] text-faint">
+        {updateStatus === 'none' && '최신 버전이에요.'}
+        {updateStatus === 'available' &&
+          (updatePortable
+            ? `새 버전이 나왔어요 (${updateVersion}). 포터블로 실행 중이라 설치 파일을 직접 받아 주세요.`
+            : `새 버전이 나왔어요 (${updateVersion}).`)}
+        {updateStatus === 'downloaded' &&
+          (updateBusy
+            ? '이미지 생성이 도는 중이에요. 생성이 끝난 뒤 눌러 주세요.'
+            : '다 받았어요. 누르면 앱을 닫고 설치한 뒤 다시 켜요. 그냥 앱을 꺼도 끌 때 설치돼요.')}
+        {updateStatus === 'error' && `업데이트를 확인하지 못했어요. ${updateMessage ?? ''}`}
+      </p>
 
       <div className="mt-3 flex gap-2">
         <button

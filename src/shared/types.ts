@@ -639,8 +639,12 @@ export interface IpcInvokeMap {
     res: void
   }
   'promptPresets:delete': { req: { id: number }; res: void }
-  /** 업데이트 다운로드 시작 (완료 시 자동 설치/재시작) */
+  /** 이 저장소 GitHub 릴리스에서 새 버전 확인 (결과는 update:status로도 알린다) */
+  'update:check': { req: void; res: IpcEventMap['update:status'] }
+  /** 새 버전 받기 (포터블이면 릴리스 페이지 열기) */
   'update:start': { req: void; res: void }
+  /** 받아둔 업데이트를 지금 설치하고 재시작. 생성이 도는 중이면 busy */
+  'update:install': { req: void; res: { ok: boolean; busy?: boolean } }
   /** 전체 데이터 JSON 내보내기 (저장 다이얼로그) */
   'backup:export': { req: void; res: { saved: boolean } }
   /** JSON 가져오기 (열기 다이얼로그). NAIS3/NAIS2 포맷 자동 감지. summary=사람이 읽는 결과 */
@@ -771,11 +775,15 @@ export interface IpcEventMap {
   'scenes:changed': { sceneId: number; filePath: string }
   /** 바이브 인코딩 완료 — 카드의 인코딩 표시 갱신용 */
   'vibes:encoded': Record<string, never>
-  /** 자동 업데이트 상태 (GitHub release) */
+  /** 자동 업데이트 상태 (이 저장소 GitHub release) */
   'update:status': {
-    state: 'available' | 'none' | 'downloading' | 'downloaded' | 'error'
+    state: 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'
     version?: string
     percent?: number
     message?: string
+    /** 지금 실행 중인 버전 */
+    current?: string
+    /** 포터블 복사본이면 자동 설치 대신 릴리스 페이지를 연다 */
+    portable?: boolean
   }
 }

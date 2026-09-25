@@ -34,6 +34,7 @@ function UpdateButton(): React.JSX.Element | null {
   const percent = useUpdateStore((s) => s.percent)
   const version = useUpdateStore((s) => s.version)
   const start = useUpdateStore((s) => s.start)
+  const install = useUpdateStore((s) => s.install)
 
   if (status === 'available') {
     return (
@@ -55,8 +56,12 @@ function UpdateButton(): React.JSX.Element | null {
   }
   if (status === 'downloaded') {
     return (
-      <BarButton className="text-accent" title="업데이트 설치 — 재시작 중" disabled>
-        <Loader2 size={15} className="animate-spin" />
+      <BarButton
+        onClick={install}
+        className="text-accent hover:text-accent"
+        title={`업데이트 ${version ?? ''} 설치 준비됨 — 누르면 재시작해서 설치`}
+      >
+        <Download size={15} />
       </BarButton>
     )
   }

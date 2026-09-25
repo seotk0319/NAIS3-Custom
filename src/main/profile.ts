@@ -1,5 +1,26 @@
 import { app } from 'electron'
+import { readFileSync, unlinkSync } from 'fs'
 import { basename, join } from 'path'
+
+/** 자동 업데이트 직전에 적어 두는 프로필 번호 파일 (%APPDATA% 아래). 설치 파일은 앱을 번호 없이 다시 켠다 */
+export const UPDATE_PROFILE_MARKER = 'NAIS3-Custom-update-profile.json'
+
+/** 업데이트 설치 후 다시 켜진 경우(--updated) 업데이트 전 프로필로 돌아온다 */
+function profileAfterUpdate(): number {
+  if (!process.argv.includes('--updated')) return NaN
+  const marker = join(app.getPath('appData'), UPDATE_PROFILE_MARKER)
+  try {
+    const { profile, at } = JSON.parse(readFileSync(marker, 'utf8')) as {
+      profile: number
+      at: number
+    }
+    unlinkSync(marker)
+    // 오래된 기록은 무시 (설치가 실패하고 한참 뒤 켜진 경우)
+    return Date.now() - at < 30 * 60_000 ? profile : NaN
+  } catch {
+    return NaN
+  }
+}
 
 /**
  * NAIS3 Custom 프로필 (Custom 1/2 분리 실행):
@@ -13,6 +34,8 @@ function detectProfile(): number {
   const arg = process.argv.find((a) => a.startsWith('--profile='))
   const fromArg = arg ? Number(arg.split('=')[1]) : NaN
   if (Number.isInteger(fromArg) && fromArg > 0) return fromArg
+  const fromUpdate = profileAfterUpdate()
+  if (Number.isInteger(fromUpdate) && fromUpdate > 0) return fromUpdate
   const m = /custom[ _-]*(\d+)/i.exec(basename(process.execPath))
   const fromExe = m ? Number(m[1]) : NaN
   return Number.isInteger(fromExe) && fromExe > 0 ? fromExe : 1

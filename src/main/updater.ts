@@ -1,6 +1,6 @@
 import electronUpdater from 'electron-updater'
 import { app, shell } from 'electron'
-import { existsSync, writeFileSync } from 'fs'
+import { readdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import type { IpcEventMap, QueueStatus } from '../shared/types'
 import { broadcast } from './ipc'
@@ -24,7 +24,13 @@ type UpdateStatus = IpcEventMap['update:status']
  * 포터블은 새 버전 알림과 릴리스 페이지 열기까지만 한다.
  */
 function isInstalled(): boolean {
-  return existsSync(join(dirname(process.execPath), 'Uninstall NAIS3 Custom.exe'))
+  // 설치 파일이 남기는 제거 프로그램 이름은 실행 파일 이름을 따른다("Uninstall NAIS3-Custom.exe").
+  // 이름에 기대지 않고 실행 폴더에 제거 프로그램이 있는지만 본다. 포터블 복사본에는 없다.
+  try {
+    return readdirSync(dirname(process.execPath)).some((f) => /^Uninstall .+\.exe$/i.test(f))
+  } catch {
+    return false
+  }
 }
 
 let configured = false
@@ -36,6 +42,18 @@ function emit(status: UpdateStatus): UpdateStatus {
   last = { current: app.getVersion(), portable: !isInstalled(), ...status }
   broadcast('update:status', last)
   return last
+}
+
+/** 업데이트 오류를 사용자가 알아들을 수 있는 말로 (원문은 뒤에 짧게) */
+function friendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const code = /net::[A-Z_]+|E[A-Z]{3,}|HttpError: \d{3}/.exec(raw)?.[0] ?? ''
+  if (/net::|ENOTFOUND|ECONN|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(raw))
+    return `인터넷 연결을 확인해 주세요. (${code || '연결 실패'})`
+  if (/\b(403|429)\b/.test(raw)) return 'GitHub가 잠시 요청을 막았어요. 조금 뒤 다시 확인해 주세요.'
+  if (/sha512|checksum/i.test(raw)) return '받은 파일이 손상됐어요. 다시 받아 주세요.'
+  if (/ENOSPC/i.test(raw)) return '디스크 공간이 부족해요.'
+  return raw.split('\n')[0].slice(0, 160)
 }
 
 function configure(): void {
@@ -76,7 +94,7 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
     if (!result || !result.isUpdateAvailable || !version) return emit({ state: 'none' })
     return emit({ state: 'available', version })
   } catch (err) {
-    return emit({ state: 'error', message: err instanceof Error ? err.message : String(err) })
+    return emit({ state: 'error', message: friendlyError(err) })
   }
 }
 
@@ -89,7 +107,7 @@ export function startUpdateDownload(): void {
   }
   emit({ state: 'downloading', version: last.version, percent: 0 })
   void autoUpdater.downloadUpdate().catch((err) => {
-    emit({ state: 'error', message: err instanceof Error ? err.message : String(err) })
+    emit({ state: 'error', message: friendlyError(err) })
   })
 }
 

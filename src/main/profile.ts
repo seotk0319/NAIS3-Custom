@@ -9,14 +9,22 @@ export const UPDATE_PROFILE_MARKER = 'NAIS3-Custom-update-profile.json'
 function profileAfterUpdate(): number {
   if (!process.argv.includes('--updated')) return NaN
   const marker = join(app.getPath('appData'), UPDATE_PROFILE_MARKER)
+  let raw: string
   try {
-    const { profile, at } = JSON.parse(readFileSync(marker, 'utf8')) as {
-      profile: number
-      at: number
-    }
+    raw = readFileSync(marker, 'utf8')
+  } catch {
+    return NaN
+  }
+  // 한 번 읽으면 내용이 깨져 있어도 지운다 (다음 실행에 다시 걸리지 않게)
+  try {
     unlinkSync(marker)
+  } catch {
+    /* 지우지 못해도 30분 기준으로 무시된다 */
+  }
+  try {
+    const { profile, at } = JSON.parse(raw) as { profile: number; at: number }
     // 오래된 기록은 무시 (설치가 실패하고 한참 뒤 켜진 경우)
-    return Date.now() - at < 30 * 60_000 ? profile : NaN
+    return Number.isInteger(profile) && Date.now() - at < 30 * 60_000 ? profile : NaN
   } catch {
     return NaN
   }

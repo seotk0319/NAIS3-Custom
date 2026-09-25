@@ -32,6 +32,50 @@ const baseRequest: GenerationRequest = {
 }
 
 describe('payload builder', () => {
+  describe('V5 투명 배경·자유 좌표 (NAI 웹 코드 기준)', () => {
+    const v5 = { ...baseRequest, model: 'nai-diffusion-5-full' }
+    const chars = [
+      { prompt: 'girl', negativePrompt: '', enabled: true, center: { x: 0.2345, y: 0.61 } }
+    ] as GenerationRequest['characterPrompts']
+
+    it('투명 배경을 켜면 퀄리티 태그 앞에 태그를 넣고 tag_hint를 true로 보낸다', () => {
+      const p = buildGenerateImagePayload({
+        ...v5,
+        qualityToggle: true,
+        transparentBackground: true
+      })
+      expect(p.input).toBe('1girl, silver hair, transparent background' + QUALITY_TAGS_SUFFIX)
+      expect(p.parameters.tag_hint_transparent_background).toBe(true)
+      expect(p.parameters.straight_alpha).toBe(true)
+    })
+
+    it('투명 배경을 끄면 태그를 넣지 않고 tag_hint를 false로 보낸다', () => {
+      const p = buildGenerateImagePayload({ ...v5, transparentBackground: false })
+      expect(p.input).toBe('1girl, silver hair')
+      expect(p.parameters.tag_hint_transparent_background).toBe(false)
+    })
+
+    it('V4.5에서는 투명 배경 설정이 켜져 있어도 무시한다', () => {
+      const p = buildGenerateImagePayload({ ...baseRequest, transparentBackground: true })
+      expect(p.input).toBe('1girl, silver hair')
+      expect(p.parameters.tag_hint_transparent_background).toBeUndefined()
+    })
+
+    it('캐릭터 좌표는 V5에서 소수 셋째 자리, V4.5에서 5×5 칸으로 보낸다', () => {
+      const centerOf = (p: NaiImagePayload): unknown =>
+        (p.parameters.v4_prompt as { caption: { char_captions: { centers: unknown[] }[] } }).caption
+          .char_captions[0].centers[0]
+      expect(
+        centerOf(buildGenerateImagePayload({ ...v5, useCoords: true, characterPrompts: chars }))
+      ).toEqual({ x: 0.235, y: 0.61 })
+      expect(
+        centerOf(
+          buildGenerateImagePayload({ ...baseRequest, useCoords: true, characterPrompts: chars })
+        )
+      ).toEqual({ x: 0.3, y: 0.7 })
+    })
+  })
+
   it('줄 맨 앞(선행 공백 허용)의 #만 전체 줄 주석으로 삭제한다', () => {
     expect(removeComments('a\n# comment\nb')).toBe('a\nb')
     expect(removeComments('  # indented comment\nkeep')).toBe('keep')

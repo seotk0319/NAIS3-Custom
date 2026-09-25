@@ -1,5 +1,6 @@
 import { Dice5, Lock, LockOpen } from 'lucide-react'
 import type { UcPresetIndex } from '@shared/types'
+import { isV5Model } from '@shared/nai-models'
 import { NOISE_SCHEDULES, SAMPLERS, UC_PRESET_OPTIONS } from '../lib/constants'
 import { ResolutionPicker } from './resolution-picker'
 import { useGenerationStore } from '../stores/generation-store'
@@ -10,10 +11,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Slider } from './ui/slider'
 import { Switch } from './ui/switch'
 
-function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+function Row({
+  label,
+  hint,
+  children
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}): React.JSX.Element {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="shrink-0 text-[13px] text-muted">{label}</span>
+      <span className="flex shrink-0 flex-col">
+        <span className="text-[13px] text-muted">{label}</span>
+        {hint && <span className="text-[11px] text-faint">{hint}</span>}
+      </span>
       {children}
     </div>
   )
@@ -157,6 +169,15 @@ export function ParamsDialog({
               onCheckedChange={(v) => patch({ qualityToggle: v })}
             />
           </Row>
+
+          {isV5Model(request.model) && (
+            <Row label="투명 배경" hint="V5 전용 · 배경을 투명하게 뽑아요 (PNG 권장)">
+              <Switch
+                checked={request.transparentBackground === true}
+                onCheckedChange={(v) => patch({ transparentBackground: v })}
+              />
+            </Row>
+          )}
 
           <Row label="Variety+">
             <Switch checked={request.variety} onCheckedChange={(v) => patch({ variety: v })} />

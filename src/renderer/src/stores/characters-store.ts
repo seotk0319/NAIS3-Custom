@@ -1,6 +1,19 @@
 import { create } from 'zustand'
 import type { CharacterCard, CharacterCardPatch, ListFolder } from '@shared/types'
+import { maxCharactersForModel, nextFreeCenter, CHARACTER_OVERLAP_DISTANCE } from '@shared/nai-models'
 import { canonicalize, moveRow, toOrderEntries } from '../lib/folder-list'
+
+// 캐릭터 상한은 생성 모델에 따라 다르다. generation-store가 이 스토어를 import하므로
+// 순환을 피하려고 모델은 그쪽에서 알려준다.
+let currentModel = (): string => ''
+export function setCharacterModelSource(source: () => string): void {
+  currentModel = source
+}
+export function characterLimit(): number {
+  return maxCharactersForModel(currentModel())
+}
+const activeCenters = (items: CharacterCard[], except?: number): { x: number; y: number }[] =>
+  items.filter((c) => c.enabled && c.id !== except).map((c) => c.center)
 
 /**
  * 캐릭터 단일 리스트 모델 (공용 폴더 리스트 로직 사용):
@@ -57,21 +70,33 @@ export const useCharactersStore = create<CharactersState>((set, get) => ({
       negativePrompt: '',
       thumbnail: '',
       enabled: true,
-      center: { x: 0.5, y: 0.5 },
+      // NAI 웹처럼 켜진 캐릭터와 겹치지 않는 자리에 놓는다
+      center: nextFreeCenter(activeCenters(get().items)),
       folderId
     }
     const { folders, items } = get()
     const next = canonicalize(folders, [...items, card])
     set({ items: next })
-    get().updateCard(id, { enabled: true })
+    get().updateCard(id, { enabled: true, center: card.center })
     void window.nais.invoke('chars:reorder', { order: toOrderEntries(folders, next) })
   },
 
   updateCard: (id, patch) => {
-    // NAI는 캐릭터 동시 6명 초과 시 실패 — 6명 넘겨 켜는 것을 막는다
+    // NAI는 동시 캐릭터 상한(V4.5 6명, V5 32명)을 넘으면 실패 — 넘겨 켜는 것을 막는다
     if (patch.enabled === true) {
-      const enabledCount = get().items.filter((c) => c.enabled && c.id !== id).length
-      if (enabledCount >= MAX_CHARACTERS) return // 무시 (토글 안 됨)
+      const others = get().items.filter((c) => c.enabled && c.id !== id)
+      if (others.length >= characterLimit()) return // 무시 (토글 안 됨)
+      // 다시 켜는 캐릭터가 켜진 캐릭터와 같은 자리면 빈 자리로 옮긴다
+      const card = get().items.find((c) => c.id === id)
+      const center = patch.center ?? card?.center
+      if (
+        center &&
+        !patch.center &&
+        others.some(
+          (c) => Math.hypot(c.center.x - center.x, c.center.y - center.y) < CHARACTER_OVERLAP_DISTANCE
+        )
+      )
+        patch = { ...patch, center: nextFreeCenter(others.map((c) => c.center)) }
     }
     set({ items: get().items.map((c) => (c.id === id ? { ...c, ...patch } : c)) })
     void window.nais.invoke('chars:update', { id, patch })
@@ -177,9 +202,6 @@ export const useCharactersStore = create<CharactersState>((set, get) => ({
 }))
 
 /** 생성에 포함될 캐릭터 (정규 순서 = v4 use_order 순서) */
-/** NAI 동시 캐릭터 상한 (초과 시 API 실패) */
-export const MAX_CHARACTERS = 6
-
 export function enabledCharacters(): CharacterCard[] {
   return useCharactersStore.getState().items.filter((c) => c.enabled && c.prompt.trim())
 }

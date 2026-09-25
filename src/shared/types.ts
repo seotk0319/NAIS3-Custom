@@ -83,6 +83,8 @@ export interface GenerationRequest {
   seed: number
   variety: boolean
   qualityToggle: boolean
+  /** V5 투명 배경 (퀄리티 태그 앞에 "transparent background" + tag_hint). V4.5에서는 무시 */
+  transparentBackground?: boolean
   ucPreset: UcPresetIndex
   characterPrompts: CharacterPromptInput[]
   useCoords: boolean
@@ -319,6 +321,7 @@ export interface ImageMetadata {
   useCoords?: boolean
   /** 병합 최종본 기준 — 있으면 적용 시 프롬프트/네거티브에서 프리셋을 벗겨 재병합 */
   qualityToggle?: boolean
+  transparentBackground?: boolean
   ucPreset?: number
   characterPrompts?: { prompt: string; negativePrompt: string; center?: { x: number; y: number } }[]
 }
@@ -348,6 +351,7 @@ export type PresetParams = Partial<
     | 'noiseSchedule'
     | 'variety'
     | 'qualityToggle'
+    | 'transparentBackground'
     | 'ucPreset'
   >
 >
@@ -510,7 +514,8 @@ export interface IpcInvokeMap {
   'frags:folderDelete': { req: { id: number }; res: void }
   'tags:search': {
     req: { query: string; limit?: number }
-    res: { items: { tag: string; count: number; type: string }[] }
+    /** nai: 단부루에 없는 NAI V5 전용 태그 (count는 정렬용 값이라 화면에 숫자 대신 V5로 표시) */
+    res: { items: { tag: string; count: number; type: string; nai?: boolean }[] }
   }
   /** 선택 모델 기준 토큰 카운트 (V4.5=T5, V5=Qwen) */
   'tokens:count': { req: { texts: string[]; model: string }; res: { counts: number[] } }

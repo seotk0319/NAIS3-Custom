@@ -16,12 +16,17 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CharacterCard } from '@shared/types'
-import { tokenLimitForModel } from '@shared/nai-models'
+import {
+  CHARACTER_OVERLAP_DISTANCE,
+  freeformPositionForModel,
+  maxCharactersForModel,
+  tokenLimitForModel
+} from '@shared/nai-models'
 import { removeComments } from '@shared/nai-presets'
 import { cn } from '../lib/utils'
 import { applyClickSelection, useSelectAllShortcut } from '../lib/edit-selection'
 import { buildDisplayRows } from '../lib/folder-list'
-import { useCharactersStore, MAX_CHARACTERS } from '../stores/characters-store'
+import { useCharactersStore } from '../stores/characters-store'
 import { useGenerationStore } from '../stores/generation-store'
 import { askConfirm, askText } from '../stores/dialog-store'
 import { FolderListView } from './folder-list-view'
@@ -35,6 +40,118 @@ import { Switch } from './ui/switch'
 
 /** NAI 웹의 5×5 수동 배치 그리드 (실캡처: 0.1~0.9) */
 const GRID = [0.1, 0.3, 0.5, 0.7, 0.9]
+
+const round3 = (v: number): number => Math.round(1000 * Math.min(1, Math.max(0, v))) / 1000
+
+/**
+ * V5 자유 위치 캔버스 (NAI 웹과 같은 규칙): 생성 해상도 비율의 판 위에 켜진 캐릭터를 번호 점으로 보여주고,
+ * 점을 끌거나, 점을 고른 뒤 빈 곳을 눌러 옮긴다. 좌표는 0~1, 소수 셋째 자리. 0.1보다 가까우면 겹침 경고.
+ */
+function PositionCanvas({
+  chars,
+  width,
+  height,
+  selectedId,
+  onSelect,
+  onMove
+}: {
+  chars: CharacterCard[]
+  width: number
+  height: number
+  selectedId: number | null
+  onSelect: (id: number) => void
+  onMove: (id: number, center: { x: number; y: number }) => void
+}): React.JSX.Element {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [drag, setDrag] = useState<{ id: number; center: { x: number; y: number } } | null>(null)
+  const at = (e: React.PointerEvent): { x: number; y: number } => {
+    const r = boxRef.current!.getBoundingClientRect()
+    return { x: round3((e.clientX - r.left) / r.width), y: round3((e.clientY - r.top) / r.height) }
+  }
+  const centerOf = (c: CharacterCard): { x: number; y: number } =>
+    drag?.id === c.id ? drag.center : c.center
+  const overlapping = new Set<number>()
+  for (let i = 0; i < chars.length; i++)
+    for (let j = i + 1; j < chars.length; j++) {
+      const a = centerOf(chars[i]),
+        b = centerOf(chars[j])
+      if (Math.hypot(a.x - b.x, a.y - b.y) < CHARACTER_OVERLAP_DISTANCE) {
+        overlapping.add(i)
+        overlapping.add(j)
+      }
+    }
+  const selected = chars.find((c) => c.id === selectedId) ?? null
+  // 세로 그림이 패널을 다 차지하지 않게 높이를 제한한다
+  const maxH = 230
+  const w = Math.min(1, (maxH * width) / height / 340)
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div
+        ref={boxRef}
+        className="relative mx-auto touch-none select-none overflow-hidden rounded-lg border border-line bg-paper"
+        style={{ aspectRatio: `${width} / ${height}`, width: `${w * 100}%` }}
+        onPointerDown={(e) => {
+          if (e.target !== e.currentTarget || !selected) return
+          onMove(selected.id, at(e))
+        }}
+      >
+        {/* 5×5 안내선 (V4.5 칸 위치) */}
+        {GRID.map((g) => (
+          <div key={'v' + g}>
+            <span
+              className="pointer-events-none absolute inset-y-0 w-px bg-line/70"
+              style={{ left: `${g * 100}%` }}
+            />
+            <span
+              className="pointer-events-none absolute inset-x-0 h-px bg-line/70"
+              style={{ top: `${g * 100}%` }}
+            />
+          </div>
+        ))}
+        {chars.map((c, i) => {
+          const p = centerOf(c)
+          return (
+            <button
+              key={c.id}
+              className={cn(
+                'absolute grid size-6 -translate-x-1/2 -translate-y-1/2 cursor-grab place-items-center rounded-full border-2 text-[11px] font-bold shadow active:cursor-grabbing',
+                c.id === selectedId
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-ink/30 bg-surface text-ink',
+                overlapping.has(i) && 'ring-2 ring-danger'
+              )}
+              style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+              title={`${i + 1}. ${c.name || c.prompt.slice(0, 30)} (${p.x}, ${p.y})`}
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                onSelect(c.id)
+                e.currentTarget.setPointerCapture(e.pointerId)
+                setDrag({ id: c.id, center: c.center })
+              }}
+              onPointerMove={(e) => {
+                if (drag?.id === c.id) setDrag({ id: c.id, center: at(e) })
+              }}
+              onPointerUp={() => {
+                if (drag?.id === c.id) onMove(c.id, drag.center)
+                setDrag(null)
+              }}
+            >
+              {i + 1}
+            </button>
+          )
+        })}
+      </div>
+      <p className={cn('text-center text-[11px]', overlapping.size ? 'text-danger' : 'text-faint')}>
+        {overlapping.size
+          ? '가까운 캐릭터가 있어요. 점을 조금 떨어뜨려 주세요'
+          : selected
+            ? `${chars.indexOf(selected) + 1}번 선택됨 · 점을 끌거나 빈 곳을 눌러 옮겨요`
+            : '점을 끌어서 캐릭터 위치를 정해요'}
+      </p>
+    </div>
+  )
+}
 
 function PositionPicker({
   center,
@@ -81,7 +198,12 @@ export function CharacterOverlay(): React.JSX.Element {
   const move = useCharactersStore((s) => s.move)
   const useCoords = useGenerationStore((s) => s.request.useCoords)
   const model = useGenerationStore((s) => s.request.model)
+  const reqWidth = useGenerationStore((s) => s.request.width)
+  const reqHeight = useGenerationStore((s) => s.request.height)
   const tokenLimit = tokenLimitForModel(model)
+  const maxChars = maxCharactersForModel(model)
+  const freeform = freeformPositionForModel(model)
+  const [canvasSel, setCanvasSel] = useState<number | null>(null)
   const patch = useGenerationStore((s) => s.patchRequest)
 
   const [search, setSearch] = useState('')
@@ -129,6 +251,7 @@ export function CharacterOverlay(): React.JSX.Element {
   }, [folders, items, searching, search])
 
   const enabledCount = items.filter((c) => c.enabled && c.prompt.trim()).length
+  const placedChars = useMemo(() => items.filter((c) => c.enabled && c.prompt.trim()), [items])
 
   // 화면에 보이는 순서의 카드 id들 (Shift 구간/Ctrl+A 기준)
   const visibleIds = useMemo(
@@ -241,7 +364,20 @@ export function CharacterOverlay(): React.JSX.Element {
       >
         {char.name || char.prompt.slice(0, 40) || <span className="text-faint">빈 캐릭터</span>}
       </button>
-      {useCoords && char.enabled && (
+      {useCoords && char.enabled && freeform && (
+        <button
+          className={cn(
+            'flex h-7 items-center gap-1 rounded-md px-1.5 font-mono text-[11px] text-muted hover:bg-surface-2',
+            canvasSel === char.id && 'text-accent'
+          )}
+          title="위 배치판에서 이 캐릭터 고르기"
+          onClick={() => setCanvasSel(char.id)}
+        >
+          <Crosshair size={13} />
+          {char.center.x},{char.center.y}
+        </button>
+      )}
+      {useCoords && char.enabled && !freeform && (
         <Popover>
           <PopoverTrigger asChild>
             <Button size="sm" variant="ghost" className="h-7 gap-1 px-1.5 font-mono text-[11px]">
@@ -334,13 +470,11 @@ export function CharacterOverlay(): React.JSX.Element {
           <span
             className={cn(
               'rounded-full px-1.5 font-mono text-[10.5px]',
-              enabledCount >= MAX_CHARACTERS
-                ? 'bg-danger/15 text-danger'
-                : 'bg-accent-soft text-accent'
+              enabledCount >= maxChars ? 'bg-danger/15 text-danger' : 'bg-accent-soft text-accent'
             )}
-            title={`활성 캐릭터 ${enabledCount}/${MAX_CHARACTERS} (NAI는 6명까지)`}
+            title={`활성 캐릭터 ${enabledCount}/${maxChars} (V4.5는 6명, V5는 32명까지)`}
           >
-            {enabledCount}/{MAX_CHARACTERS}
+            {enabledCount}/{maxChars}
           </span>
         )}
         {enabledCount > 0 && (
@@ -374,6 +508,17 @@ export function CharacterOverlay(): React.JSX.Element {
           <Switch checked={useCoords} onCheckedChange={(v) => patch({ useCoords: v })} />
         </label>
       </div>
+
+      {useCoords && freeform && placedChars.length > 0 && (
+        <PositionCanvas
+          chars={placedChars}
+          width={reqWidth}
+          height={reqHeight}
+          selectedId={canvasSel}
+          onSelect={setCanvasSel}
+          onMove={(id, center) => updateCard(id, { center })}
+        />
+      )}
 
       <div className="flex items-center gap-1.5">
         <div className="relative flex-1">
@@ -458,7 +603,7 @@ export function CharacterOverlay(): React.JSX.Element {
           searching={searching}
           expandedId={editMode ? null : expandedId}
           // 헤더가 item 밖 상태(좌표 토글/편집 선택)에 의존 — 바뀌면 카드 리렌더
-          renderKey={editMode ? selected : useCoords}
+          renderKey={editMode ? selected : `${useCoords}|${freeform}|${canvasSel}`}
           folderActions={{
             rename: renameFolder,
             toggleCollapse,

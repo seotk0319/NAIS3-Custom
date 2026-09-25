@@ -8,7 +8,7 @@ import type {
 } from '@shared/types'
 import { NAI_MODEL_V45_FULL } from '@shared/nai-models'
 import { queueDoneAlert } from '../lib/completion-alert'
-import { enabledCharacters } from './characters-store'
+import { enabledCharacters, setCharacterModelSource } from './characters-store'
 import { useVibesStore } from './refs-store'
 import { toast } from './toast-store'
 
@@ -32,6 +32,7 @@ export const DEFAULT_REQUEST: GenerationRequest = {
   seed: -1, // -1 = 랜덤
   variety: false,
   qualityToggle: true,
+  transparentBackground: false,
   ucPreset: 0,
   characterPrompts: [],
   useCoords: false
@@ -293,6 +294,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   },
   cancelInpaint: () => set({ inpaintTarget: null })
 }))
+
+// 캐릭터 상한(V4.5 6명·V5 32명)은 지금 고른 모델을 따른다
+setCharacterModelSource(() => useGenerationStore.getState().request.model)
 
 /** 히스토리/파일에서 i2i 소스 설정 (마스크 없이). filePath 또는 base64+크기 */
 export async function setI2iSource(filePath: string): Promise<void> {

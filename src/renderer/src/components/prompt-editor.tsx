@@ -27,7 +27,7 @@ const TYPO =
 
 type Suggestion =
   | { kind: 'frag'; path: string }
-  | { kind: 'tag'; tag: string; count: number; type: string }
+  | { kind: 'tag'; tag: string; count: number; type: string; nai?: boolean }
 
 const TAG_TOKEN_SEPARATORS = /[,\n{}[\]|<>:/]/
 
@@ -336,7 +336,9 @@ export function PromptEditor({
                 ) : (
                   <>
                     <span className={cn('min-w-0 flex-1 truncate', TYPE_COLORS[s.type])}>{s.tag}</span>
-                    <span className="shrink-0 text-[10.5px] text-faint">{formatCount(s.count)}</span>
+                    <span className="shrink-0 text-[10.5px] text-faint">
+                      {s.nai ? 'V5' : formatCount(s.count)}
+                    </span>
                   </>
                 )}
               </button>

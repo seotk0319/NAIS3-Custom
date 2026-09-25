@@ -1,7 +1,7 @@
 import { gunzipSync, inflateSync } from 'zlib'
 import sharp from 'sharp'
 import type { ImageMetadata } from '../../shared/types'
-import { QUALITY_TAGS_SUFFIX, UC_PRESETS_V45_FULL } from '../../shared/nai-presets'
+import { UC_PRESETS_V45_FULL, splitQualityTags } from '../../shared/nai-presets'
 
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const STEALTH_MAGIC = 'stealth_pngcomp'
@@ -176,7 +176,9 @@ function normalize(
     variety: params.skip_cfg_above_sigma != null,
     useCoords: params.v4_prompt?.use_coords ?? params.use_coords ?? false,
     // ucPreset·qualityToggle: 직접 필드 우선, 없으면 병합 문자열에서 역추적
-    qualityToggle: params.qualityToggle ?? extra.prompt.endsWith(QUALITY_TAGS_SUFFIX),
+    qualityToggle: params.qualityToggle ?? splitQualityTags(extra.prompt).quality,
+    // 투명 배경은 프롬프트 끝의 태그로 판단한다 (예전 NAIS3는 tag_hint를 늘 true로 보냈다)
+    transparentBackground: splitQualityTags(extra.prompt).transparent,
     ucPreset: params.ucPreset ?? inferUcPreset(extra.uc),
     characterPrompts: characterPrompts.length > 0 ? characterPrompts : undefined
   }

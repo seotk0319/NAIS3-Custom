@@ -1,5 +1,5 @@
 import type { GenerationRequest } from '../../shared/types'
-import { isV5Model } from '../../shared/nai-models'
+import { isV5Model, snapToGrid } from '../../shared/nai-models'
 
 /**
  * NAI 웹과 바이트 단위로 동일한 payload를 만드는 것이 이 모듈의 존재 이유다 (P1).
@@ -129,9 +129,11 @@ export function buildGenerateImagePayload(
   req: GenerationRequest,
   opts: BuildOptions = {}
 ): NaiImagePayload {
-  const prompt = mergeQualityTags(removeComments(req.prompt), req.qualityToggle)
-  const negative = mergeUcPreset(removeComments(req.negativePrompt), req.ucPreset)
   const v5 = isV5Model(req.model)
+  // V5 투명 배경: NAI 웹과 같이 퀄리티 접미사 앞에 태그를 붙이고 tag_hint로 알린다
+  const transparent = v5 && req.transparentBackground === true
+  const prompt = mergeQualityTags(removeComments(req.prompt), req.qualityToggle, transparent)
+  const negative = mergeUcPreset(removeComments(req.negativePrompt), req.ucPreset)
 
   // 캐릭터 프롬프트도 주석(#) 제거 — 기본/네거만 걸러지고 캐릭터 칸은 그대로 전송되던 버그 수정
   const activeChars = req.characterPrompts
@@ -141,8 +143,13 @@ export function buildGenerateImagePayload(
       negativePrompt: removeComments(c.negativePrompt)
     }))
     .filter((c) => c.enabled && c.prompt.trim())
-  const center = (c: (typeof activeChars)[number]): { x: number; y: number } =>
-    req.useCoords ? (c.center ?? { x: 0.5, y: 0.5 }) : { x: 0.5, y: 0.5 }
+  // V5는 0~1 자유 좌표(소수 셋째 자리), V4.5는 5×5 칸 좌표만 받는다
+  const center = (c: (typeof activeChars)[number]): { x: number; y: number } => {
+    if (!req.useCoords || !c.center) return { x: 0.5, y: 0.5 }
+    if (!v5) return snapToGrid(c.center)
+    const clamp = (v: number): number => Math.round(1000 * Math.min(1, Math.max(0, v))) / 1000
+    return { x: clamp(c.center.x), y: clamp(c.center.y) }
+  }
 
   return {
     action: opts.i2i ? (opts.i2i.maskBase64 ? 'infill' : 'img2img') : 'generate',
@@ -182,7 +189,14 @@ export function buildGenerateImagePayload(
         : {}),
       ucPreset: req.ucPreset,
       qualityToggle: req.qualityToggle,
-      ...(v5 ? { tag_hint_transparent_background: true, legacy_uc: false } : {}),
+      ...(v5
+        ? {
+            tag_hint_transparent_background: transparent,
+            // NAI 웹 기본값(알파 모드 Straight). 투명을 지원하는 모델이면 늘 보낸다
+            straight_alpha: true,
+            legacy_uc: false
+          }
+        : {}),
       autoSmea: false,
       dynamic_thresholding: false,
       controlnet_strength: 1,

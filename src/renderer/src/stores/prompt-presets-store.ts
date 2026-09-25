@@ -15,6 +15,7 @@ export function pickPresetParams(req: GenerationRequest): PresetParams {
     noiseSchedule: req.noiseSchedule,
     variety: req.variety,
     qualityToggle: req.qualityToggle,
+    transparentBackground: req.transparentBackground === true,
     ucPreset: req.ucPreset
   }
 }

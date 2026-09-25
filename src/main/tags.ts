@@ -12,18 +12,43 @@ export interface TagEntry {
   tag: string
   count: number
   type: string
+  nai?: boolean
 }
 
 let tags: TagEntry[] | null = null
+
+/**
+ * NAI V5에서 새로 쓰는 태그. 단부루 덤프(tags.json)에는 없어서 자동완성에 따로 넣는다.
+ * count는 검색 결과 위쪽에 보이도록 넉넉히 준다.
+ */
+const NAI_V5_TAGS: TagEntry[] = [
+  ...['low', 'medium', 'high', 'ultra'].map((l) => ({
+    tag: `${l} complexity`,
+    count: 900000,
+    type: 'general'
+  })),
+  { tag: 'depthness', count: 900000, type: 'general' },
+  { tag: 'has alpha', count: 900000, type: 'general' },
+  { tag: 'meta:novel era', count: 900000, type: 'meta' },
+  { tag: 'meta:golden era', count: 900000, type: 'meta' },
+  ...['art', 'bg', 'cg', 'chibi', 'sprite'].map((s) => ({
+    tag: `visual novel ${s}`,
+    count: 900000,
+    type: 'general'
+  })),
+  { tag: 'attractive male', count: 900000, type: 'general' }
+].map((t) => ({ ...t, nai: true }))
 
 function load(): TagEntry[] {
   if (tags) return tags
   const raw = JSON.parse(
     readFileSync(join(app.getAppPath(), 'resources', 'tags.json'), 'utf-8')
   ) as { value: string; count: number; type: string }[]
+  const known = new Set(raw.map((t) => t.value))
   // count 내림차순 정렬해두면 검색 결과가 자연히 인기순
   tags = raw
     .map((t) => ({ tag: t.value, count: t.count, type: t.type }))
+    .concat(NAI_V5_TAGS.filter((t) => !known.has(t.tag)))
     .sort((a, b) => b.count - a.count)
   return tags
 }

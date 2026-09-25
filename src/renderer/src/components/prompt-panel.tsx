@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Square,
   UsersRound,
+  X,
   Zap
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -447,23 +448,37 @@ export function PromptPanel(): React.JSX.Element {
         />
       </div>
 
-      {/* 파라미터 요약: 해상도 · 스텝 · 시드 + 무료 여부. 누르면 생성 파라미터 창 */}
-      <button
-        className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-paper px-3 text-left text-[12px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
-        title={`생성 파라미터 열기\n${summary.tip}`}
-        onClick={() => setParamsOpen(true)}
-      >
-        <SlidersHorizontal size={14} className="shrink-0 text-faint" />
-        <span className="min-w-0 flex-1 truncate tabular-nums">{summary.text}</span>
-        <span
+      {/* 파라미터 요약: 해상도 · 스텝 · 시드 + 무료 여부. 누르면 생성 파라미터 창.
+          투명 배경이 켜져 있으면 칩으로 보이고, 칩을 누르면 바로 꺼진다 */}
+      <div className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-paper pr-2 text-[12px] font-medium text-muted transition-colors hover:bg-surface-2">
+        <button
+          className="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left hover:text-ink"
+          title={`생성 파라미터 열기\n${summary.tip}`}
+          onClick={() => setParamsOpen(true)}
+        >
+          <SlidersHorizontal size={14} className="shrink-0 text-faint" />
+          <span className="min-w-0 flex-1 truncate tabular-nums">{summary.text}</span>
+        </button>
+        {v5Enabled && request.transparentBackground && (
+          <button
+            className="flex shrink-0 items-center gap-0.5 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent hover:bg-accent hover:text-white"
+            title="투명 배경 켜짐 · 누르면 꺼요"
+            onClick={() => patch({ transparentBackground: false })}
+          >
+            투명 배경 <X size={11} />
+          </button>
+        )}
+        <button
           className={cn(
             'shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums',
             summary.free ? 'bg-[#1fa56a]/12 text-[#1fa56a]' : 'bg-danger/12 text-danger'
           )}
+          title={summary.tip}
+          onClick={() => setParamsOpen(true)}
         >
           {summary.free ? '무료' : `${summary.cost.toLocaleString()} Anlas`}
-        </span>
-      </button>
+        </button>
+      </div>
 
       {/* 옵션 행: 가속 모드 · Anlas 소모 · EXIF 제거 */}
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1.5 text-[12px] font-medium text-muted">

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ImageMetadata, UcPresetIndex } from '@shared/types'
-import { QUALITY_TAGS_SUFFIX, UC_PRESETS_V45_FULL } from '@shared/nai-presets'
+import { UC_PRESETS_V45_FULL, splitQualityTags } from '@shared/nai-presets'
 import { imageUrl } from '../lib/constants'
 import { useCharactersStore } from './characters-store'
 import { mergePromptParts, useGenerationStore } from './generation-store'
@@ -16,9 +16,7 @@ export function isSplitMeta(meta: ImageMetadata): boolean {
 
 /** 병합된 프롬프트/네거티브에서 프리셋을 벗겨 원본(raw)만 남긴다 → 재병합으로 동일 재현 */
 function stripQuality(prompt: string): string {
-  return prompt.endsWith(QUALITY_TAGS_SUFFIX)
-    ? prompt.slice(0, -QUALITY_TAGS_SUFFIX.length)
-    : prompt
+  return splitQualityTags(prompt).prompt
 }
 function stripUcPreset(uc: string, idx: number): string {
   const preset = UC_PRESETS_V45_FULL[idx as keyof typeof UC_PRESETS_V45_FULL]
@@ -93,8 +91,10 @@ export const useMetadataStore = create<MetadataState>((set, get) => ({
         }
       }
       patch.qualityToggle = q
+      patch.transparentBackground = q && !!m.transparentBackground
     } else if (sel.quality && m.qualityToggle != null) {
       patch.qualityToggle = q
+      patch.transparentBackground = !!m.transparentBackground
     }
 
     // UC 프리셋: 체크 시 원본 네거티브+프리셋으로(재병합), 미체크 시 병합본 그대로+None

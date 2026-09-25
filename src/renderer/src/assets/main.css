@@ -113,3 +113,18 @@ input {
 .no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* 좌우 패널 등장: 폭은 한 번에 바뀌고, 안쪽 내용만 transform/opacity로 (합성만, 배치 재계산 없음).
+   display:none → 보임으로 바뀔 때 애니메이션이 다시 재생된다 */
+@keyframes panel-in-left {
+  from { transform: translateX(-14px); opacity: 0; }
+}
+@keyframes panel-in-right {
+  from { transform: translateX(14px); opacity: 0; }
+}
+.panel-in-left > :first-child { animation: panel-in-left 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+.panel-in-right > :first-child { animation: panel-in-right 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .panel-in-left > :first-child, .panel-in-right > :first-child { animation: none; }
+}
+

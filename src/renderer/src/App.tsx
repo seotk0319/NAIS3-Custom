@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { HistoryPanel } from './components/history-panel'
 import { LoadingScreen } from './components/loading-screen'
@@ -59,18 +59,47 @@ export default function App(): React.JSX.Element {
     [visited]
   )
   const [ready, setReady] = useState(false)
-  const [resizing, setResizing] = useState(false)
+  // 좌우 패널: 한 번 만들면 지우지 않고 숨기기만 한다 (탭을 옮길 때마다 새로 만들던 비용 제거)
+  const showLeft = leftOpen && centerMode !== 'inbox'
+  const showRight = rightOpen && centerMode !== 'inbox'
+  const [leftMounted, setLeftMounted] = useState(showLeft)
+  const [rightMounted, setRightMounted] = useState(showRight)
+  if (showLeft && !leftMounted) setLeftMounted(true)
+  if (showRight && !rightMounted) setRightMounted(true)
+
+  // 안 열어 본 탭은 앱이 한가할 때 미리 만들어 둔다 (처음 열 때 70~120ms 끊기던 것 제거)
+  useEffect(() => {
+    if (!ready) return
+    const order: CenterMode[] = ['scene', 'director', 'library']
+    let cancelled = false
+    let timer = 0
+    const next = (i: number): void => {
+      if (cancelled || i >= order.length) return
+      timer = window.setTimeout(() => {
+        const run = (): void => {
+          if (cancelled) return
+          setVisited((v) => (v.includes(order[i]) ? v : [...v, order[i]]))
+          next(i + 1)
+        }
+        if ('requestIdleCallback' in window) window.requestIdleCallback(run, { timeout: 3000 })
+        else run()
+      }, 1500)
+    }
+    next(0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [ready])
 
   // 사이드바 폭 드래그 조절
   const startResize = (e: React.MouseEvent): void => {
     e.preventDefault()
-    setResizing(true)
     const startX = e.clientX
     const startW = useLayoutStore.getState().sidebarWidth
     const onMove = (ev: MouseEvent): void =>
       useLayoutStore.getState().setSidebarWidth(startW + (ev.clientX - startX))
     const onUp = (): void => {
-      setResizing(false)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
@@ -126,28 +155,24 @@ export default function App(): React.JSX.Element {
       <div className="flex h-screen flex-col bg-paper">
         <Titlebar />
         <div className="flex min-h-0 flex-1 gap-3 px-3 pb-3">
-          <AnimatePresence initial={false}>
-            {leftOpen && centerMode !== 'inbox' && (
-              <motion.div
-                key="left"
-                className="relative h-full shrink-0 overflow-hidden"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: sidebarWidth, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                // 드래그 중엔 즉시 반영 (애니메이션이 따라오면 답답함)
-                transition={resizing ? { duration: 0 } : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <div style={{ width: sidebarWidth }} className="h-full">
-                  <PromptPanel />
-                </div>
-                {/* 폭 조절 핸들 */}
-                <div
-                  className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-accent/30"
-                  onMouseDown={startResize}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* 폭은 한 번에 바뀌고(가운데 화면 배치 1회) 안쪽만 transform으로 미끄러져 들어온다 */}
+          {leftMounted && (
+            <div
+              className={
+                showLeft ? 'panel-in-left relative h-full shrink-0 overflow-hidden' : 'hidden'
+              }
+              style={{ width: sidebarWidth }}
+            >
+              <div style={{ width: sidebarWidth }} className="h-full">
+                <PromptPanel />
+              </div>
+              {/* 폭 조절 핸들 */}
+              <div
+                className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-accent/30"
+                onMouseDown={startResize}
+              />
+            </div>
+          )}
           {views.map(({ mode, node }) => (
             <div
               key={mode}
@@ -156,20 +181,15 @@ export default function App(): React.JSX.Element {
               {node}
             </div>
           ))}
-          <AnimatePresence initial={false}>
-            {rightOpen && centerMode !== 'inbox' && (
-              <motion.div
-                key="right"
-                className="h-full shrink-0 overflow-hidden"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 240, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <HistoryPanel />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {rightMounted && (
+            <div
+              className={
+                showRight ? 'panel-in-right h-full w-[240px] shrink-0 overflow-hidden' : 'hidden'
+              }
+            >
+              <HistoryPanel />
+            </div>
+          )}
         </div>
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         <TextPromptHost />

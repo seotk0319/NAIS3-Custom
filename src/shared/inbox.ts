@@ -45,7 +45,10 @@ export interface InboxItem {
 }
 export interface InboxPlatformStatus {
   status?: string
+  lastAttempt?: string | null
   lastSuccess?: string | null
+  /** 마지막으로 새 알림을 찾은 시각 */
+  lastNewAt?: string | null
   detail?: string
 }
 export interface InboxView {
@@ -105,6 +108,8 @@ export interface InboxResult {
     status: string
     detail: string | null
     lastSuccess: string | null
+    lastAttempt: string | null
+    lastNewAt: string | null
     expiresAt: string | null
     canRenew: boolean
     selected: boolean

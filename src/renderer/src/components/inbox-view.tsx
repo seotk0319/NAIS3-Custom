@@ -691,8 +691,15 @@ export function InboxView(): React.JSX.Element {
                     : relogin
                       ? '다시 로그인이 필요해요'
                       : p.appConnected
-                        ? 'NAIS3로 연결됨'
+                        ? 'NAIS3로 연결됨' +
+                          (p.lastAttempt ? ` · ${ago(p.lastAttempt, now)} 확인` : '') +
+                          (p.lastAttempt
+                            ? p.lastNewAt
+                              ? ` · 새 알림 ${ago(p.lastNewAt, now)}`
+                              : ' · 새 알림 없음'
+                            : '')
                         : '연결 안 됨'
+                const failed = p.appConnected && !checking && p.status === 'error' && p.detail
                 return (
                   <li key={p.id} className="flex items-center gap-3 px-3 py-2">
                     <input
@@ -711,10 +718,11 @@ export function InboxView(): React.JSX.Element {
                     <span
                       className={cn(
                         'min-w-0 flex-1 truncate',
-                        relogin ? 'text-danger' : 'text-muted'
+                        relogin || failed ? 'text-danger' : 'text-muted'
                       )}
+                      title={failed ? String(p.detail) : undefined}
                     >
-                      {state}
+                      {failed ? state + ' · 수집 오류: ' + String(p.detail).slice(0, 80) : state}
                     </span>
                     {p.appConnected && !checking && !p.awaitingLogin && (
                       <button

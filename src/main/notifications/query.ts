@@ -194,6 +194,8 @@ export function queryInbox(
         status: view.platforms[id]?.status || 'pending',
         detail: view.platforms[id]?.detail || null,
         lastSuccess: view.platforms[id]?.lastSuccess || null,
+        lastAttempt: view.platforms[id]?.lastAttempt || null,
+        lastNewAt: view.platforms[id]?.lastNewAt || null,
         // The collector reports the stored token's own expiry, never the token.
         expiresAt: view.collector?.sessions?.[id]?.expiresAt || null,
         canRenew: view.collector?.sessions?.[id]?.canRenew === true,

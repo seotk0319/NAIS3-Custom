@@ -59,7 +59,7 @@ export async function createStore(directory){
       const old=next.platforms[p]||{},success=batch.status==='ok'||batch.status==='partial';
       const channels={...old.channels,[channel]:{at:now,count:normalized.length,status:batch.status||'partial',detail:String(batch.detail||'').slice(0,700)}};
       if(success&&channel!=='api-status')delete channels['api-status'];
-      next.platforms[p]={...old,lastAttempt:now,lastSuccess:success?now:old.lastSuccess||null,status:batch.status||'partial',detail:String(batch.detail||'').slice(0,700),channels,...(batch.transport==='direct-api'?{transport:'direct-api',coverage:String(batch.coverage||old.coverage||'list'),unmapped:Number.isInteger(batch.unmapped)?batch.unmapped:old.unmapped||0,rejected:Number.isInteger(batch.issues?.length)?batch.issues.length:old.rejected||0}:{})};
+      next.platforms[p]={...old,lastAttempt:now,lastSuccess:success?now:old.lastSuccess||null,lastNewAt:added>0?now:old.lastNewAt||null,status:batch.status||'partial',detail:String(batch.detail||'').slice(0,700),channels,...(batch.transport==='direct-api'?{transport:'direct-api',coverage:String(batch.coverage||old.coverage||'list'),unmapped:Number.isInteger(batch.unmapped)?batch.unmapped:old.unmapped||0,rejected:Number.isInteger(batch.issues?.length)?batch.issues.length:old.rejected||0}:{})};
       await atomic(file,next);state=next;return {accepted:normalized.length,added};
     })}
   };

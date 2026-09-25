@@ -1061,6 +1061,7 @@ function WorkThumb({ item, className }: { item: InboxItem; className: string }):
   if (src)
     return (
       <img
+        decoding="async"
         src={src}
         alt=""
         loading="lazy"

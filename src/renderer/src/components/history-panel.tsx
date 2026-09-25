@@ -104,6 +104,7 @@ export function HistoryPanel(): React.JSX.Element {
                 >
                   {item.thumbnail && (
                     <img
+                      decoding="async"
                       src={`data:image/webp;base64,${item.thumbnail}`}
                       className="size-full object-cover"
                       // 프리뷰로 드래그해서 메타데이터 열기

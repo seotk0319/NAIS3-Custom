@@ -70,9 +70,13 @@ export default function App(): React.JSX.Element {
   // 안 열어 본 탭은 앱이 한가할 때 미리 만들어 둔다 (처음 열 때 70~120ms 끊기던 것 제거)
   useEffect(() => {
     if (!ready) return
-    const order: CenterMode[] = ['scene', 'director', 'library']
     let cancelled = false
     let timer = 0
+    const order: CenterMode[] = ['scene', 'director', 'library']
+    // 알림 탭은 Custom 1에만 있다
+    void window.nais.invoke('app:profile', undefined).then(({ profile }) => {
+      if (profile === 1) order.push('inbox')
+    })
     const next = (i: number): void => {
       if (cancelled || i >= order.length) return
       timer = window.setTimeout(() => {

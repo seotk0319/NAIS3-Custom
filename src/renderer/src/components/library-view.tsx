@@ -672,6 +672,7 @@ function StackCard({ stack }: { stack: LibraryStackSummary }): React.JSX.Element
     >
       {stack.thumbnail ? (
         <img
+          decoding="async"
           src={`data:image/webp;base64,${stack.thumbnail}`}
           className="size-full object-cover opacity-80"
           draggable={false}
@@ -721,6 +722,7 @@ function ImageCardSquare({
       >
         {src && (
           <img
+            decoding="async"
             src={src}
             className="size-full object-cover"
             loading="lazy"
@@ -764,6 +766,7 @@ function ImageCardNatural({
       >
         {src && (
           <img
+            decoding="async"
             src={src}
             className="w-full"
             loading="lazy"

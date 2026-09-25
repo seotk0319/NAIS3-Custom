@@ -7,6 +7,7 @@ import { PreviewPane } from './components/preview-pane'
 import { DirectorMode } from './components/director-mode'
 import { LibraryView } from './components/library-view'
 import { InboxView } from './components/inbox-view'
+import { ArenaView } from './components/arena/arena-view'
 import { InpaintHost } from './components/inpaint-host'
 import { CensorEditor } from './components/censor-editor'
 import { ArtistTagsDialog } from './components/artist-tags-dialog'
@@ -46,6 +47,8 @@ export default function App(): React.JSX.Element {
         node:
           mode === 'inbox' ? (
             <InboxView />
+          ) : mode === 'arena' ? (
+            <ArenaView />
           ) : mode === 'scene' ? (
             <SceneMode />
           ) : mode === 'director' ? (
@@ -60,8 +63,8 @@ export default function App(): React.JSX.Element {
   )
   const [ready, setReady] = useState(false)
   // 좌우 패널: 한 번 만들면 지우지 않고 숨기기만 한다 (탭을 옮길 때마다 새로 만들던 비용 제거)
-  const showLeft = leftOpen && centerMode !== 'inbox'
-  const showRight = rightOpen && centerMode !== 'inbox'
+  const showLeft = leftOpen && centerMode !== 'inbox' && centerMode !== 'arena'
+  const showRight = rightOpen && centerMode !== 'inbox' && centerMode !== 'arena'
   const [leftMounted, setLeftMounted] = useState(showLeft)
   const [rightMounted, setRightMounted] = useState(showRight)
   if (showLeft && !leftMounted) setLeftMounted(true)
@@ -72,7 +75,7 @@ export default function App(): React.JSX.Element {
     if (!ready) return
     let cancelled = false
     let timer = 0
-    const order: CenterMode[] = ['scene', 'director', 'library']
+    const order: CenterMode[] = ['scene', 'director', 'library', 'arena']
     // 알림 탭은 Custom 1에만 있다
     void window.nais.invoke('app:profile', undefined).then(({ profile }) => {
       if (profile === 1) order.push('inbox')

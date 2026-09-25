@@ -404,6 +404,67 @@ export const migrations: ((db: Database.Database) => void)[] = [
     if (!hasColumn(db, 'scene_presets', 'character_ids')) {
       db.exec(`ALTER TABLE scene_presets ADD COLUMN character_ids TEXT;`)
     }
+  },
+
+  // v18: 그림체 월드컵 (세션·작가·조합·이미지·판 기록). 조합은 작가 순서까지 포함해 key로 구분한다.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS arena_sessions (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        target TEXT NOT NULL DEFAULT 'positive',
+        stage TEXT NOT NULL DEFAULT 'prelim',
+        config_json TEXT NOT NULL,
+        slots_json TEXT NOT NULL,
+        state_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS arena_artists (
+        tag TEXT PRIMARY KEY,
+        list TEXT NOT NULL DEFAULT 'liked',
+        fixed_weight REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS arena_combos (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES arena_sessions(id) ON DELETE CASCADE,
+        pairs_json TEXT NOT NULL,
+        combo_key TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'random',
+        parent_id INTEGER,
+        generation INTEGER NOT NULL DEFAULT 0,
+        stage_reached TEXT NOT NULL DEFAULT 'prelim',
+        favorite INTEGER NOT NULL DEFAULT 0,
+        hidden INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (session_id, combo_key)
+      );
+      CREATE TABLE IF NOT EXISTS arena_renders (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES arena_sessions(id) ON DELETE CASCADE,
+        combo_id INTEGER NOT NULL REFERENCES arena_combos(id) ON DELETE CASCADE,
+        slot INTEGER NOT NULL,
+        state TEXT NOT NULL DEFAULT 'missing',
+        file_path TEXT,
+        queue_id TEXT,
+        error TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (combo_id, slot)
+      );
+      CREATE TABLE IF NOT EXISTS arena_votes (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES arena_sessions(id) ON DELETE CASCADE,
+        stage TEXT NOT NULL,
+        duel_json TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_arena_combos_session ON arena_combos(session_id);
+      CREATE INDEX IF NOT EXISTS idx_arena_renders_session ON arena_renders(session_id, state);
+      CREATE INDEX IF NOT EXISTS idx_arena_votes_session ON arena_votes(session_id, id);
+    `)
   }
 ]
 

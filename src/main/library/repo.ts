@@ -18,6 +18,7 @@ export function listLibraryDates(): LibraryDateGroup[] {
     .prepare(
       `SELECT date(created_at, 'localtime') AS date, COUNT(*) AS count
        FROM images
+       WHERE kind != 'arena'
        GROUP BY date(created_at, 'localtime')
        ORDER BY date DESC`
     )

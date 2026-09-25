@@ -148,7 +148,8 @@ function AppearanceSection(): React.JSX.Element {
 const TOGGLABLE_PAGES: { id: CenterMode; label: string }[] = [
   { id: 'scene', label: '씬' },
   { id: 'director', label: '디렉터' },
-  { id: 'library', label: '라이브러리' }
+  { id: 'library', label: '라이브러리' },
+  { id: 'arena', label: '그림체' }
 ]
 
 function PageToggles(): React.JSX.Element {
@@ -911,6 +912,11 @@ function AboutSection(): React.JSX.Element {
           <PatreonIcon /> Patreon
         </button>
       </div>
+
+      <p className="mt-4 text-[12px] leading-relaxed text-faint">
+        그림체 탭은 익명 게시판에 공개된 &lsquo;NAI 그림체 이상형 월드컵 v3.5&rsquo;(익명 제작자 공동
+        작업)를 바탕으로 다시 만들었어요. 좋은 도구를 자유롭게 쓰도록 공개해 주셔서 고마워요.
+      </p>
     </div>
   )
 }

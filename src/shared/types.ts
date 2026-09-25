@@ -7,6 +7,16 @@ import type {
   InboxReplyTarget,
   InboxResult
 } from './inbox'
+import type {
+  ArenaArtist,
+  ArenaArtistParseItem,
+  ArenaEnqueueResult,
+  ArenaRenderState,
+  ArenaSessionConfig,
+  ArenaSessionSummary,
+  ArenaSnapshot,
+  ArenaVoteResult
+} from './arena'
 
 export interface CharacterPromptInput {
   prompt: string
@@ -99,6 +109,8 @@ export interface GenerationRequest {
   skipWildcards?: boolean
   /** 씬 생성이면 씬 id (저장 시 images.scene_id 연결) */
   sceneId?: number
+  /** 그림체 월드컵 이미지면 arena_renders.id — 바이브·캐릭레퍼를 쓰지 않고 월드컵 폴더에 저장한다 */
+  arenaRenderId?: number
 }
 
 export interface PromptParts {
@@ -753,6 +765,56 @@ export interface IpcInvokeMap {
   'crefs:folderCollapse': { req: { id: number; collapsed: boolean }; res: void }
   'crefs:folderColor': { req: { id: number; color: string | null }; res: void }
   'crefs:folderDelete': { req: { id: number }; res: void }
+  /** 그림체 월드컵 */
+  'arena:sessions': { req: undefined; res: { items: ArenaSessionSummary[] } }
+  'arena:get': { req: { id: number }; res: ArenaSnapshot | null }
+  'arena:create': {
+    /** limit: 오늘 V5 한도 안에서 뽑을 장수 (없으면 전부) */
+    req: { config: ArenaSessionConfig; limit?: number }
+    res: { id?: number; error?: string; enqueue?: ArenaEnqueueResult }
+  }
+  'arena:delete': { req: { id: number }; res: void }
+  'arena:restore': { req: { id: number }; res: void }
+  'arena:rename': { req: { id: number; name: string }; res: void }
+  'arena:vote': { req: { sessionId: number; result: ArenaVoteResult }; res: ArenaSnapshot | null }
+  /** 지금 판을 건너뛰고 다른 판 보기 */
+  'arena:skip': { req: { sessionId: number }; res: ArenaSnapshot | null }
+  /** 마지막 판 되돌리기 (Ctrl Z) */
+  'arena:undo': { req: { sessionId: number }; res: ArenaSnapshot | null }
+  /** 다음 단계로: 예선→본선(reviveIds), 본선→결선, 결선→다듬기(tuneComboId) */
+  'arena:advance': {
+    req: { sessionId: number; reviveIds?: number[]; tuneComboId?: number; limit?: number }
+    res: { snapshot: ArenaSnapshot | null; enqueue?: ArenaEnqueueResult; error?: string }
+  }
+  /** 확정 화면에서 다듬기로 돌아가기 */
+  'arena:retune': { req: { sessionId: number }; res: ArenaSnapshot | null }
+  'arena:confirm': { req: { sessionId: number }; res: ArenaSnapshot | null }
+  /** 아직 없는 이미지를 대기열에 넣는다 (limit: 오늘 가능한 만큼만) */
+  'arena:enqueue': {
+    req: { sessionId: number; limit?: number; retryFailed?: boolean }
+    res: ArenaEnqueueResult
+  }
+  /** 이 세션의 대기 중 생성을 취소 */
+  'arena:cancel': { req: { sessionId: number }; res: void }
+  /** 예선에 새 조합 더하기 (모델 70 · 교배 10 · 무작위 20) */
+  'arena:addCombos': {
+    req: { sessionId: number; count: number }
+    res: { added: number; enqueue: ArenaEnqueueResult }
+  }
+  'arena:favorite': { req: { comboId: number; favorite: boolean }; res: void }
+  'arena:artists': { req: undefined; res: { items: ArenaArtist[] } }
+  'arena:artistsParse': { req: { text: string }; res: { items: ArenaArtistParseItem[] } }
+  'arena:artistsAdd': {
+    req: { names: string[]; list: 'liked' | 'avoided' }
+    res: { added: number }
+  }
+  'arena:artistsUpdate': {
+    req: { tag: string; list?: 'liked' | 'avoided'; fixedWeight?: number | null }
+    res: void
+  }
+  'arena:artistsRemove': { req: { tags: string[] }; res: void }
+  /** 이미지 메타데이터의 프롬프트 (작가 추가에 끌어다 놓기) */
+  'arena:promptFromImage': { req: { filePath: string }; res: { text: string } }
 }
 
 /** 메인 → 렌더러 이벤트 채널 */
@@ -775,6 +837,16 @@ export interface IpcEventMap {
   'scenes:changed': { sceneId: number; filePath: string }
   /** 바이브 인코딩 완료 — 카드의 인코딩 표시 갱신용 */
   'vibes:encoded': Record<string, never>
+  /** 그림체 월드컵: 이미지 한 장 완료/실패 또는 세션 상태 변경 */
+  'arena:changed': {
+    sessionId: number
+    kind: 'render' | 'state'
+    renderId?: number
+    comboId?: number
+    slot?: number
+    filePath?: string
+    state?: ArenaRenderState
+  }
   /** 자동 업데이트 상태 (이 저장소 GitHub release) */
   'update:status': {
     state: 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'

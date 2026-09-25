@@ -70,3 +70,17 @@ export function searchTags(query: string, limit = 8): TagEntry[] {
   }
   return [...prefix, ...substring].slice(0, limit)
 }
+
+let artistNames: Set<string> | null = null
+
+/** 작가 DB(단부루 artist 분류)에 있는 이름인지. 그림체 월드컵 작가 추가에서 일반 태그를 거른다 */
+export function isArtistTag(name: string): boolean {
+  if (!artistNames) {
+    artistNames = new Set(
+      load()
+        .filter((t) => t.type === 'artist')
+        .map((t) => t.tag.toLowerCase().replace(/_/g, ' '))
+    )
+  }
+  return artistNames.has(name.trim().toLowerCase().replace(/_/g, ' '))
+}

@@ -66,8 +66,19 @@ export async function saveGeneratedImage(input: {
   sentPayload: string
   seed: number
   // 디렉터 결과는 개별 req_type(bg-removal 등)을 kind로 저장 → 히스토리 뱃지가 툴별로 표시
-  kind: 't2i' | 'i2i' | 'inpaint' | 'scene' | 'upscale' | 'director' | 'mosaic' | DirectorMethod
+  kind:
+    | 't2i'
+    | 'i2i'
+    | 'inpaint'
+    | 'scene'
+    | 'upscale'
+    | 'director'
+    | 'mosaic'
+    | 'arena'
+    | DirectorMethod
   sceneId?: number
+  /** 일반 저장 폴더 아래 하위 폴더 (그림체 월드컵: arena/<세션>). 날짜 폴더 대신 쓴다 */
+  subDir?: string
   /** 저장 파일 확장자 (NAI가 반환한 실제 포맷). 기본 png */
   format?: 'png' | 'webp'
   /** 씬 생성이면 씬 이름 — 씬루트/<프리셋>/<씬 이름>/ 아래에 저장 (NAIS2 구조와 동일 계층) */
@@ -88,6 +99,8 @@ export async function saveGeneratedImage(input: {
     monthDir = autoSave
       ? sceneDir(input.scenePresetName ?? null, input.sceneName, input.sceneId)
       : join(libraryRoot(), 'scene')
+  } else if (input.subDir) {
+    monthDir = join(autoSave ? imagesRoot() : libraryRoot(), input.subDir)
   } else {
     const out = autoSave ? imagesRoot() : libraryRoot()
     monthDir =
@@ -256,6 +269,8 @@ export function listImages(
   const db = getDb()
   const where: string[] = []
   const values: (string | number)[] = []
+  // 그림체 월드컵 이미지는 월드컵 탭에서만 본다 (히스토리·라이브러리에 수백 장이 섞이지 않게)
+  where.push("kind != 'arena'")
   if (filter?.date) {
     where.push("date(created_at, 'localtime') = ?")
     values.push(filter.date)

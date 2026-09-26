@@ -1,6 +1,6 @@
 import { BarChart3, Clock, FileText, Plus, Swords, Users } from 'lucide-react'
 import { useEffect } from 'react'
-import { NEG_SLOTS, type ArenaDuel } from '@shared/arena'
+import { slotLayout, type ArenaDuel } from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { bindArenaEvents, useArenaStore, type ArenaViewMode } from '../../stores/arena-store'
 import { useLayoutStore } from '../../stores/layout-store'
@@ -276,9 +276,10 @@ function ArenaSession(): React.JSX.Element {
 
 function NegProgress(): React.JSX.Element {
   const duel = useArenaStore((s) => s.snapshot?.duel ?? null)
-  // 판 수가 아니라 후보 수로 센다 (후보마다 장면 NEG_SLOTS개씩 판이 있다)
+  // 판 수가 아니라 후보 수로 센다 (후보마다 네거티브 장면 수만큼 판이 있다)
   const n = useArenaStore((s) => s.snapshot?.session.state.candidateIds?.length ?? 0)
-  const k = duel?.kind === 'neg' ? Math.min(n, Math.floor(duel.index / NEG_SLOTS.length) + 1) : n
+  const per = useArenaStore((s) => slotLayout(s.snapshot?.session.slots.length ?? 12).neg.length)
+  const k = duel?.kind === 'neg' ? Math.min(n, Math.floor(duel.index / per) + 1) : n
   return (
     <div className="flex h-10 items-center gap-3 rounded-xl bg-paper px-4">
       <span className="text-[13px] font-semibold">

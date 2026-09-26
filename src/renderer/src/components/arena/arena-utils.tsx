@@ -156,6 +156,13 @@ export function gridStyle(g: GridFit, labelH = 0): React.CSSProperties {
 }
 
 /** 부모 칸 크기를 재서 bestGrid로 배치한다 */
+/** 세트 격자 모양: 장면 4개까지 한 줄, 6개까지 3열, 그 이상은 4열 */
+export function setShape(n: number): { cols: number; rows: number } {
+  const count = Math.max(1, n)
+  const cols = count <= 4 ? count : count <= 6 ? 3 : 4
+  return { cols, rows: Math.ceil(count / cols) }
+}
+
 export function useBestGrid(
   n: number,
   ratio: number,

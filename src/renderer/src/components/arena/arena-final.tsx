@@ -9,6 +9,7 @@ import { TagCaption } from './arena-duel'
 import {
   digitOf,
   gridStyle,
+  setShape,
   useArenaKeys,
   useBestGrid,
   useCellRatio,
@@ -68,7 +69,7 @@ export function FinalDuel({ duel }: { duel: SetDuel }): React.JSX.Element {
             ) : (
               <Chip>
                 <LayoutGrid size={13} />
-                장면 12개 · 같은 자리는 같은 장면 · 같은 시드
+                장면 {duel.slots.length}개 · 같은 자리는 같은 장면 · 같은 시드
               </Chip>
             )
           }
@@ -156,15 +157,21 @@ const SetGrid = memo(function SetGrid({
   picked: boolean
   onCell: (index: number) => void
 }): React.JSX.Element {
-  const [ref, box] = useFitBox((ratio * 4) / 3)
+  const { cols, rows } = setShape(Math.min(12, slots.length))
+  const [ref, box] = useFitBox((ratio * cols) / rows)
   return (
     <div ref={ref} className="flex min-h-0 flex-1 items-start justify-center">
       <div
         className={cn(
-          'grid grid-cols-4 grid-rows-3 gap-2 rounded-xl',
+          'grid gap-2 rounded-xl',
           picked && 'ring-[3px] ring-accent ring-offset-4 ring-offset-paper'
         )}
-        style={{ width: box.width, height: box.height }}
+        style={{
+          width: box.width,
+          height: box.height,
+          gridTemplateColumns: 'repeat(' + cols + ', minmax(0, 1fr))',
+          gridTemplateRows: 'repeat(' + rows + ', minmax(0, 1fr))'
+        }}
       >
         {slots.slice(0, 12).map((slot, i) => (
           <button

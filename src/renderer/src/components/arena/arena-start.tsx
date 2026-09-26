@@ -1,10 +1,21 @@
-import { Check, ChevronDown, CircleSlash, Heart, RotateCcw, TriangleAlert } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  CircleSlash,
+  Heart,
+  Plus,
+  RotateCcw,
+  TriangleAlert,
+  X
+} from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import {
   ARENA_SLOT_COUNT,
   BUDGETS,
   DEFAULT_SCENES,
+  EXTRA_SCENES,
   comboString,
+  estimateTotal,
   hasArtistToken,
   prependArtistToken,
   type ArenaBudget,
@@ -68,10 +79,7 @@ export function ArenaStart(): React.JSX.Element {
       prompt: c?.basePrompt ?? req.prompt,
       negative: c?.negativePrompt ?? req.negativePrompt,
       params: c?.params ?? paramsFromMain(),
-      scenes: Array.from(
-        { length: ARENA_SLOT_COUNT },
-        (_, i) => c?.scenes[i] ?? DEFAULT_SCENES[i] ?? ''
-      )
+      scenes: c?.scenes?.length ? c.scenes.slice(0, ARENA_SLOT_COUNT) : [...DEFAULT_SCENES]
     }
   })
   const [target, setTarget] = useState<ArenaTarget>(seed ? 'negative' : 'positive')
@@ -79,7 +87,7 @@ export function ArenaStart(): React.JSX.Element {
   const [prompt, setPrompt] = useState(init.prompt)
   const [negative, setNegative] = useState(init.negative)
   const [scenes, setScenes] = useState<string[]>(init.scenes)
-  const [scenesOpen, setScenesOpen] = useState(false)
+  const [scenesOpen, setScenesOpen] = useState(true)
   const [minA, setMinA] = useState('3')
   const [maxA, setMaxA] = useState('6')
   const [minW, setMinW] = useState('0.8')
@@ -103,14 +111,21 @@ export function ArenaStart(): React.JSX.Element {
   const needed = positive ? BUDGETS[budget].prelim : 2 + 2 * avoided.length
   const remaining = v5Usage && isV5Model(params.model) ? estimateV5Images(v5Usage) : null
   const defaultName = seed && !positive ? seed.label + ' 네거티브' : todayName()
-  const scenesEdited = scenes.some((s, i) => s !== DEFAULT_SCENES[i])
+  const scenesEdited =
+    scenes.length !== DEFAULT_SCENES.length || scenes.some((s, i) => s !== DEFAULT_SCENES[i])
+  const total = estimateTotal(budget, scenes.length)
+  const addScene = (): void => {
+    if (scenes.length >= ARENA_SLOT_COUNT) return
+    const next = EXTRA_SCENES.find((s) => !scenes.includes(s)) ?? ''
+    setScenes([...scenes, next])
+  }
 
   let reason: { text: string; action?: ReactNode } | null = null
   if (tokenMissing)
     reason = {
       text: (positive ? '긍정' : '네거티브') + ' 프롬프트에 작가 조합 자리({artist})가 없어요'
     }
-  else if (scenes.some((s) => !s.trim())) reason = { text: '장면 12개를 모두 채워 주세요' }
+  else if (scenes.some((s) => !s.trim())) reason = { text: '빈 장면을 채우거나 지워 주세요' }
   else if (
     positive &&
     (!Number.isInteger(shape.minA) ||
@@ -241,7 +256,9 @@ export function ArenaStart(): React.JSX.Element {
               onClick={() => setScenesOpen((o) => !o)}
               className="flex h-9 items-center gap-1.5 rounded-xl bg-paper px-3 text-[13px] font-semibold"
             >
-              {scenesEdited ? '장면 12개 · 고쳤어요' : '기본 장면 12개'}
+              {scenesEdited
+                ? '장면 ' + scenes.length + '개 · 고쳤어요'
+                : '기본 장면 ' + DEFAULT_SCENES.length + '개'}
               <ChevronDown
                 size={14}
                 className={cn('text-muted transition-transform', scenesOpen && 'rotate-180')}
@@ -274,8 +291,28 @@ export function ArenaStart(): React.JSX.Element {
                       !s.trim() && 'border-danger/60'
                     )}
                   />
+                  <button
+                    title="이 장면 빼기"
+                    disabled={scenes.length <= 1}
+                    onClick={() => setScenes(scenes.filter((_, k) => k !== i))}
+                    className="grid size-8 shrink-0 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-ink disabled:invisible"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               ))}
+              {scenes.length < ARENA_SLOT_COUNT && (
+                <button
+                  onClick={addScene}
+                  className="flex h-8 items-center gap-1.5 self-start rounded-lg px-2 text-[12.5px] font-semibold text-muted hover:bg-surface-2 hover:text-ink"
+                >
+                  <Plus size={14} />
+                  장면 더하기
+                  <span className="font-normal text-faint">
+                    장면이 많을수록 결선·확정에서 더 뽑아요
+                  </span>
+                </button>
+              )}
             </div>
           )}
         </Row>
@@ -302,7 +339,9 @@ export function ArenaStart(): React.JSX.Element {
                     )}
                   >
                     {BUDGETS[k].label}
-                    <span className="font-normal text-muted">약 {BUDGETS[k].total}장</span>
+                    <span className="font-normal text-muted">
+                      약 {estimateTotal(k, scenes.length)}장
+                    </span>
                   </button>
                 ))}
               </div>
@@ -340,7 +379,7 @@ export function ArenaStart(): React.JSX.Element {
           </div>
           {positive && (
             <p className="text-[12.5px] text-muted">
-              세션 전체 약 {BUDGETS[budget].total.toLocaleString()}장 · 대결은 나오는 대로 바로 해요
+              세션 전체 약 {total.toLocaleString()}장 · 대결은 나오는 대로 바로 해요
             </p>
           )}
         </div>
@@ -408,7 +447,7 @@ export function ArenaStart(): React.JSX.Element {
           </Button>
           <p className="text-center text-[11.5px] text-faint">
             {positive
-              ? '세션 전체 약 ' + BUDGETS[budget].total.toLocaleString() + '장'
+              ? '세션 전체 약 ' + total.toLocaleString() + '장'
               : '후보마다 장면 2개씩 기준과 비교해요'}
           </p>
         </div>

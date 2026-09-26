@@ -15,6 +15,7 @@ import {
   applyComboToMain,
   copyText,
   sendComboToMain,
+  setShape,
   useArenaKeys,
   useCellRatio,
   useFitBox
@@ -83,7 +84,7 @@ export function ArenaConfirm(): React.JSX.Element {
       <Card className="flex min-w-0 flex-1 flex-col gap-4 p-5">
         <div className="flex items-center gap-3">
           <h2 className="text-[16px] font-bold tracking-tight">
-            {done ? '확정한 조합이에요' : '12개 장면으로 확인해요'}
+            {done ? '확정한 조합이에요' : slots.length + '개 장면으로 확인해요'}
           </h2>
           <div className="flex-1" />
           {baseId != null && (
@@ -235,12 +236,18 @@ const ConfirmGrid = memo(function ConfirmGrid({
   slots: number[]
 }): React.JSX.Element {
   const ratio = useCellRatio()
-  const [ref, box] = useFitBox((ratio * 4) / 3)
+  const { cols, rows } = setShape(slots.length)
+  const [ref, box] = useFitBox((ratio * cols) / rows)
   return (
     <div ref={ref} className="flex min-h-0 flex-1 items-center justify-center">
       <div
-        className="grid grid-cols-4 grid-rows-3 gap-2.5"
-        style={{ width: box.width, height: box.height }}
+        className="grid gap-2.5"
+        style={{
+          width: box.width,
+          height: box.height,
+          gridTemplateColumns: 'repeat(' + cols + ', minmax(0, 1fr))',
+          gridTemplateRows: 'repeat(' + rows + ', minmax(0, 1fr))'
+        }}
       >
         {slots.map((slot) => (
           <div key={slot} className="min-h-0 overflow-hidden rounded-xl bg-surface-2">

@@ -22,7 +22,8 @@ import type {
   ArenaVoteResult,
   ArenaWait,
   Comparison,
-  PoolArtist
+  PoolArtist,
+  SlotLayout
 } from '../../shared/arena'
 import {
   ARENA_SLOT_COUNT,
@@ -30,15 +31,13 @@ import {
   FINAL_SIZE,
   MAIN_MIN_APPEAR,
   MAIN_SIZE,
-  MAIN_SLOTS,
-  NEG_SLOTS,
   PRELIM_MIN_APPEAR,
   REVIVE_COUNT,
   STAGE_LABELS,
-  TUNE_SLOTS,
   WEIGHT_CEIL,
   WEIGHT_FLOOR,
   artistStats,
+  slotLayout,
   assignTiers,
   comboKey,
   comboScore,
@@ -92,7 +91,9 @@ export function initArena(q: GenerationQueue, broadcast: Broadcast): void {
   emit = broadcast
   const db = getDb()
   // 대기열은 메모리에만 있다 — 지난 실행에서 대기 중이던 이미지는 다시 뽑을 수 있게 되돌린다
-  db.prepare("UPDATE arena_renders SET state = 'missing', queue_id = NULL WHERE state = 'queued'").run()
+  db.prepare(
+    "UPDATE arena_renders SET state = 'missing', queue_id = NULL WHERE state = 'queued'"
+  ).run()
   // 지운 지 하루 지난 세션은 정리 (이미지 파일은 남긴다)
   db.prepare(
     "DELETE FROM arena_sessions WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-1 day')"
@@ -132,8 +133,7 @@ function markRender(
   const row = db
     .prepare('SELECT session_id, combo_id, slot, state FROM arena_renders WHERE id = ?')
     .get(renderId) as
-    | { session_id: number; combo_id: number; slot: number; state: string }
-    | undefined
+    { session_id: number; combo_id: number; slot: number; state: string } | undefined
   if (!row) return
   if (row.state === 'done' && state !== 'done') return
   db.prepare(
@@ -270,7 +270,9 @@ interface StoredVote extends ArenaVote {
 
 function listVotes(sessionId: number): StoredVote[] {
   return (
-    getDb().prepare('SELECT * FROM arena_votes WHERE session_id = ? ORDER BY id').all(sessionId) as {
+    getDb()
+      .prepare('SELECT * FROM arena_votes WHERE session_id = ? ORDER BY id')
+      .all(sessionId) as {
       id: number
       session_id: number
       stage: string
@@ -439,7 +441,9 @@ export function cancelSession(sessionId: number): void {
 export function listArtists(): ArenaArtist[] {
   return (
     getDb()
-      .prepare('SELECT tag, list, fixed_weight, created_at FROM arena_artists ORDER BY created_at, tag')
+      .prepare(
+        'SELECT tag, list, fixed_weight, created_at FROM arena_artists ORDER BY created_at, tag'
+      )
       .all() as { tag: string; list: string; fixed_weight: number | null; created_at: string }[]
   ).map((r) => ({
     tag: r.tag,
@@ -515,8 +519,9 @@ export function createSession(
     }
   }
   const given = config.scenes.map((s) => s.trim())
-  const scenes = (given.length ? given : ['']).slice(0, ARENA_SLOT_COUNT)
-  for (let i = 0; scenes.length < ARENA_SLOT_COUNT; i++) scenes.push(scenes[i % scenes.length])
+  // 장면 수는 세션마다 1~12개 (빈 줄은 뺀다)
+  const filled = given.filter(Boolean)
+  const scenes = (filled.length ? filled : ['']).slice(0, ARENA_SLOT_COUNT)
   const slots: ArenaSlot[] = scenes.map((scene) => ({ scene, seed: randomSeed() }))
   const shape = {
     minArtists: Math.max(1, Math.round(Math.min(config.minArtists, config.maxArtists))),
@@ -560,10 +565,12 @@ export function createSession(
     if (negative) {
       const w = roundWeight(config.negWeight ?? 1)
       const baselineId = insertCombo(id, [], 'baseline', { hidden: true })
-      const candidateIds = candidates.map((tag) => insertCombo(id, [{ tag, weight: w }], 'candidate'))
+      const candidateIds = candidates.map((tag) =>
+        insertCombo(id, [{ tag, weight: w }], 'candidate')
+      )
       state.baselineId = baselineId
       state.candidateIds = candidateIds
-      for (const slot of NEG_SLOTS) {
+      for (const slot of slotLayout(slots.length).neg) {
         ensureRender(id, baselineId, slot)
         for (const c of candidateIds) ensureRender(id, c, slot)
       }
@@ -577,13 +584,16 @@ export function createSession(
         existingKeys: new Set(),
         rng: Math.random
       })
-      const offset = Math.floor(Math.random() * ARENA_SLOT_COUNT)
+      const offset = Math.floor(Math.random() * slots.length)
       batch.forEach((b, i) => {
         const cid = insertCombo(id, b.pairs, b.source)
-        ensureRender(id, cid, (i + offset) % ARENA_SLOT_COUNT)
+        ensureRender(id, cid, (i + offset) % slots.length)
       })
     }
-    db.prepare('UPDATE arena_sessions SET state_json = ? WHERE id = ?').run(JSON.stringify(state), id)
+    db.prepare('UPDATE arena_sessions SET state_json = ? WHERE id = ?').run(
+      JSON.stringify(state),
+      id
+    )
   })()
   const enqueue = enqueueMissing(id, { limit })
   return { id, enqueue }
@@ -621,7 +631,10 @@ export function listSessions(): ArenaSessionSummary[] {
     } else if (s.stage === 'neg') {
       const n = (negVotes.get(s.id) as { c: number }).c
       stageLabel =
-        '후보 ' + Math.floor(n / NEG_SLOTS.length) + ' / ' + (s.state.candidateIds?.length ?? 0)
+        '후보 ' +
+        Math.floor(n / slotLayout(s.slots.length).neg.length) +
+        ' / ' +
+        (s.state.candidateIds?.length ?? 0)
     }
     return {
       id: s.id,
@@ -653,7 +666,9 @@ export function renameSession(id: number, name: string): void {
 }
 
 export function setFavorite(comboId: number, favorite: boolean): void {
-  getDb().prepare('UPDATE arena_combos SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, comboId)
+  getDb()
+    .prepare('UPDATE arena_combos SET favorite = ? WHERE id = ?')
+    .run(favorite ? 1 : 0, comboId)
 }
 
 // ───────────────────────── 계산 ─────────────────────────
@@ -675,7 +690,10 @@ function renderKey(comboId: number, slot: number): string {
   return comboId + ':' + slot
 }
 
-const ALL_SLOTS = [...Array(ARENA_SLOT_COUNT).keys()]
+/** 이 세션의 장면 배치 (장면 수에 따라) */
+function lay(ctx: Ctx): SlotLayout {
+  return slotLayout(ctx.session.slots.length)
+}
 
 function buildCtx(sessionId: number): Ctx | null {
   const session = readSession(sessionId)
@@ -823,8 +841,7 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
   const valid = (d: ArenaDuel): boolean => {
     if (d.kind === 'quad')
       return (
-        d.stage === session.stage &&
-        d.comboIds.every((id) => ctx.done.has(renderKey(id, d.slot)))
+        d.stage === session.stage && d.comboIds.every((id) => ctx.done.has(renderKey(id, d.slot)))
       )
     if (d.kind === 'set') return session.stage === 'final' && hasAll(ctx, [d.a, d.b], d.slots)
     if (d.kind === 'tune')
@@ -833,7 +850,8 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
         st.tune?.chosen[d.artist] === undefined &&
         hasAll(ctx, duelComboIds(d), [d.slot])
       )
-    if (d.kind === 'order') return session.stage === 'order' && hasAll(ctx, duelComboIds(d), [d.slot])
+    if (d.kind === 'order')
+      return session.stage === 'order' && hasAll(ctx, duelComboIds(d), [d.slot])
     if (d.kind === 'neg')
       return session.stage === 'neg' && hasAll(ctx, [d.baseline, d.candidate], [d.slot])
     return false
@@ -843,7 +861,7 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
   const stage = session.stage
   if (stage === 'prelim' || stage === 'main') {
     const pool = stage === 'prelim' ? prelimPool(ctx) : (st.mainIds ?? [])
-    const slots = stage === 'prelim' ? ALL_SLOTS : MAIN_SLOTS
+    const slots = stage === 'prelim' ? lay(ctx).all : lay(ctx).main
     const { appear, slotUse } = stageAppear(ctx, stage)
     const pick = pickQuad({
       pool,
@@ -870,22 +888,22 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
     if (finalDone(ctx)) return { duel: null, wait: null }
     const index = ctx.votes.filter((v) => v.stage === 'final').length
     const [a, b] = pairs[index]
-    if (hasAll(ctx, [a, b], ALL_SLOTS))
+    if (hasAll(ctx, [a, b], lay(ctx).all))
       return {
-        duel: { kind: 'set', a, b, slots: ALL_SLOTS, index, total: pairs.length },
+        duel: { kind: 'set', a, b, slots: lay(ctx).all, index, total: pairs.length },
         wait: null
       }
     const ready =
-      ALL_SLOTS.filter((s) => ctx.done.has(renderKey(a, s))).length +
-      ALL_SLOTS.filter((s) => ctx.done.has(renderKey(b, s))).length
-    return { duel: null, wait: waitOf(ready, 24) }
+      lay(ctx).all.filter((s) => ctx.done.has(renderKey(a, s))).length +
+      lay(ctx).all.filter((s) => ctx.done.has(renderKey(b, s))).length
+    return { duel: null, wait: waitOf(ready, lay(ctx).all.length * 2) }
   }
   if (stage === 'tune' && st.tune) {
     const t = st.tune
     const step = t.artists.findIndex((a) => t.chosen[a] === undefined)
     if (step < 0) return { duel: null, wait: null }
     const artist = t.artists[step]
-    const slot = TUNE_SLOTS[step % TUNE_SLOTS.length]
+    const slot = lay(ctx).tune[step % lay(ctx).tune.length]
     const base = ctx.byId.get(t.baseComboId)
     const current = base?.pairs.find((p) => p.tag === artist)?.weight ?? 1
     const ids = t.options[artist] ?? []
@@ -905,7 +923,7 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
   }
   if (stage === 'order' && st.tune?.orderIds) {
     const ids = st.tune.orderIds
-    const slot = TUNE_SLOTS[0]
+    const slot = lay(ctx).tune[0]
     const options = ids.map((comboId) => ({
       comboId,
       order: (ctx.byId.get(comboId)?.pairs ?? []).map((p) => p.tag)
@@ -922,16 +940,23 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
     for (const v of ctx.votes)
       if (v.duel.kind === 'neg') rated.add(renderKey(v.duel.candidate, v.duel.slot))
     const cands = st.candidateIds ?? []
-    const total = cands.length * NEG_SLOTS.length
+    const total = cands.length * lay(ctx).neg.length
     let pendingAny = false
     // 장면 순으로 돌며 후보마다 한 번씩 — 같은 후보가 연달아 나오지 않게
-    for (const slot of NEG_SLOTS) {
+    for (const slot of lay(ctx).neg) {
       for (const c of cands) {
         if (rated.has(renderKey(c, slot))) continue
         pendingAny = true
         if (hasAll(ctx, [baselineId, c], [slot]))
           return {
-            duel: { kind: 'neg', slot, baseline: baselineId, candidate: c, index: rated.size, total },
+            duel: {
+              kind: 'neg',
+              slot,
+              baseline: baselineId,
+              candidate: c,
+              index: rated.size,
+              total
+            },
             wait: null
           }
       }
@@ -983,7 +1008,7 @@ function progressOf(ctx: Ctx): ArenaProgress {
   let next: ArenaProgress['next'] = null
   if (stage === 'prelim' || stage === 'main') {
     const pool = stage === 'prelim' ? prelimPool(ctx) : (st.mainIds ?? [])
-    const slots = stage === 'prelim' ? ALL_SLOTS : MAIN_SLOTS
+    const slots = stage === 'prelim' ? lay(ctx).all : lay(ctx).main
     const withRender = pool.filter((id) => slots.some((s) => ctx.done.has(renderKey(id, s))))
     const { appear } = stageAppear(ctx, stage)
     const need = stage === 'prelim' ? PRELIM_MIN_APPEAR : MAIN_MIN_APPEAR
@@ -994,13 +1019,13 @@ function progressOf(ctx: Ctx): ArenaProgress {
       const top = rankedVisible(ctx)
         .slice(0, MAIN_SIZE)
         .map((c) => c.id)
-      next = { stage: 'main', newRenders: missingCount(ctx, top, MAIN_SLOTS) }
+      next = { stage: 'main', newRenders: missingCount(ctx, top, lay(ctx).main) }
     } else {
       const top = (st.mainIds ?? [])
         .slice()
         .sort((a, b) => (ctx.score.get(b) ?? 0) - (ctx.score.get(a) ?? 0))
         .slice(0, FINAL_SIZE)
-      next = { stage: 'final', newRenders: missingCount(ctx, top, ALL_SLOTS) }
+      next = { stage: 'final', newRenders: missingCount(ctx, top, lay(ctx).all) }
     }
   } else if (stage === 'final') {
     stageTarget = st.finalPairs?.length ?? 0
@@ -1012,7 +1037,7 @@ function progressOf(ctx: Ctx): ArenaProgress {
   } else if (stage === 'order') {
     stageTarget = 1
   } else if (stage === 'neg') {
-    stageTarget = (st.candidateIds?.length ?? 0) * NEG_SLOTS.length
+    stageTarget = (st.candidateIds?.length ?? 0) * lay(ctx).neg.length
     ready = stageVotes >= stageTarget
   }
   return { stage, stageVotes, stageTarget, minAppear, ready, next, renders }
@@ -1045,13 +1070,19 @@ function comboViews(ctx: Ctx): ArenaComboView[] {
     return s ? s.sum / s.n : -2
   }
   const visible = negative
-    ? ctx.combos.filter((c) => c.source === 'candidate').sort((a, b) => negMean(b.id) - negMean(a.id))
+    ? ctx.combos
+        .filter((c) => c.source === 'candidate')
+        .sort((a, b) => negMean(b.id) - negMean(a.id))
     : rankedVisible(ctx)
   const rank = new Map(visible.map((c, i) => [c.id, i + 1]))
   const tiers = negative
     ? new Map()
     : assignTiers(
-        visible.map((c) => ({ id: c.id, stageReached: c.stageReached, score: ctx.score.get(c.id) ?? 0 }))
+        visible.map((c) => ({
+          id: c.id,
+          stageReached: c.stageReached,
+          score: ctx.score.get(c.id) ?? 0
+        }))
       )
   return ctx.combos.map((c) => {
     const wn = winsN.get(c.id)
@@ -1081,7 +1112,9 @@ function comboViews(ctx: Ctx): ArenaComboView[] {
 function canUndoVote(stage: ArenaStage, voteStage: ArenaStage): boolean {
   if (stage === voteStage) return true
   // 다듬기 마지막 판 → 순서, 순서 판 → 확정은 되돌릴 수 있다
-  return (stage === 'order' && voteStage === 'tune') || (stage === 'confirm' && voteStage === 'order')
+  return (
+    (stage === 'order' && voteStage === 'tune') || (stage === 'confirm' && voteStage === 'order')
+  )
 }
 
 function snapshotOf(ctx: Ctx): ArenaSnapshot {
@@ -1140,7 +1173,9 @@ export function vote(sessionId: number, result: ArenaVoteResult): ArenaSnapshot 
     return snapshotOf(ctx)
   const session = ctx.session
   getDb()
-    .prepare('INSERT INTO arena_votes (session_id, stage, duel_json, result_json) VALUES (?, ?, ?, ?)')
+    .prepare(
+      'INSERT INTO arena_votes (session_id, stage, duel_json, result_json) VALUES (?, ?, ?, ?)'
+    )
     .run(sessionId, session.stage, JSON.stringify(duel), JSON.stringify(result))
   const st = session.state
   st.currentDuel = null
@@ -1172,13 +1207,21 @@ function startOrderStep(ctx: Ctx): boolean {
   if (orders.length < 2) {
     return startConfirm(
       ctx,
-      insertCombo(ctx.session.id, tuned, 'order', { parentId: base.id, generation: gen, hidden: true })
+      insertCombo(ctx.session.id, tuned, 'order', {
+        parentId: base.id,
+        generation: gen,
+        hidden: true
+      })
     )
   }
   t.orderIds = orders.map((pairs) =>
-    insertCombo(ctx.session.id, pairs, 'order', { parentId: base.id, generation: gen, hidden: true })
+    insertCombo(ctx.session.id, pairs, 'order', {
+      parentId: base.id,
+      generation: gen,
+      hidden: true
+    })
   )
-  for (const id of t.orderIds) ensureRender(ctx.session.id, id, TUNE_SLOTS[0])
+  for (const id of t.orderIds) ensureRender(ctx.session.id, id, lay(ctx).tune[0])
   ctx.session.stage = 'order'
   return true
 }
@@ -1187,7 +1230,7 @@ function startConfirm(ctx: Ctx, tunedId: number): boolean {
   const t = ctx.session.state.tune
   if (!t) return false
   t.tunedComboId = tunedId
-  for (const s of ALL_SLOTS) ensureRender(ctx.session.id, tunedId, s)
+  for (const s of lay(ctx).all) ensureRender(ctx.session.id, tunedId, s)
   ctx.session.stage = 'confirm'
   return true
 }
@@ -1253,7 +1296,7 @@ export function advance(
     db.transaction(() => {
       for (const id of ids) {
         setReached.run('main', id)
-        for (const s of MAIN_SLOTS) ensureRender(sessionId, id, s)
+        for (const s of lay(ctx).main) ensureRender(sessionId, id, s)
       }
     })()
     st.mainIds = ids
@@ -1267,7 +1310,7 @@ export function advance(
     db.transaction(() => {
       for (const id of ids) {
         setReached.run('final', id)
-        for (const s of ALL_SLOTS) ensureRender(sessionId, id, s)
+        for (const s of lay(ctx).all) ensureRender(sessionId, id, s)
       }
     })()
     st.finalIds = ids
@@ -1285,7 +1328,7 @@ export function advance(
     db.transaction(() => {
       artists.forEach((artist, k) => {
         const current = base.pairs.find((p) => p.tag === artist)?.weight ?? 1
-        const slot = TUNE_SLOTS[k % TUNE_SLOTS.length]
+        const slot = lay(ctx).tune[k % lay(ctx).tune.length]
         // 기준 조합의 그 장면 이미지도 필요하다 (지금 값 칸)
         ensureRender(sessionId, base.id, slot)
         options[artist] = tuneWeights(current).map((w) => {
@@ -1377,7 +1420,7 @@ export function addCombos(
     for (const b of batch) {
       const cid = insertCombo(sessionId, b.pairs, b.source, { generation: gen })
       let slot = 0
-      for (const s of ALL_SLOTS) if ((perSlot.get(s) ?? 0) < (perSlot.get(slot) ?? 0)) slot = s
+      for (const s of lay(ctx).all) if ((perSlot.get(s) ?? 0) < (perSlot.get(slot) ?? 0)) slot = s
       perSlot.set(slot, (perSlot.get(slot) ?? 0) + 1)
       ensureRender(sessionId, cid, slot)
     }

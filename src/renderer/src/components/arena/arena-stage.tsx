@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowUp, BarChart3, Check } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { FINAL_SIZE, MAIN_SIZE, REVIVE_COUNT, type ArenaComboView } from '@shared/arena'
+import { FINAL_SIZE, MAIN_SIZE, REVIVE_COUNT, slotLayout, type ArenaComboView } from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { Button } from '../ui/button'
@@ -48,6 +48,8 @@ function PrelimMainEnd({ stage }: { stage: 'prelim' | 'main' }): React.JSX.Eleme
   const [revive, setRevive] = useState<number[]>([])
   const { gate, dialog } = useLimitGate()
 
+  const sceneCount = useArenaStore((s) => s.snapshot?.session.slots.length ?? 12)
+  const mainScenes = slotLayout(sceneCount).main.length
   const prelim = stage === 'prelim'
   const size = prelim ? MAIN_SIZE : FINAL_SIZE
   const { top, pool, byId, thumbs } = useMemo(() => {
@@ -73,8 +75,14 @@ function PrelimMainEnd({ stage }: { stage: 'prelim' | 'main' }): React.JSX.Eleme
       pool +
       '개를 ' +
       (progress?.stageVotes ?? 0) +
-      '판 동안 봤어요 · 본선은 조합마다 장면 4개, 이미 있는 장면은 다시 써요'
-    : '본선 ' + (progress?.stageVotes ?? 0) + '판 · 결선은 장면 12개 세트끼리 겨뤄요'
+      '판 동안 봤어요 · 본선은 조합마다 장면 ' +
+      mainScenes +
+      '개, 이미 있는 장면은 다시 써요'
+    : '본선 ' +
+      (progress?.stageVotes ?? 0) +
+      '판 · 결선은 장면 ' +
+      sceneCount +
+      '개 세트끼리 겨뤄요'
 
   const start = (): void =>
     gate(
@@ -199,6 +207,7 @@ function FinalEnd(): React.JSX.Element {
   const showTags = useArenaStore((s) => s.showTags)
   const advancing = useArenaStore((s) => s.advancing)
   const advance = useArenaStore((s) => s.advance)
+  const confirmCount = useArenaStore((s) => s.snapshot?.session.slots.length ?? 12)
   const { gate, dialog } = useLimitGate()
   const { list, thumbs } = useMemo(() => {
     const all = combos ?? []
@@ -251,7 +260,9 @@ function FinalEnd(): React.JSX.Element {
         </div>
       </div>
       <div className="flex shrink-0 items-center justify-end gap-3">
-        <span className="text-[12px] text-muted">작가마다 새 이미지 3장 · 확인용 12장</span>
+        <span className="text-[12px] text-muted">
+          작가마다 새 이미지 3장 · 확인용 {confirmCount}장
+        </span>
         <Button
           variant="accent"
           size="lg"

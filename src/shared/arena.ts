@@ -11,14 +11,7 @@ export type ArenaTarget = 'positive' | 'negative'
 export type ArenaStage = 'prelim' | 'main' | 'final' | 'tune' | 'order' | 'confirm' | 'done' | 'neg'
 export type ArenaBudget = 'light' | 'normal' | 'generous'
 export type ArenaComboSource =
-  | 'random'
-  | 'model'
-  | 'breed'
-  | 'tune'
-  | 'order'
-  | 'tuned'
-  | 'baseline'
-  | 'candidate'
+  'random' | 'model' | 'breed' | 'tune' | 'order' | 'tuned' | 'baseline' | 'candidate'
 export type ArenaRenderState = 'missing' | 'queued' | 'done' | 'failed'
 export type ArenaTier = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 
@@ -56,7 +49,7 @@ export interface ArenaSessionConfig {
   /** 네거티브 프롬프트. 네거티브 세션이면 {artist} 필수 */
   negativePrompt: string
   params: ArenaGenParams
-  /** 검증 장면 (기본 12개). 각 장면은 {scene} 자리 또는 프롬프트 끝에 붙는다 */
+  /** 검증 장면 (1~12개, 기본 3개). 각 장면은 {scene} 자리 또는 프롬프트 끝에 붙는다 */
   scenes: string[]
   minArtists: number
   maxArtists: number
@@ -270,6 +263,7 @@ export interface ArenaEnqueueResult {
 
 // ───────────────────────── 상수 ─────────────────────────
 
+/** 한 세션에 쓸 수 있는 장면 수 상한 */
 export const ARENA_SLOT_COUNT = 12
 /** 본선 공통 장면 (1·3·6·9번) */
 export const MAIN_SLOTS = [0, 2, 5, 8]
@@ -302,21 +296,53 @@ export const STAGE_LABELS: Record<ArenaStage, string> = {
   neg: '네거티브'
 }
 
-/** 기본 검증 장면 12개. 구도·거리·빛이 서로 다르게 */
-export const DEFAULT_SCENES: string[] = [
-  'upper body, looking at viewer, smile, simple indoor background',
-  'full body, standing, street, daytime',
-  'portrait, close-up, soft light, looking at viewer',
-  'sitting, cafe, window light, holding cup',
-  'cowboy shot, outdoors, wind, flowing hair',
-  'from side, profile, sunset, orange sky',
-  'lying on bed, from above, pillow, relaxed',
-  'night, city lights, neon, upper body',
-  'dynamic pose, action, motion blur, full body',
-  'library, bookshelf, afternoon, looking back',
-  'rain, umbrella, reflective street, wet',
-  'forest, sunbeam, dappled light, walking'
+/** 기본 검증 장면 3개 — 거리만 다르게 (그림체는 이 셋이면 충분히 드러난다) */
+export const DEFAULT_SCENES: string[] = ['cowboy shot', 'upper body', 'full body']
+
+/** 장면을 더할 때 차례로 제안하는 장면 */
+export const EXTRA_SCENES: string[] = [
+  'portrait, close-up',
+  'sitting, indoors',
+  'from side, sunset',
+  'night, city lights',
+  'dynamic pose',
+  'lying on bed, from above',
+  'rain, umbrella',
+  'forest, dappled sunlight',
+  'looking back, from behind'
 ]
+
+export interface SlotLayout {
+  /** 모든 장면 (결선 세트·확정 검증) */
+  all: number[]
+  /** 본선 공통 장면 (최대 4개) */
+  main: number[]
+  /** 다듬기·순서에 번갈아 쓰는 장면 */
+  tune: number[]
+  /** 네거티브 세션 장면 */
+  neg: number[]
+}
+
+/** 세션의 장면 수에 맞춘 장면 배치. 12개일 때는 예전 고정값과 같다 */
+export function slotLayout(n: number): SlotLayout {
+  const count = Math.max(1, Math.min(ARENA_SLOT_COUNT, Math.round(n)))
+  const all = [...Array(count).keys()]
+  if (count >= 12) return { all, main: MAIN_SLOTS, tune: TUNE_SLOTS, neg: NEG_SLOTS }
+  // 본선: 장면을 고르게 최대 4개
+  const m = Math.min(4, count)
+  const main = [...new Set(Array.from({ length: m }, (_, i) => Math.floor((i * count) / m)))]
+  const two = count >= 2 ? [0, 1] : [0]
+  return { all, main, tune: two, neg: two }
+}
+
+/** 세션 전체에 드는 대략의 장수: 예선 + 본선 새 장면 + 결선 새 장면 + 다듬기 18 + 확정 검증 */
+export function estimateTotal(budget: ArenaBudget, scenes: number): number {
+  const n = Math.max(1, Math.min(ARENA_SLOT_COUNT, scenes))
+  const m = slotLayout(n).main.length
+  const main = MAIN_SIZE * (m - m / n)
+  const final = FINAL_SIZE * (n - m)
+  return Math.round((BUDGETS[budget].prelim + main + final + 18 + n) / 10) * 10
+}
 
 // ───────────────────────── 프롬프트 ─────────────────────────
 
@@ -396,7 +422,11 @@ export function parseArtistInput(raw: string): { name: string; hadPrefix: boolea
       // 가중치 문법: "-1.2::tag::" / "tag::" 조각
       t = t.replace(/^-?\d+(\.\d+)?::/, '').replace(/::$/, '')
       t = t.replace(/::/g, ' ')
-      t = t.replace(/[{}[\]()]/g, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+      t = t
+        .replace(/[{}[\]()]/g, '')
+        .replace(/_/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
       t = t.replace(/^-?\d+(\.\d+)?\s*:\s*/, '') // "1.2:tag" 같은 옛 문법
       if (!t) continue
       let hadPrefix = false
@@ -554,7 +584,8 @@ export function voteComparisons(vote: Pick<ArenaVote, 'duel' | 'result'>): Compa
   const out: Comparison[] = []
   if (duel.kind === 'quad' && result.kind === 'quad') {
     for (const id of duel.comboIds) {
-      if (id !== result.best) out.push({ winner: result.best, loser: id, weight: 1, slot: duel.slot })
+      if (id !== result.best)
+        out.push({ winner: result.best, loser: id, weight: 1, slot: duel.slot })
     }
     if (result.worst != null && result.worst !== result.best) {
       for (const id of duel.comboIds) {

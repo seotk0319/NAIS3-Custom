@@ -17,9 +17,35 @@ import {
   voteComparisons,
   artistStats,
   comboScore,
+  slotLayout,
+  estimateTotal,
+  MAIN_SLOTS,
+  TUNE_SLOTS,
+  NEG_SLOTS,
   type ArenaPair,
   type Comparison
 } from '../src/shared/arena'
+
+describe('arena scene count', () => {
+  it('keeps the old fixed slots for 12-scene sessions', () => {
+    const l = slotLayout(12)
+    expect(l.all).toHaveLength(12)
+    expect(l.main).toEqual(MAIN_SLOTS)
+    expect(l.tune).toEqual(TUNE_SLOTS)
+    expect(l.neg).toEqual(NEG_SLOTS)
+  })
+
+  it('uses every scene for main when there are only three', () => {
+    expect(slotLayout(3)).toEqual({ all: [0, 1, 2], main: [0, 1, 2], tune: [0, 1], neg: [0, 1] })
+    expect(slotLayout(1)).toEqual({ all: [0], main: [0], tune: [0], neg: [0] })
+    expect(slotLayout(6).main).toEqual([0, 1, 3, 4])
+  })
+
+  it('estimates fewer images with fewer scenes', () => {
+    expect(estimateTotal('normal', 12)).toBe(400)
+    expect(estimateTotal('normal', 3)).toBe(280)
+  })
+})
 
 describe('arena prompt', () => {
   it('writes NAI weight syntax like the original, 1.0 without weight', () => {
@@ -31,7 +57,9 @@ describe('arena prompt', () => {
   it('replaces only the exact {artist} token and keeps other braces', () => {
     const p = '1girl,\n{artist},\n{{best quality}}, -3::artist collaboration ::'
     const out = insertArtists(p, '1.2::artist:a::, artist:b')
-    expect(out).toBe('1girl,\n1.2::artist:a::, artist:b,\n{{best quality}}, -3::artist collaboration ::')
+    expect(out).toBe(
+      '1girl,\n1.2::artist:a::, artist:b,\n{{best quality}}, -3::artist collaboration ::'
+    )
     expect(insertArtists('a, {artist}, b', '')).toBe('a, b')
   })
 
@@ -41,7 +69,9 @@ describe('arena prompt', () => {
   })
 
   it('pulls artist names out of a pasted prompt', () => {
-    const got = parseArtistInput('1.2::artist:omutatsu::, {artist:wanke}, vivid colors,\n# note, artist:foo_bar')
+    const got = parseArtistInput(
+      '1.2::artist:omutatsu::, {artist:wanke}, vivid colors,\n# note, artist:foo_bar'
+    )
     expect(got).toEqual([
       { name: 'omutatsu', hadPrefix: true },
       { name: 'wanke', hadPrefix: true },
@@ -74,7 +104,12 @@ describe('arena order matters', () => {
       [1, front],
       [2, back]
     ])
-    const comps: Comparison[] = Array.from({ length: 30 }, () => ({ winner: 1, loser: 2, weight: 1, slot: 0 }))
+    const comps: Comparison[] = Array.from({ length: 30 }, () => ({
+      winner: 1,
+      loser: 2,
+      weight: 1,
+      slot: 0
+    }))
     const model = fitModel(combos, comps)
     expect(comboScore(model, 1, front).score).toBeGreaterThan(comboScore(model, 2, back).score)
     const x = model.theta.get('x')!
@@ -98,7 +133,14 @@ describe('arena order matters', () => {
       { tag: 's', weight: 1.0 }
     ]
     const pool = ['p', 'q', 'r', 's'].map((tag) => ({ tag, fixedWeight: null }))
-    const child = breedCombo(a, b, pool, { minArtists: 3, maxArtists: 3, minWeight: 0.5, maxWeight: 2 }, rng, { sigma: 0 })
+    const child = breedCombo(
+      a,
+      b,
+      pool,
+      { minArtists: 3, maxArtists: 3, minWeight: 0.5, maxWeight: 2 },
+      rng,
+      { sigma: 0 }
+    )
     expect(child.map((c) => c.tag).slice(0, 2)).toEqual(['p', 'q'])
     expect(child[0].weight).toBe(1.4)
     expect(child[1].weight).toBe(1)
@@ -110,7 +152,15 @@ describe('arena model and matchmaking', () => {
   const shape = { minArtists: 3, maxArtists: 5, minWeight: 0.8, maxWeight: 1.6 }
 
   it('makes unique random combos within the shape', () => {
-    const batch = generateBatch({ count: 200, pool, shape, model: null, ranked: [], existingKeys: new Set(), rng: mulberry32(1) })
+    const batch = generateBatch({
+      count: 200,
+      pool,
+      shape,
+      model: null,
+      ranked: [],
+      existingKeys: new Set(),
+      rng: mulberry32(1)
+    })
     expect(batch).toHaveLength(200)
     expect(new Set(batch.map((b) => comboKey(b.pairs))).size).toBe(200)
     for (const b of batch) {
@@ -125,7 +175,15 @@ describe('arena model and matchmaking', () => {
 
   it('finds the artist the voter likes and uses the model for new combos', () => {
     const rng = mulberry32(3)
-    const batch = generateBatch({ count: 120, pool, shape, model: null, ranked: [], existingKeys: new Set(), rng })
+    const batch = generateBatch({
+      count: 120,
+      pool,
+      shape,
+      model: null,
+      ranked: [],
+      existingKeys: new Set(),
+      rng
+    })
     const combos = new Map(batch.map((b, i) => [i + 1, b.pairs]))
     // 가상의 취향: a3이 들어 있으면 좋고, a7이 있으면 싫다
     const taste = (p: ArenaPair[]): number =>
@@ -134,13 +192,26 @@ describe('arena model and matchmaking', () => {
     for (let g = 0; g < 150; g++) {
       const ids = [0, 1, 2, 3].map(() => 1 + Math.floor(rng() * 120))
       const best = ids.reduce((b, id) => (taste(combos.get(id)!) > taste(combos.get(b)!) ? id : b))
-      comps.push(...voteComparisons({ duel: { kind: 'quad', stage: 'prelim', slot: 0, comboIds: ids }, result: { kind: 'quad', best } }))
+      comps.push(
+        ...voteComparisons({
+          duel: { kind: 'quad', stage: 'prelim', slot: 0, comboIds: ids },
+          result: { kind: 'quad', best }
+        })
+      )
     }
     const model = fitModel(combos, comps)
     const stats = artistStats(model, combos, ['a3', 'a7'], shape)
     expect(stats[0].effect!).toBeGreaterThan(5)
     expect(stats[1].effect!).toBeLessThan(-5)
-    const next = generateBatch({ count: 30, pool, shape, model, ranked: [], existingKeys: new Set(), rng })
+    const next = generateBatch({
+      count: 30,
+      pool,
+      shape,
+      model,
+      ranked: [],
+      existingKeys: new Set(),
+      rng
+    })
     const modelMade = next.filter((n) => n.source === 'model')
     expect(modelMade.length).toBeGreaterThan(15)
     const withA3 = modelMade.filter((n) => n.pairs.some((p) => p.tag === 'a3')).length
@@ -174,4 +245,3 @@ describe('arena model and matchmaking', () => {
     expect(tuneWeights(0.4)).toEqual([0.3, 0.4, 0.7, 1])
   })
 })
-

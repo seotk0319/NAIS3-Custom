@@ -97,6 +97,9 @@ interface ArenaState {
     limit?: number
   }) => Promise<boolean>
   retune: () => Promise<void>
+  tuneReroll: () => Promise<void>
+  tuneStep: (step: number) => Promise<void>
+  orderShuffle: () => Promise<void>
   confirm: () => Promise<void>
   enqueue: (opts?: { limit?: number; retryFailed?: boolean }) => Promise<void>
   cancel: () => Promise<void>
@@ -380,6 +383,16 @@ export const useArenaStore = create<ArenaState>((set, get) => {
     },
     retune: async () => {
       await withSession((sessionId) => window.nais.invoke('arena:retune', { sessionId }))
+    },
+    tuneReroll: async () => {
+      set({ lastVote: null })
+      await withSession((sessionId) => window.nais.invoke('arena:tuneReroll', { sessionId }))
+    },
+    tuneStep: async (step) => {
+      await withSession((sessionId) => window.nais.invoke('arena:tuneStep', { sessionId, step }))
+    },
+    orderShuffle: async () => {
+      await withSession((sessionId) => window.nais.invoke('arena:orderShuffle', { sessionId }))
     },
     confirm: async () => {
       await withSession((sessionId) => window.nais.invoke('arena:confirm', { sessionId }))

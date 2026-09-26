@@ -1,7 +1,7 @@
 import { formatWeight } from '@shared/arena'
-import { Undo2 } from 'lucide-react'
+import { RefreshCw, Shuffle, Undo2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import type { ArenaDuel } from '@shared/arena'
+import { TUNE_STEPS, type ArenaDuel } from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { Button } from '../ui/button'
@@ -103,6 +103,81 @@ function Footer({ hint }: { hint: ReactNode }): React.JSX.Element {
   )
 }
 
+/** 다시 뽑기(같은 장면 새 시드)·간격·다른 순서 — 누르는 동안 다른 버튼은 잠근다 */
+function useBusy(): [boolean, (fn: () => Promise<void>) => void] {
+  const [busy, setBusy] = useState(false)
+  const run = (fn: () => Promise<void>): void => {
+    if (busy) return
+    setBusy(true)
+    void fn().finally(() => setBusy(false))
+  }
+  return [busy, run]
+}
+
+function RerollButton({ count }: { count: number }): React.JSX.Element {
+  const reroll = useArenaStore((s) => s.tuneReroll)
+  const [busy, run] = useBusy()
+  return (
+    <Button
+      className="h-9 rounded-xl"
+      disabled={busy}
+      title="같은 장면을 새 시드로 다시 뽑아요"
+      onClick={() => run(reroll)}
+    >
+      <RefreshCw size={14} className={cn(busy && 'animate-spin')} />
+      다시 뽑기
+      <span className="font-normal text-muted">+{count}장</span>
+    </Button>
+  )
+}
+
+function StepPicker(): React.JSX.Element {
+  const cfg = useArenaStore((s) => s.snapshot?.session.config)
+  const saved = useArenaStore((s) => s.snapshot?.session.state.tune?.step)
+  const setStep = useArenaStore((s) => s.tuneStep)
+  const [busy, run] = useBusy()
+  const step = saved ?? (cfg?.mode === 'refine' ? (cfg.refineStep ?? 0.3) : 0.3)
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[12px] text-muted">간격</span>
+      <div className="flex items-center gap-0.5 rounded-xl bg-paper p-1">
+        {TUNE_STEPS.map((s) => (
+          <button
+            key={s}
+            disabled={busy}
+            onClick={() => Math.abs(s - step) > 0.001 && run(() => setStep(s))}
+            className={cn(
+              'h-7 rounded-lg px-2.5 text-[12.5px] font-semibold tabular-nums transition-colors',
+              Math.abs(s - step) < 0.001
+                ? 'bg-surface text-ink shadow-sm'
+                : 'text-faint hover:text-ink'
+            )}
+          >
+            {formatWeight(s)}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ShuffleButton(): React.JSX.Element {
+  const shuffle = useArenaStore((s) => s.orderShuffle)
+  const [busy, run] = useBusy()
+  return (
+    <Button
+      className="h-9 rounded-xl"
+      disabled={busy}
+      title="지금 순서는 두고 아직 안 본 순서 3개로 바꿔요"
+      onClick={() => run(shuffle)}
+    >
+      <Shuffle size={14} />
+      다른 순서 보기
+      <span className="font-normal text-muted">+3장</span>
+    </Button>
+  )
+}
+
 export function TuneDuel({ duel }: { duel: TuneDuelT }): React.JSX.Element {
   const scene = useArenaStore((s) => s.snapshot?.session.slots[duel.slot]?.scene)
   const tune = useArenaStore((s) => s.snapshot?.session.state.tune)
@@ -111,18 +186,23 @@ export function TuneDuel({ duel }: { duel: TuneDuelT }): React.JSX.Element {
   const done = (tune?.artists ?? []).filter((a) => a !== duel.artist && tune?.chosen[a] != null)
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-4 p-5">
-      <Question
-        extra={
-          <>
-            <SceneChip slot={duel.slot} scene={scene} />
-            <span className="text-[12.5px] text-muted">
-              {duel.step} / {duel.total}
-            </span>
-          </>
-        }
-      >
-        {duel.artist}, 어느 세기가 제일 좋아요?
-      </Question>
+      <div className="flex flex-wrap items-center gap-3">
+        <Question
+          extra={
+            <>
+              <SceneChip slot={duel.slot} scene={scene} />
+              <span className="text-[12.5px] text-muted">
+                {duel.step + 1} / {duel.total}
+              </span>
+            </>
+          }
+        >
+          {duel.artist}, 어느 세기가 제일 좋아요?
+        </Question>
+        <div className="flex-1" />
+        <StepPicker />
+        <RerollButton count={ids.length} />
+      </div>
       <FourRow
         ids={ids}
         slot={duel.slot}
@@ -167,9 +247,14 @@ export function OrderDuel({ duel }: { duel: OrderDuelT }): React.JSX.Element {
   const base = duel.options[0]?.order ?? []
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-4 p-5">
-      <Question extra={<SceneChip slot={duel.slot} scene={scene} />}>
-        어떤 순서가 제일 좋아요?
-      </Question>
+      <div className="flex flex-wrap items-center gap-3">
+        <Question extra={<SceneChip slot={duel.slot} scene={scene} />}>
+          어떤 순서가 제일 좋아요?
+        </Question>
+        <div className="flex-1" />
+        <ShuffleButton />
+        <RerollButton count={ids.length} />
+      </div>
       <FourRow
         ids={ids}
         slot={duel.slot}

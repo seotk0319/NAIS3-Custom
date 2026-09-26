@@ -1,6 +1,12 @@
 import { CalendarPlus, Check, CircleSlash, Copy, LogIn, Sparkles, Undo2 } from 'lucide-react'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { comboString, hasArtistTags, hasArtistToken, formatWeight } from '@shared/arena'
+import {
+  comboString,
+  formatWeight,
+  hasArtistTags,
+  hasArtistToken,
+  sceneCountOf
+} from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { useGenerationStore } from '../../stores/generation-store'
@@ -45,10 +51,14 @@ export function ArenaConfirm(): React.JSX.Element {
   const base = combos?.find((c) => c.id === baseId)
 
   const slots = useMemo(() => {
-    const own = (renders ?? []).filter((r) => r.comboId === tunedId).map((r) => r.slot)
-    const list = own.length ? [...new Set(own)] : (session?.slots ?? []).map((_, i) => i)
+    // 다시 뽑기로 붙은 장면은 빼고 세션의 원래 장면만 보여 준다
+    const n = session ? sceneCountOf(session) : 12
+    const own = (renders ?? [])
+      .filter((r) => r.comboId === tunedId && r.slot < n)
+      .map((r) => r.slot)
+    const list = own.length ? [...new Set(own)] : [...Array(n).keys()]
     return list.sort((a, b) => a - b).slice(0, 12)
-  }, [renders, tunedId, session?.slots])
+  }, [renders, tunedId, session])
 
   useArenaKeys((e) => {
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey && baseId != null) {

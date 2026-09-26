@@ -1,6 +1,13 @@
 import { ArrowLeft, ArrowUp, BarChart3, Check } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { FINAL_SIZE, MAIN_SIZE, REVIVE_COUNT, slotLayout, type ArenaComboView } from '@shared/arena'
+import {
+  FINAL_SIZE,
+  MAIN_SIZE,
+  REVIVE_COUNT,
+  sceneCountOf,
+  slotLayout,
+  type ArenaComboView
+} from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { Button } from '../ui/button'
@@ -48,7 +55,7 @@ function PrelimMainEnd({ stage }: { stage: 'prelim' | 'main' }): React.JSX.Eleme
   const [revive, setRevive] = useState<number[]>([])
   const { gate, dialog } = useLimitGate()
 
-  const sceneCount = useArenaStore((s) => s.snapshot?.session.slots.length ?? 12)
+  const sceneCount = useArenaStore((s) => (s.snapshot ? sceneCountOf(s.snapshot.session) : 12))
   const refine = useArenaStore((s) => s.snapshot?.session.config.mode === 'refine')
   const mainScenes = slotLayout(sceneCount).main.length
   const prelim = stage === 'prelim'
@@ -216,7 +223,7 @@ function FinalEnd(): React.JSX.Element {
   const showTags = useArenaStore((s) => s.showTags)
   const advancing = useArenaStore((s) => s.advancing)
   const advance = useArenaStore((s) => s.advance)
-  const confirmCount = useArenaStore((s) => s.snapshot?.session.slots.length ?? 12)
+  const confirmCount = useArenaStore((s) => (s.snapshot ? sceneCountOf(s.snapshot.session) : 12))
   const { gate, dialog } = useLimitGate()
   const { list, thumbs } = useMemo(() => {
     const all = combos ?? []

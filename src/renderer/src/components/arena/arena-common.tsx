@@ -80,10 +80,19 @@ export function NegChip(): React.JSX.Element {
 }
 
 export function SceneChip({ slot, scene }: { slot: number; scene?: string }): React.JSX.Element {
+  // 다시 뽑기로 붙은 장면은 원래 장면 번호로 보여 준다
+  const original = useArenaStore((s) => {
+    const sess = s.snapshot?.session
+    if (!sess || slot < (sess.config.scenes?.length ?? sess.slots.length)) return null
+    const i = sess.config.scenes?.indexOf(sess.slots[slot]?.scene ?? '') ?? -1
+    return i >= 0 ? i : 0
+  })
   return (
     <Chip title={scene}>
       <ImageIcon size={13} />
-      장면 {slot + 1} · 시드 고정
+      {original != null
+        ? '장면 ' + (original + 1) + ' · 새 시드'
+        : '장면 ' + (slot + 1) + ' · 시드 고정'}
     </Chip>
   )
 }

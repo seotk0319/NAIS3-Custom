@@ -27,6 +27,9 @@ import {
   makeArtistSlot,
   neighborCombos,
   estimateRefine,
+  moreOrders,
+  orderKey,
+  sceneCountOf,
   type ArenaPair,
   type Comparison
 } from '../src/shared/arena'
@@ -253,8 +256,29 @@ describe('arena order matters', () => {
   })
 
   it('tune options keep a current weight below the floor', () => {
+    expect(tuneWeights(0.65, 0.05, 1.6, 0.1)).toEqual([0.45, 0.55, 0.65, 0.75])
     expect(tuneWeights(0.25, 0.05, 1.6, 0.3)).toContain(0.25)
     expect(tuneWeights(0.25, 0.3)).toContain(0.25)
+  })
+
+  it('"다른 순서 보기" never repeats an order already shown', () => {
+    const five: ArenaPair[] = ['a', 'b', 'c', 'd', 'e'].map((tag) => ({ tag, weight: 1 }))
+    const seen = new Set<string>()
+    const rng = mulberry32(3)
+    for (let round = 0; round < 8; round++) {
+      const got = moreOrders(five, seen, rng)
+      expect(got).toHaveLength(3)
+      for (const o of got) {
+        const k = orderKey(o)
+        expect(seen.has(k)).toBe(false)
+        expect(k).not.toBe(orderKey(five))
+        seen.add(k)
+      }
+    }
+  })
+
+  it('counts only the original scenes of a session', () => {
+    expect(sceneCountOf({ config: { scenes: ['a', 'b', 'c'] }, slots: [1, 2, 3, 4, 5] })).toBe(3)
   })
 
   it('breeding inherits weights and parent order', () => {

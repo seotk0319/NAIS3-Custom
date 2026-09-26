@@ -97,6 +97,12 @@ export interface ArenaTuneState {
   options: Record<string, number[]>
   /** 순서 단계 후보 조합 */
   orderIds?: number[]
+  /** 다듬기·순서에 쓰는 장면 (다시 뽑기로 시드만 바꾼 장면이 뒤에 붙는다) */
+  slot?: number
+  /** 세기 후보 간격 (0.1~0.5) */
+  step?: number
+  /** 이미 보여 준 순서 (작가 이름을 | 로 이은 것) — "다른 순서 보기"가 겹치지 않게 */
+  orderSeen?: string[]
   /** 다듬기 결과 조합 (확정 검증 세트용) */
   tunedComboId?: number
 }
@@ -355,6 +361,63 @@ export function slotLayout(n: number): SlotLayout {
   const main = [...new Set(Array.from({ length: m }, (_, i) => Math.floor((i * count) / m)))]
   const two = count >= 2 ? [0, 1] : [0]
   return { all, main, tune: two, neg: two }
+}
+
+/** 세션의 원래 장면 수 (다시 뽑기로 붙은 장면은 세지 않는다) */
+export function sceneCountOf(session: { config: { scenes?: string[] }; slots: unknown[] }): number {
+  return Math.min(session.slots.length, session.config.scenes?.length || session.slots.length)
+}
+
+export const TUNE_STEPS = [0.1, 0.2, 0.3, 0.5] as const
+
+export function orderKey(pairs: ArenaPair[]): string {
+  return pairs.map((p) => p.tag).join('|')
+}
+
+/**
+ * "다른 순서 보기": 아직 안 본 새 순서 count개. 먼저 한 명만 한두 칸 옮긴 순서에서 고르고,
+ * 다 봤으면 두 명을 옮긴 순서로 넘어간다.
+ */
+export function moreOrders(
+  current: ArenaPair[],
+  seen: Set<string>,
+  rng: Rng,
+  count = 3
+): ArenaPair[][] {
+  const n = current.length
+  if (n < 2) return []
+  const moved = (src: ArenaPair[], from: number, to: number): ArenaPair[] => {
+    const v = [...src]
+    const [x] = v.splice(from, 1)
+    v.splice(to, 0, x)
+    return v
+  }
+  const singles: ArenaPair[][] = []
+  for (let i = 0; i < n; i++)
+    for (const d of [-2, -1, 1, 2]) {
+      const to = i + d
+      if (to >= 0 && to < n) singles.push(moved(current, i, to))
+    }
+  const out: ArenaPair[][] = []
+  const taken = new Set(seen)
+  taken.add(orderKey(current))
+  for (const v of shuffle(singles, rng)) {
+    if (out.length >= count) break
+    if (taken.has(orderKey(v))) continue
+    taken.add(orderKey(v))
+    out.push(v)
+  }
+  for (let tries = 0; out.length < count && tries < 200; tries++) {
+    const a = Math.floor(rng() * n)
+    const b = Math.floor(rng() * n)
+    const c = Math.floor(rng() * n)
+    const e = Math.floor(rng() * n)
+    const v = moved(moved(current, a, b), c, e)
+    if (taken.has(orderKey(v))) continue
+    taken.add(orderKey(v))
+    out.push(v)
+  }
+  return out
 }
 
 /** 세션 전체에 드는 대략의 장수: 예선 + 본선 새 장면 + 결선 새 장면 + 다듬기 18 + 확정 검증 */

@@ -290,6 +290,9 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('arena:undo', ({ sessionId }) => arena.undo(sessionId))
   handle('arena:advance', ({ sessionId, ...opts }) => arena.advance(sessionId, opts))
   handle('arena:retune', ({ sessionId }) => arena.retune(sessionId))
+  handle('arena:tuneReroll', ({ sessionId }) => arena.tuneReroll(sessionId))
+  handle('arena:tuneStep', ({ sessionId, step }) => arena.tuneSetStep(sessionId, step))
+  handle('arena:orderShuffle', ({ sessionId }) => arena.orderShuffle(sessionId))
   handle('arena:confirm', ({ sessionId }) => arena.confirm(sessionId))
   handle('arena:enqueue', ({ sessionId, limit, retryFailed }) =>
     arena.enqueueMissing(sessionId, { limit, retryFailed })

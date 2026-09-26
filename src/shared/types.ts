@@ -788,6 +788,12 @@ export interface IpcInvokeMap {
   }
   /** 확정 화면에서 다듬기로 돌아가기 */
   'arena:retune': { req: { sessionId: number }; res: ArenaSnapshot | null }
+  /** 다듬기·순서: 같은 장면을 새 시드로 다시 뽑기 */
+  'arena:tuneReroll': { req: { sessionId: number }; res: ArenaSnapshot | null }
+  /** 다듬기: 세기 후보 간격 바꾸기 */
+  'arena:tuneStep': { req: { sessionId: number; step: number }; res: ArenaSnapshot | null }
+  /** 순서: 아직 안 본 새 순서 3개 */
+  'arena:orderShuffle': { req: { sessionId: number }; res: ArenaSnapshot | null }
   'arena:confirm': { req: { sessionId: number }; res: ArenaSnapshot | null }
   /** 아직 없는 이미지를 대기열에 넣는다 (limit: 오늘 가능한 만큼만) */
   'arena:enqueue': {

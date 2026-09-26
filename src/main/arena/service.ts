@@ -37,6 +37,9 @@ import {
   WEIGHT_CEIL,
   WEIGHT_FLOOR,
   artistStats,
+  moreOrders,
+  orderKey,
+  sceneCountOf,
   slotLayout,
   assignTiers,
   comboKey,
@@ -681,7 +684,7 @@ export function listSessions(): ArenaSessionSummary[] {
       const n = (negVotes.get(s.id) as { c: number }).c
       stageLabel =
         '후보 ' +
-        Math.floor(n / slotLayout(s.slots.length).neg.length) +
+        Math.floor(n / slotLayout(sceneCountOf(s)).neg.length) +
         ' / ' +
         (s.state.candidateIds?.length ?? 0)
     }
@@ -745,7 +748,7 @@ function isRefine(ctx: Ctx): boolean {
 
 /** 이 세션의 장면 배치 (장면 수에 따라) */
 function lay(ctx: Ctx): SlotLayout {
-  return slotLayout(ctx.session.slots.length)
+  return slotLayout(sceneCountOf(ctx.session))
 }
 
 function buildCtx(sessionId: number): Ctx | null {
@@ -1220,7 +1223,7 @@ export function getSnapshot(sessionId: number): ArenaSnapshot | null {
 
 /** 다듬기에 쓰는 장면 하나 — 고른 그림이 다음 판의 "지금 값" 칸에 그대로 나온다 */
 function tuneSlot(ctx: Ctx): number {
-  return lay(ctx).tune[0]
+  return ctx.session.state.tune?.slot ?? lay(ctx).tune[0]
 }
 
 /** 기준 조합에 지금까지 고른 가중치를 반영한 조합 */
@@ -1241,7 +1244,7 @@ function buildTuneOptions(ctx: Ctx, artist: string): number[] {
   const current = tunedPairs(ctx)
   const base = ctx.byId.get(t.baseComboId)
   const w0 = current.find((p) => p.tag === artist)?.weight ?? 1
-  const step = cfg.mode === 'refine' ? (cfg.refineStep ?? 0.3) : 0.3
+  const step = t.step ?? (cfg.mode === 'refine' ? (cfg.refineStep ?? 0.3) : 0.3)
   const slot = tuneSlot(ctx)
   const sessionId = ctx.session.id
   const ids = tuneWeights(w0, cfg.minWeight, cfg.maxWeight, step).map((w) => {
@@ -1345,6 +1348,7 @@ function startOrderStep(ctx: Ctx): boolean {
     })
   )
   for (const id of t.orderIds) ensureRender(ctx.session.id, id, tuneSlot(ctx))
+  t.orderSeen = orders.map(orderKey)
   ctx.session.stage = 'order'
   return true
 }
@@ -1470,6 +1474,83 @@ export function advance(
   saveSession(session)
   const enqueue = enqueueMissing(sessionId, { limit: opts.limit })
   return { snapshot: getSnapshot(sessionId), enqueue }
+}
+
+/** 다듬기·순서: 같은 장면을 새 시드로 다시 뽑는다 (지금 판의 후보를 그 장면에 새로 그린다) */
+export function tuneReroll(sessionId: number): ArenaSnapshot | null {
+  const ctx = buildCtx(sessionId)
+  const t = ctx?.session.state.tune
+  if (!ctx || !t || (ctx.session.stage !== 'tune' && ctx.session.stage !== 'order')) {
+    return ctx ? snapshotOf(ctx) : null
+  }
+  const session = ctx.session
+  const from = session.slots[tuneSlot(ctx)] ?? session.slots[0]
+  session.slots.push({ scene: from?.scene ?? '', seed: randomSeed() })
+  getDb()
+    .prepare('UPDATE arena_sessions SET slots_json = ? WHERE id = ?')
+    .run(JSON.stringify(session.slots), session.id)
+  t.slot = session.slots.length - 1
+  getDb().transaction(() => {
+    if (session.stage === 'tune') {
+      const artist = t.artists.find((a) => t.chosen[a] === undefined)
+      if (artist !== undefined) buildTuneOptions(ctx, artist)
+    } else {
+      for (const id of t.orderIds ?? []) ensureRender(session.id, id, t.slot!)
+    }
+  })()
+  session.state.currentDuel = null
+  saveSession(session)
+  enqueueMissing(sessionId)
+  return getSnapshot(sessionId)
+}
+
+/** 다듬기: 지금 작가의 세기 후보 간격을 바꾼다 (다음 작가에도 이어진다) */
+export function tuneSetStep(sessionId: number, step: number): ArenaSnapshot | null {
+  const ctx = buildCtx(sessionId)
+  const t = ctx?.session.state.tune
+  if (!ctx || !t || ctx.session.stage !== 'tune') return ctx ? snapshotOf(ctx) : null
+  t.step = Math.min(1, Math.max(0.05, roundWeight(step)))
+  const artist = t.artists.find((a) => t.chosen[a] === undefined)
+  if (artist !== undefined) getDb().transaction(() => buildTuneOptions(ctx, artist))()
+  ctx.session.state.currentDuel = null
+  saveSession(ctx.session)
+  enqueueMissing(sessionId)
+  return getSnapshot(sessionId)
+}
+
+/** 순서: 지금 순서는 두고 아직 안 본 새 순서 3개로 바꾼다 */
+export function orderShuffle(sessionId: number): ArenaSnapshot | null {
+  const ctx = buildCtx(sessionId)
+  const t = ctx?.session.state.tune
+  if (!ctx || !t || ctx.session.stage !== 'order' || !t.orderIds?.length) {
+    return ctx ? snapshotOf(ctx) : null
+  }
+  const current = ctx.byId.get(t.orderIds[0])
+  if (!current) return snapshotOf(ctx)
+  const seen = new Set(
+    t.orderSeen ?? t.orderIds.map((id) => orderKey(ctx.byId.get(id)?.pairs ?? []))
+  )
+  const fresh = moreOrders(current.pairs, seen, Math.random)
+  if (fresh.length === 0) return snapshotOf(ctx)
+  const base = ctx.byId.get(t.baseComboId)
+  const slot = tuneSlot(ctx)
+  getDb().transaction(() => {
+    const ids = fresh.map((pairs) =>
+      insertCombo(ctx.session.id, pairs, 'order', {
+        parentId: base?.id ?? null,
+        generation: (base?.generation ?? 0) + 1,
+        hidden: true
+      })
+    )
+    for (const id of ids) ensureRender(ctx.session.id, id, slot)
+    t.orderIds = [current.id, ...ids]
+  })()
+  for (const v of fresh) seen.add(orderKey(v))
+  t.orderSeen = [...seen]
+  ctx.session.state.currentDuel = null
+  saveSession(ctx.session)
+  enqueueMissing(sessionId)
+  return getSnapshot(sessionId)
 }
 
 export function retune(sessionId: number): ArenaSnapshot | null {

@@ -1205,10 +1205,21 @@ export function roundRobin(ids: number[], rng: Rng): [number, number][] {
 }
 
 /** 안경점: 현재 값 포함 [w−0.6, w−0.3, w, w+0.3], 범위 안으로 자르고 중복 제거 */
-export function tuneWeights(current: number, min = WEIGHT_FLOOR, max = WEIGHT_CEIL): number[] {
+/**
+ * 안경점: 지금 값 포함 [w−2s, w−s, w, w+s] (기본 s=0.3). 범위 안으로 자르고 중복은 바깥 값으로 채운다.
+ * 지금 값이 범위 밖(0.25 등)이어도 지금 값은 그대로 남긴다.
+ */
+export function tuneWeights(
+  current: number,
+  min = WEIGHT_FLOOR,
+  max = WEIGHT_CEIL,
+  step = 0.3
+): number[] {
+  const lo = Math.min(min, roundWeight(current))
+  const hi = Math.max(max, roundWeight(current))
   const out: number[] = []
-  for (const d of [-0.6, -0.3, 0, 0.3, 0.6, 0.9, -0.9]) {
-    const w = clampWeight(current + d, min, max)
+  for (const k of [0, -2, -1, 1, 2, 3, -3]) {
+    const w = clampWeight(current + k * step, lo, hi)
     if (out.length < 4 && !out.includes(w)) out.push(w)
   }
   return out.sort((a, b) => a - b)
@@ -1218,23 +1229,54 @@ export function tuneWeights(current: number, min = WEIGHT_FLOOR, max = WEIGHT_CE
  * 순서 후보: 지금 순서, 모델이 앞을 좋아하는 작가부터, 효과 큰 작가를 맨 앞으로, 뒤집기.
  * 같은 순서는 한 번만.
  */
+/**
+ * 순서 후보 = 지금 순서 + 작가 한 명만 한 칸(모자라면 두 칸) 옮긴 새 순서 3개.
+ * 모델이 "앞에 둘수록 좋다"고 본 작가를 앞으로 옮기는 것부터 고르고,
+ * 모델이 아직 모르면 앞·가운데·뒤에서 고르게 하나씩 고른다.
+ */
 export function orderCandidates(pairs: ArenaPair[], theta: Map<string, Theta>): ArenaPair[][] {
-  const keyOf = (p: ArenaPair[]): string => p.map((x) => x.tag).join('|')
-  const out: ArenaPair[][] = []
-  const add = (p: ArenaPair[]): void => {
-    if (!out.some((o) => keyOf(o) === keyOf(p))) out.push(p)
+  const n = pairs.length
+  if (n < 2) return [pairs]
+  const front = (i: number): number => (n > 1 ? 1 - i / (n - 1) : 1)
+  const moves: { from: number; to: number; gain: number; dist: number }[] = []
+  const gainOf = (order: ArenaPair[]): number =>
+    order.reduce((s, p, i) => {
+      const orig = pairs.indexOf(p)
+      return s + (theta.get(p.tag)?.[3] ?? 0) * (front(i) - front(orig))
+    }, 0)
+  const moved = (from: number, to: number): ArenaPair[] => {
+    const v = [...pairs]
+    const [x] = v.splice(from, 1)
+    v.splice(to, 0, x)
+    return v
   }
-  add(pairs)
-  if (pairs.length < 2) return out
-  add([...pairs].sort((a, b) => (theta.get(b.tag)?.[3] ?? 0) - (theta.get(a.tag)?.[3] ?? 0)))
-  const top = [...pairs].sort(
-    (a, b) => (theta.get(b.tag)?.[0] ?? 0) - (theta.get(a.tag)?.[0] ?? 0)
-  )[0]
-  add([top, ...pairs.filter((p) => p !== top)])
-  add([...pairs].reverse())
-  for (let r = 1; out.length < 4 && r < pairs.length; r++)
-    add([...pairs.slice(r), ...pairs.slice(0, r)])
-  return out.slice(0, 4)
+  for (let i = 0; i < n; i++) {
+    for (const d of [-1, 1, -2, 2]) {
+      const to = i + d
+      if (to < 0 || to >= n) continue
+      // 한 칸 옮기기는 옆 작가와 자리 바꾸기라 (i, i+1)과 (i+1, i)가 같다 — 위로 옮기는 쪽만 둔다
+      if (d === 1) continue
+      moves.push({ from: i, to, gain: gainOf(moved(i, to)), dist: Math.abs(d) })
+    }
+  }
+  const informative = moves.some((m) => Math.abs(m.gain) > 1e-6)
+  let picked: typeof moves
+  if (informative) {
+    picked = [...moves].sort((a, b) => b.gain - a.gain || a.dist - b.dist || a.to - b.to)
+  } else {
+    // 모델 정보가 없으면 한 칸 옮기기를 앞·가운데·뒤에서 고르게
+    const ones = moves.filter((m) => m.dist === 1).sort((a, b) => a.to - b.to)
+    const spread = [0, Math.floor((ones.length - 1) / 2), ones.length - 1].map((k) => ones[k])
+    picked = [...spread, ...moves.filter((m) => m.dist === 2)]
+  }
+  const keyOf = (p: ArenaPair[]): string => p.map((x) => x.tag).join('|')
+  const out: ArenaPair[][] = [pairs]
+  for (const m of picked) {
+    if (out.length >= 4) break
+    const v = moved(m.from, m.to)
+    if (!out.some((o) => keyOf(o) === keyOf(v))) out.push(v)
+  }
+  return out
 }
 
 /** 티어는 단계 기준: S = 결선, A = 본선에서 멈춤, 나머지는 점수 순 4등분 */

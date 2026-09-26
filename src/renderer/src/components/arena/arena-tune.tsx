@@ -11,6 +11,18 @@ import { digitOf, gridStyle, useArenaKeys, useBestGrid, useCellRatio } from './a
 type TuneDuelT = Extract<ArenaDuel, { kind: 'tune' }>
 type OrderDuelT = Extract<ArenaDuel, { kind: 'order' }>
 
+/** 지금 순서와 비교해 옮긴 작가 하나와 몇 칸 옮겼는지 (+ = 앞으로) */
+function movedArtist(base: string[], order: string[]): { tag: string; by: number } | null {
+  let best: { tag: string; by: number } | null = null
+  for (const tag of order) {
+    const by = base.indexOf(tag) - order.indexOf(tag)
+    if (by === 0) continue
+    if (!best || Math.abs(by) > Math.abs(best.by) || (Math.abs(by) === Math.abs(best.by) && by > 0))
+      best = { tag, by }
+  }
+  return best
+}
+
 /** 네 장 한 줄 + 아래 이름표. 세기·순서 고르기가 같이 쓴다 */
 function FourRow({
   ids,
@@ -152,6 +164,7 @@ export function OrderDuel({ duel }: { duel: OrderDuelT }): React.JSX.Element {
   const scene = useArenaStore((s) => s.snapshot?.session.slots[duel.slot]?.scene)
   const ids = duel.options.map((o) => o.comboId)
   const [picked, choose] = useChooser(ids, 'order')
+  const base = duel.options[0]?.order ?? []
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-4 p-5">
       <Question extra={<SceneChip slot={duel.slot} scene={scene} />}>
@@ -162,23 +175,45 @@ export function OrderDuel({ duel }: { duel: OrderDuelT }): React.JSX.Element {
         slot={duel.slot}
         picked={picked}
         onPick={choose}
-        labels={duel.options.map((o) => (
-          <div key={o.comboId} className="flex flex-wrap gap-1" title={o.order.join(' → ')}>
-            {o.order.map((tag, k) => (
-              <span
-                key={tag}
-                className="max-w-[120px] truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink"
-              >
-                <b className="mr-0.5 text-muted">{k + 1}</b>
-                {tag}
+        labels={duel.options.map((o, i) => {
+          const mv = i === 0 ? null : movedArtist(base, o.order)
+          return (
+            <div key={o.comboId} className="flex flex-col gap-1.5" title={o.order.join(' → ')}>
+              <span className="text-[12.5px] font-semibold">
+                {i === 0 ? (
+                  <span className="rounded-md bg-surface px-1.5 py-0.5 text-ink">지금 순서</span>
+                ) : mv ? (
+                  <>
+                    <span className="text-accent">{mv.tag}</span>{' '}
+                    {mv.by > 0 ? '앞으로 ' + mv.by + '칸' : '뒤로 ' + -mv.by + '칸'}
+                  </>
+                ) : null}
               </span>
-            ))}
-          </div>
-        ))}
+              <div className="flex flex-wrap gap-1">
+                {o.order.map((tag, k) => (
+                  <span
+                    key={tag}
+                    className={cn(
+                      'max-w-[120px] truncate rounded-md px-1.5 py-0.5 text-[11px]',
+                      mv?.tag === tag
+                        ? 'bg-accent-soft font-semibold text-accent'
+                        : 'bg-surface-2 text-ink'
+                    )}
+                  >
+                    <b className="mr-0.5 text-muted">{k + 1}</b>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )
+        })}
       />
       <Footer
         hint={
-          <span className="text-[12px] text-muted">작가는 앞에 둘수록 그림체에 크게 들어가요</span>
+          <span className="text-[12px] text-muted">
+            다듬은 세기 그대로 순서만 한 곳씩 바꿨어요 · 작가는 앞에 둘수록 크게 들어가요
+          </span>
         }
       />
     </Card>

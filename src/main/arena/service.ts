@@ -956,9 +956,8 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
     const step = t.artists.findIndex((a) => t.chosen[a] === undefined)
     if (step < 0) return { duel: null, wait: null }
     const artist = t.artists[step]
-    const slot = lay(ctx).tune[step % lay(ctx).tune.length]
-    const base = ctx.byId.get(t.baseComboId)
-    const current = base?.pairs.find((p) => p.tag === artist)?.weight ?? 1
+    const slot = tuneSlot(ctx)
+    const current = tunedPairs(ctx).find((p) => p.tag === artist)?.weight ?? 1
     const ids = t.options[artist] ?? []
     const options = ids.map((comboId) => ({
       comboId,
@@ -976,7 +975,7 @@ function nextDuel(ctx: Ctx): { duel: ArenaDuel | null; wait: ArenaWait | null } 
   }
   if (stage === 'order' && st.tune?.orderIds) {
     const ids = st.tune.orderIds
-    const slot = lay(ctx).tune[0]
+    const slot = tuneSlot(ctx)
     const options = ids.map((comboId) => ({
       comboId,
       order: (ctx.byId.get(comboId)?.pairs ?? []).map((p) => p.tag)
@@ -1215,7 +1214,68 @@ function snapshotOf(ctx: Ctx): ArenaSnapshot {
 
 export function getSnapshot(sessionId: number): ArenaSnapshot | null {
   const ctx = buildCtx(sessionId)
+  if (ctx && repairTune(ctx)) return getSnapshot(sessionId)
   return ctx ? snapshotOf(ctx) : null
+}
+
+/** 다듬기에 쓰는 장면 하나 — 고른 그림이 다음 판의 "지금 값" 칸에 그대로 나온다 */
+function tuneSlot(ctx: Ctx): number {
+  return lay(ctx).tune[0]
+}
+
+/** 기준 조합에 지금까지 고른 가중치를 반영한 조합 */
+function tunedPairs(ctx: Ctx): ArenaPair[] {
+  const t = ctx.session.state.tune
+  const base = t ? ctx.byId.get(t.baseComboId) : undefined
+  if (!t || !base) return []
+  return base.pairs.map((p) =>
+    t.chosen[p.tag] !== undefined ? { ...p, weight: t.chosen[p.tag] } : p
+  )
+}
+
+/** 이 작가의 세기 후보 4개를 지금 조합에서 만든다 (지금 값 칸 = 지금 조합 그대로) */
+function buildTuneOptions(ctx: Ctx, artist: string): number[] {
+  const t = ctx.session.state.tune
+  if (!t) return []
+  const cfg = ctx.session.config
+  const current = tunedPairs(ctx)
+  const base = ctx.byId.get(t.baseComboId)
+  const w0 = current.find((p) => p.tag === artist)?.weight ?? 1
+  const step = cfg.mode === 'refine' ? (cfg.refineStep ?? 0.3) : 0.3
+  const slot = tuneSlot(ctx)
+  const sessionId = ctx.session.id
+  const ids = tuneWeights(w0, cfg.minWeight, cfg.maxWeight, step).map((w) => {
+    const pairs = current.map((p) => (p.tag === artist ? { ...p, weight: w } : p))
+    const id = insertCombo(sessionId, pairs, 'tune', {
+      parentId: base?.id ?? null,
+      generation: (base?.generation ?? 0) + 1,
+      hidden: true
+    })
+    ensureRender(sessionId, id, slot)
+    return id
+  })
+  t.options[artist] = ids
+  return ids
+}
+
+/** 예전 방식(모든 작가 후보를 처음 조합에서 미리 만든) 다듬기를 지금 조합 기준으로 고친다 */
+function repairTune(ctx: Ctx): boolean {
+  const t = ctx.session.state.tune
+  if (ctx.session.stage !== 'tune' || !t) return false
+  const artist = t.artists.find((a) => t.chosen[a] === undefined)
+  if (artist === undefined) return false
+  const want = comboKey(tunedPairs(ctx))
+  const ids = t.options[artist] ?? []
+  const slot = tuneSlot(ctx)
+  const ok =
+    ids.some((id) => ctx.byId.get(id)?.key === want) &&
+    ids.every((id) => ctx.renders.some((r) => r.comboId === id && r.slot === slot))
+  if (ok) return false
+  getDb().transaction(() => buildTuneOptions(ctx, artist))()
+  ctx.session.state.currentDuel = null
+  saveSession(ctx.session)
+  enqueueMissing(ctx.session.id)
+  return true
 }
 
 // ───────────────────────── 판 ─────────────────────────
@@ -1244,7 +1304,12 @@ export function vote(sessionId: number, result: ArenaVoteResult): ArenaSnapshot 
     const chosen = ctx.byId.get(result.chosen)
     tune.chosen[duel.artist] =
       chosen?.pairs.find((p) => p.tag === duel.artist)?.weight ?? duel.current
-    if (tune.artists.every((a) => tune.chosen[a] !== undefined)) enqueue = startOrderStep(ctx)
+    const next = tune.artists.find((a) => tune.chosen[a] === undefined)
+    if (next === undefined) enqueue = startOrderStep(ctx)
+    else {
+      buildTuneOptions(ctx, next)
+      enqueue = true
+    }
   } else if (duel.kind === 'order' && result.kind === 'order' && st.tune) {
     enqueue = startConfirm(ctx, result.chosen)
   }
@@ -1279,7 +1344,7 @@ function startOrderStep(ctx: Ctx): boolean {
       hidden: true
     })
   )
-  for (const id of t.orderIds) ensureRender(ctx.session.id, id, lay(ctx).tune[0])
+  for (const id of t.orderIds) ensureRender(ctx.session.id, id, tuneSlot(ctx))
   ctx.session.stage = 'order'
   return true
 }
@@ -1391,26 +1456,9 @@ export function advance(
     const base = baseId != null ? ctx.byId.get(baseId) : undefined
     if (!base) return { snapshot: snapshotOf(ctx), error: '다듬을 조합을 골라 주세요' }
     const artists = tuneArtistsFor(ctx, base.id)
-    const options: Record<string, number[]> = {}
-    db.transaction(() => {
-      artists.forEach((artist, k) => {
-        const current = base.pairs.find((p) => p.tag === artist)?.weight ?? 1
-        const slot = lay(ctx).tune[k % lay(ctx).tune.length]
-        // 기준 조합의 그 장면 이미지도 필요하다 (지금 값 칸)
-        ensureRender(sessionId, base.id, slot)
-        options[artist] = tuneWeights(current).map((w) => {
-          const pairs = base.pairs.map((p) => (p.tag === artist ? { ...p, weight: w } : p))
-          const id = insertCombo(sessionId, pairs, 'tune', {
-            parentId: base.id,
-            generation: base.generation + 1,
-            hidden: true
-          })
-          ensureRender(sessionId, id, slot)
-          return id
-        })
-      })
-    })()
-    st.tune = { baseComboId: base.id, artists, chosen: {}, options }
+    // 작가 한 명씩 차례로: 고를 때마다 그 값을 반영한 조합에서 다음 작가 후보를 만든다
+    st.tune = { baseComboId: base.id, artists, chosen: {}, options: {} }
+    if (artists.length) db.transaction(() => buildTuneOptions(ctx, artists[0]))()
     st.confirmedComboId = undefined
     session.stage = 'tune'
     if (artists.length === 0) startOrderStep(ctx)
@@ -1433,12 +1481,13 @@ export function retune(sessionId: number): ArenaSnapshot | null {
   s.state.currentDuel = null
   s.stage = 'tune'
   saveSession(s)
-  if (s.state.tune.artists.length === 0) {
-    const ctx = buildCtx(sessionId)
-    if (ctx && startOrderStep(ctx)) {
-      saveSession(ctx.session)
-      enqueueMissing(sessionId)
-    }
+  const ctx = buildCtx(sessionId)
+  if (ctx?.session.state.tune) {
+    const first = ctx.session.state.tune.artists[0]
+    if (first === undefined) startOrderStep(ctx)
+    else buildTuneOptions(ctx, first)
+    saveSession(ctx.session)
+    enqueueMissing(sessionId)
   }
   return getSnapshot(sessionId)
 }

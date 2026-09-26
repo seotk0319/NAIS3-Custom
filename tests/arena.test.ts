@@ -226,6 +226,37 @@ describe('arena order matters', () => {
     expect(order.some((o) => o[0].tag === 'x')).toBe(true)
   })
 
+  it('order candidates are the current order plus three single moves', () => {
+    const five: ArenaPair[] = ['a', 'b', 'c', 'd', 'e'].map((tag) => ({ tag, weight: 1 }))
+    const none = orderCandidates(five, new Map())
+    expect(none).toHaveLength(4)
+    expect(none[0]).toBe(five)
+    for (const o of none.slice(1)) {
+      // 한 작가만 옮긴다: 원래 순서에서 한 명을 빼면 나머지 순서는 그대로
+      const ok = o.some((p) => {
+        const rest = o
+          .filter((x) => x !== p)
+          .map((x) => x.tag)
+          .join('')
+        const orig = five
+          .filter((x) => x !== p)
+          .map((x) => x.tag)
+          .join('')
+        return rest === orig && Math.abs(o.indexOf(p) - five.indexOf(p)) <= 2
+      })
+      expect(ok).toBe(true)
+    }
+    // 모델이 d를 앞에 두면 좋다고 보면 d를 앞으로 옮기는 후보가 먼저
+    const theta = new Map([['d', [0, 0, 0, 2] as [number, number, number, number]]])
+    const informed = orderCandidates(five, theta)
+    expect(informed[1].indexOf(five[3])).toBeLessThan(3)
+  })
+
+  it('tune options keep a current weight below the floor', () => {
+    expect(tuneWeights(0.25, 0.05, 1.6, 0.3)).toContain(0.25)
+    expect(tuneWeights(0.25, 0.3)).toContain(0.25)
+  })
+
   it('breeding inherits weights and parent order', () => {
     const rng = mulberry32(7)
     const a: ArenaPair[] = [

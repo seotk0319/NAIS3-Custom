@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '../ui/select'
 import { ArenaArtists } from './arena-artists'
 import { NegChip, ProgressBar, StageStepper, TagsToggle } from './arena-common'
 import { QuadDuel, WaitView } from './arena-duel'
-import { useArenaKeys, useLimitGate } from './arena-utils'
+import { loadArtistNames, useArenaKeys, useLimitGate } from './arena-utils'
 import { ArenaConfirm } from './arena-confirm'
 import { FinalDuel } from './arena-final'
 import { NegDone, NegDuel } from './arena-neg'
@@ -28,7 +28,11 @@ export function ArenaView(): React.JSX.Element {
 
   useEffect(() => bindArenaEvents(), [])
   useEffect(() => {
-    if (visible) useArenaStore.getState().start()
+    if (visible) {
+      useArenaStore.getState().start()
+      // "artist:" 없이 쓴 작가 태그를 알아보기 위한 이름 목록 (한 번만)
+      void loadArtistNames()
+    }
   }, [visible])
 
   return (

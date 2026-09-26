@@ -813,6 +813,8 @@ export interface IpcInvokeMap {
     res: void
   }
   'arena:artistsRemove': { req: { tags: string[] }; res: void }
+  /** 작가로 볼 이름 (작가 DB + 작가 명단) */
+  'arena:artistNames': { req: undefined; res: { names: string[] } }
   /** 이미지 메타데이터의 프롬프트 (작가 추가에 끌어다 놓기) */
   'arena:promptFromImage': { req: { filePath: string }; res: { text: string } }
 }

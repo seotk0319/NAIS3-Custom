@@ -84,3 +84,9 @@ export function isArtistTag(name: string): boolean {
   }
   return artistNames.has(name.trim().toLowerCase().replace(/_/g, ' '))
 }
+
+/** 작가 DB 이름 전체 (소문자, 밑줄은 공백) — 그림체 탭이 "artist:" 없는 작가 태그를 알아보는 데 쓴다 */
+export function artistNameList(): string[] {
+  isArtistTag('')
+  return [...(artistNames ?? [])]
+}

@@ -9,7 +9,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ARENA_SLOT_COUNT,
   BUDGETS,
@@ -25,7 +25,7 @@ import {
   makeArtistSlot,
   parseComboString,
   replaceArtistTags,
-  roundWeight,
+  formatWeight,
   slotLayout,
   type ArenaBudget,
   type ArenaGenParams,
@@ -40,7 +40,7 @@ import { useGenerationStore } from '../../stores/generation-store'
 import { Button } from '../ui/button'
 import { Input, Textarea } from '../ui/input'
 import { Card } from './arena-common'
-import { useLimitGate } from './arena-utils'
+import { artistNamesReady, isKnownArtist, loadArtistNames, useLimitGate } from './arena-utils'
 
 function todayName(): string {
   const d = new Date()
@@ -70,7 +70,27 @@ function num(v: string): number {
   return Number.isFinite(n) ? n : NaN
 }
 
+/** 작가 이름 목록을 받은 뒤 폼을 연다 — "artist:" 없이 쓴 작가 태그를 처음부터 알아보게 */
 export function ArenaStart(): React.JSX.Element {
+  const [ready, setReady] = useState(artistNamesReady())
+  useEffect(() => {
+    if (ready) return
+    let alive = true
+    void loadArtistNames().then(() => alive && setReady(true))
+    return () => {
+      alive = false
+    }
+  }, [ready])
+  if (!ready)
+    return (
+      <div className="grid flex-1 place-items-center text-[13px] text-faint">
+        작가 목록을 불러오는 중이에요
+      </div>
+    )
+  return <ArenaStartForm />
+}
+
+function ArenaStartForm(): React.JSX.Element {
   const seed = useArenaStore((s) => s.negativeSeed)
   const setNegativeSeed = useArenaStore((s) => s.setNegativeSeed)
   const refineSeed = useArenaStore((s) => s.refineSeed)
@@ -88,11 +108,11 @@ export function ArenaStart(): React.JSX.Element {
     const c = seed?.config
     return {
       // 작가 조합은 맨 뒤(디테일 칸 끝)에 온다 — 메인 프롬프트의 작가 태그 자리를 {artist}로 바꾼다
-      prompt: makeArtistSlot(c?.basePrompt ?? req.prompt),
+      prompt: makeArtistSlot(c?.basePrompt ?? req.prompt, isKnownArtist),
       negative: c?.negativePrompt ?? req.negativePrompt,
       params: c?.params ?? paramsFromMain(),
       scenes: c?.scenes?.length ? c.scenes.slice(0, ARENA_SLOT_COUNT) : [...DEFAULT_SCENES],
-      seedText: comboString(refineSeed?.pairs ?? parseComboString(req.prompt))
+      seedText: comboString(refineSeed?.pairs ?? parseComboString(req.prompt, isKnownArtist))
     }
   })
   const [kind, setKind] = useState<'find' | 'refine' | 'negative'>(
@@ -101,7 +121,7 @@ export function ArenaStart(): React.JSX.Element {
   const target = kind === 'negative' ? 'negative' : 'positive'
   const refine = kind === 'refine'
   const [seedText, setSeedText] = useState(init.seedText)
-  const seedPairs = useMemo(() => parseComboString(seedText), [seedText])
+  const seedPairs = useMemo(() => parseComboString(seedText, isKnownArtist), [seedText])
   const [refineSize, setRefineSize] = useState<RefineSize>('normal')
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(init.prompt)
@@ -284,7 +304,10 @@ export function ArenaStart(): React.JSX.Element {
             className="rounded-xl border-transparent bg-paper p-3"
           />
           {positive && (
-            <TokenLine missing={tokenMissing} onFix={() => setPrompt(makeArtistSlot(prompt))} />
+            <TokenLine
+              missing={tokenMissing}
+              onFix={() => setPrompt(makeArtistSlot(prompt, isKnownArtist))}
+            />
           )}
           {!positive && seed && (
             <p className="mt-1.5 text-[12px] text-muted">
@@ -306,7 +329,8 @@ export function ArenaStart(): React.JSX.Element {
               missing={tokenMissing}
               onFix={() =>
                 setNegative(
-                  replaceArtistTags(negative, '{artist}') ?? appendPrompt(negative, '{artist}')
+                  replaceArtistTags(negative, '{artist}', isKnownArtist) ??
+                    appendPrompt(negative, '{artist}')
                 )
               }
             />
@@ -331,7 +355,7 @@ export function ArenaStart(): React.JSX.Element {
                   >
                     <span className="text-[11px] font-semibold text-faint">{i + 1}</span>
                     {p.tag}
-                    <b className="tabular-nums text-accent">{roundWeight(p.weight).toFixed(1)}</b>
+                    <b className="tabular-nums text-accent">{formatWeight(p.weight)}</b>
                   </span>
                 ))}
               </div>
@@ -429,7 +453,7 @@ export function ArenaStart(): React.JSX.Element {
               <div className="mt-2 flex items-center gap-3 text-[13px]">
                 <Range label="가중치 범위" a={minW} b={maxW} setA={setMinW} setB={setMaxW} />
                 <span className="text-[12px] text-muted">
-                  지금 가중치는 범위 밖이어도 그대로 둬요
+                  범위 밖의 작가도 지금 가중치에서 바꿀 폭만큼은 움직여요
                 </span>
               </div>
             </Row>

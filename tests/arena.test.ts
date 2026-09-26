@@ -42,8 +42,30 @@ describe('arena combo in the detail prompt', () => {
       { tag: 'wanke', weight: 1 },
       { tag: 'a', weight: 0.9 },
       { tag: 'b', weight: 0.9 },
-      { tag: 'c', weight: 1.1 }
+      { tag: 'c', weight: 1.05 }
     ])
+  })
+
+  it('reads artist tags written without "artist:" and keeps their weights and style', () => {
+    const known = new Set(['wagashi (dagashiya)', 'manglife', 'kimhiro', 'rusellunt'])
+    const isArtist = (n: string): boolean => known.has(n)
+    const detail =
+      'soft lighting,\n0.65::wagashi (dagashiya) ::, 0.45::manglife ::, 1.2::kimhiro ::, 0.5::blender (medium), realistic::, 0.65::rusellunt ::'
+    const pairs = parseComboString(detail, isArtist)
+    expect(pairs).toEqual([
+      { tag: 'wagashi (dagashiya)', weight: 0.65, bare: true },
+      { tag: 'manglife', weight: 0.45, bare: true },
+      { tag: 'kimhiro', weight: 1.2, bare: true },
+      { tag: 'rusellunt', weight: 0.65, bare: true }
+    ])
+    expect(comboString(pairs)).toBe(
+      '0.65::wagashi (dagashiya)::, 0.45::manglife::, 1.2::kimhiro::, 0.65::rusellunt::'
+    )
+    expect(makeArtistSlot(detail, isArtist)).toBe(
+      'soft lighting,\n{scene}, {artist}, 0.5::blender (medium), realistic::'
+    )
+    // 목록이 없으면 이름만 쓴 태그는 작가로 보지 않는다
+    expect(parseComboString(detail)).toEqual([])
   })
 
   it('swaps the artist tags in place and keeps everything else', () => {

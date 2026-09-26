@@ -1,3 +1,4 @@
+import { formatWeight } from '@shared/arena'
 import { Undo2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { ArenaDuel } from '@shared/arena'
@@ -117,7 +118,7 @@ export function TuneDuel({ duel }: { duel: TuneDuelT }): React.JSX.Element {
         onPick={choose}
         labels={duel.options.map((o) => (
           <div key={o.comboId} className="flex items-baseline gap-2">
-            <b className="text-[20px] font-bold tabular-nums">{o.weight.toFixed(1)}</b>
+            <b className="text-[20px] font-bold tabular-nums">{formatWeight(o.weight)}</b>
             {Math.abs(o.weight - duel.current) < 0.001 && (
               <span className="rounded-md bg-surface px-1.5 py-0.5 text-[11.5px] font-semibold text-ink">
                 지금 값
@@ -133,7 +134,10 @@ export function TuneDuel({ duel }: { duel: TuneDuelT }): React.JSX.Element {
               <span className="text-[12px] text-muted">고른 세기</span>
               {done.map((a) => (
                 <span key={a} className="rounded-md bg-surface px-2 py-0.5 text-[12px]">
-                  {a} <b className="text-accent">{tune?.chosen[a]?.toFixed(1)}</b>
+                  {a}{' '}
+                  <b className="text-accent">
+                    {tune?.chosen[a] != null ? formatWeight(tune.chosen[a]) : null}
+                  </b>
                 </span>
               ))}
             </div>

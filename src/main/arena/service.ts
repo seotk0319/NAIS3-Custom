@@ -535,11 +535,16 @@ export function createSession(
   const seedPairs = (config.seedPairs ?? []).filter((p) => p.tag)
   if (refine) {
     if (seedPairs.length === 0) return { error: '다듬을 조합을 넣어 주세요' }
-    // 원래 가중치가 범위 밖이어도 그 값은 쓸 수 있게 범위를 넓힌다
+    // 각 작가가 지금 가중치에서 바꿀 폭만큼은 움직일 수 있게 범위를 넓힌다 (0.25 같은 낮은 값도)
+    const step = config.refineStep ?? 0.3
     shape.minArtists = seedPairs.length
     shape.maxArtists = seedPairs.length
-    shape.minWeight = roundWeight(Math.min(shape.minWeight, ...seedPairs.map((p) => p.weight)))
-    shape.maxWeight = roundWeight(Math.max(shape.maxWeight, ...seedPairs.map((p) => p.weight)))
+    shape.minWeight = roundWeight(
+      Math.max(0.05, Math.min(shape.minWeight, ...seedPairs.map((p) => p.weight - step)))
+    )
+    shape.maxWeight = roundWeight(
+      Math.max(shape.maxWeight, ...seedPairs.map((p) => p.weight + step))
+    )
   }
   const cfg: ArenaSessionConfig = {
     ...config,

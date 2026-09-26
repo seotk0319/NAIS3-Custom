@@ -1,6 +1,6 @@
 import { Copy, Download, LogIn, SlidersHorizontal, Sparkles, Star } from 'lucide-react'
 import { memo, useMemo, useState } from 'react'
-import { comboString, type ArenaComboView } from '@shared/arena'
+import { comboString, type ArenaComboView, formatWeight } from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { Button } from '../ui/button'
@@ -263,7 +263,7 @@ function Detail({
           >
             <span className="w-4 text-[11.5px] font-semibold text-faint">{i + 1}</span>
             <span className="min-w-0 flex-1 truncate">{p.tag}</span>
-            <b className="tabular-nums text-accent">{p.weight.toFixed(1)}</b>
+            <b className="tabular-nums text-accent">{formatWeight(p.weight)}</b>
           </div>
         ))}
       </div>

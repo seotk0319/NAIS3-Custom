@@ -1,6 +1,6 @@
 import { CalendarPlus, Check, CircleSlash, Copy, LogIn, Sparkles, Undo2 } from 'lucide-react'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { comboString, hasArtistTags, hasArtistToken } from '@shared/arena'
+import { comboString, hasArtistTags, hasArtistToken, formatWeight } from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { useGenerationStore } from '../../stores/generation-store'
@@ -148,13 +148,13 @@ export function ArenaConfirm(): React.JSX.Element {
                 <span className="min-w-0 flex-1 truncate font-medium">{p.tag}</span>
                 {moved ? (
                   <span className="tabular-nums">
-                    <span className="text-faint">{w0?.toFixed(1)}</span>
+                    <span className="text-faint">{w0 != null ? formatWeight(w0) : null}</span>
                     <span className="mx-1.5 text-faint">→</span>
-                    <b className="text-accent">{p.weight.toFixed(1)}</b>
+                    <b className="text-accent">{formatWeight(p.weight)}</b>
                   </span>
                 ) : (
                   <span className="tabular-nums">
-                    <b>{p.weight.toFixed(1)}</b>
+                    <b>{formatWeight(p.weight)}</b>
                     <span className="ml-1.5 text-[11.5px] text-faint">그대로</span>
                   </span>
                 )}

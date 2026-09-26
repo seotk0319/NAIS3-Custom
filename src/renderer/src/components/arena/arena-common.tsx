@@ -2,7 +2,7 @@ import { Check, Clock, Copy, ImageOff, Image as ImageIcon } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import {
   comboString,
-  roundWeight,
+  formatWeight,
   type ArenaDuel,
   type ArenaProgress,
   type ArenaRender,
@@ -252,7 +252,7 @@ function ComboMenuHeader({ filePath }: { filePath: string }): React.JSX.Element 
                 <span className="w-3 shrink-0 text-right text-[11px] text-faint">{i + 1}</span>
                 <span className="min-w-0 flex-1 truncate">{p.tag}</span>
                 <span className="shrink-0 font-semibold tabular-nums text-accent">
-                  {roundWeight(p.weight).toFixed(1)}
+                  {formatWeight(p.weight)}
                 </span>
               </li>
             ))}

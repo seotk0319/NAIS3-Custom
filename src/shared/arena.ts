@@ -28,7 +28,12 @@ export type ArenaTier = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 export interface ArenaPair {
   weight: number
   tag: string
+  /** "artist:" 없이 이름만 쓴 태그 (아빠 프롬프트 형식 그대로 다시 쓴다) */
+  bare?: boolean
 }
+
+/** 작가 이름인지 판단 (작가 DB·작가 명단). 없으면 "artist:" 접두만 본다 */
+export type IsArtist = (name: string) => boolean
 
 export interface ArenaGenParams {
   model: string
@@ -389,8 +394,20 @@ export function estimateRefine(
 
 // ───────────────────────── 프롬프트 ─────────────────────────
 
+/** 가중치 저장·비교용 — 0.01 단위 (0.65 같은 값을 그대로 지킨다) */
 export function roundWeight(w: number): number {
+  return Math.round(w * 100) / 100
+}
+
+/** 새로 만드는 조합의 가중치 — 0.1 단위 */
+export function round1(w: number): number {
   return Math.round(w * 10) / 10
+}
+
+/** 1.2 → "1.2", 0.65 → "0.65", 1 → "1.0" */
+export function formatWeight(w: number): string {
+  const r = roundWeight(w)
+  return Math.abs(r * 10 - Math.round(r * 10)) < 1e-6 ? r.toFixed(1) : r.toFixed(2)
 }
 
 export function clampWeight(w: number, min = WEIGHT_FLOOR, max = WEIGHT_CEIL): number {
@@ -399,12 +416,12 @@ export function clampWeight(w: number, min = WEIGHT_FLOOR, max = WEIGHT_CEIL): n
 
 /** 작가 하나를 NAI 가중치 문법으로. 1.0이면 가중치 없이 쓴다 (원본 v3.5 수정사항) */
 export function pairString(p: ArenaPair): string {
-  const tag = 'artist:' + p.tag
+  const tag = p.bare ? p.tag : 'artist:' + p.tag
   const w = roundWeight(p.weight)
   if (w === 1) return tag
   // 숫자로 끝나는 태그는 "::" 앞에 공백 — 가중치 숫자와 붙어 읽히지 않게 (원본 규칙)
   const space = /\d$/.test(tag) ? ' ' : ''
-  return w.toFixed(1) + '::' + tag + space + '::'
+  return formatWeight(w) + '::' + tag + space + '::'
 }
 
 export function comboString(pairs: ArenaPair[]): string {
@@ -413,7 +430,7 @@ export function comboString(pairs: ArenaPair[]): string {
 
 /** 순서까지 포함한 조합 식별자 — 순서가 다르면 다른 조합 */
 export function comboKey(pairs: ArenaPair[]): string {
-  return pairs.map((p) => p.tag + '@' + roundWeight(p.weight).toFixed(1)).join('|')
+  return pairs.map((p) => p.tag + '@' + formatWeight(p.weight)).join('|')
 }
 
 export const ARTIST_TOKEN = '{artist}'
@@ -451,32 +468,51 @@ export function prependArtistToken(prompt: string): string {
   return prompt.trim() ? ARTIST_TOKEN + ',\n' + prompt : ARTIST_TOKEN
 }
 
-/** 쉼표 조각 하나가 작가 태그인지 ("1.2::artist:a", "artist:b::", "{artist:c}" 등) */
-function isArtistChunk(chunk: string): boolean {
-  return /(^|[\s{[(:])artist\s*:/i.test(chunk.trim())
+/** 쉼표 조각 하나에서 가중치 문법·괄호를 벗긴 이름 ("0.65::wagashi (dagashiya) ::" → "wagashi (dagashiya)") */
+function chunkName(chunk: string): { name: string; prefixed: boolean } {
+  let t = chunk.trim()
+  t = t.replace(/^-?\d+(?:\.\d+)?::/, '').replace(/::\s*$/, '')
+  t = t.replace(/^[{[]+|[}\]]+$/g, '').trim()
+  const m = /^artist\s*:\s*(.+)$/i.exec(t)
+  const name = (m ? m[1] : t).trim().toLowerCase().replace(/_/g, ' ')
+  return { name, prefixed: !!m }
 }
 
-export function hasArtistTags(text: string): boolean {
+/** 쉼표 조각 하나가 작가 태그인지 — "artist:" 접두가 있거나, 이름이 작가 목록에 있으면 */
+function isArtistChunk(chunk: string, isArtist?: IsArtist): boolean {
+  if (!chunk.trim()) return false
+  const { name, prefixed } = chunkName(chunk)
+  if (!name) return false
+  return prefixed || (!!isArtist && isArtist(name))
+}
+
+export function hasArtistTags(text: string, isArtist?: IsArtist): boolean {
   return text
     .split('\n')
-    .some((l) => !l.trimStart().startsWith('#') && l.split(',').some(isArtistChunk))
+    .some(
+      (l) => !l.trimStart().startsWith('#') && l.split(',').some((c) => isArtistChunk(c, isArtist))
+    )
 }
 
 /**
  * 프롬프트 안의 작가 태그를 모두 빼고, 첫 작가 태그가 있던 자리에 replacement를 넣는다.
  * 작가 태그가 없으면 null. 주석 줄은 건드리지 않는다.
  */
-export function replaceArtistTags(text: string, replacement: string): string | null {
+export function replaceArtistTags(
+  text: string,
+  replacement: string,
+  isArtist?: IsArtist
+): string | null {
   let placed = false
   let found = false
   const lines = text.split('\n').map((line) => {
     if (line.trimStart().startsWith('#')) return line
     const chunks = line.split(',')
-    if (!chunks.some(isArtistChunk)) return line
+    if (!chunks.some((c) => isArtistChunk(c, isArtist))) return line
     found = true
     const out: string[] = []
     for (const c of chunks) {
-      if (isArtistChunk(c)) {
+      if (isArtistChunk(c, isArtist)) {
         if (!placed && replacement) out.push(replacement)
         placed = true
       } else if (c.trim()) out.push(c.trim())
@@ -497,17 +533,17 @@ export function appendPrompt(text: string, tail: string): string {
  * 세션 프롬프트에 작가 자리 만들기 — 작가 조합이 맨 뒤에 오게 한다.
  * 이미 작가 태그가 있으면 그 자리를, 없으면 끝을 쓴다. 장면 자리가 없으면 작가 앞에 {scene}을 둔다.
  */
-export function makeArtistSlot(prompt: string): string {
+export function makeArtistSlot(prompt: string, isArtist?: IsArtist): string {
   if (hasArtistToken(prompt)) return prompt
   const tail = prompt.includes(SCENE_TOKEN) ? ARTIST_TOKEN : SCENE_TOKEN + ', ' + ARTIST_TOKEN
-  return replaceArtistTags(prompt, tail) ?? appendPrompt(prompt, tail)
+  return replaceArtistTags(prompt, tail, isArtist) ?? appendPrompt(prompt, tail)
 }
 
 /**
  * "1.2::artist:a::, artist:b, 0.9::artist:c, artist:d::" → 순서·가중치 그대로 작가만 뽑는다.
  * 가중치 묶음(w::…::)이 여러 태그에 걸쳐도 따라가고, {…}/[…]는 1.05배씩 반영한다.
  */
-export function parseComboString(text: string): ArenaPair[] {
+export function parseComboString(text: string, isArtist?: IsArtist): ArenaPair[] {
   const out: ArenaPair[] = []
   const seen = new Set<string>()
   let groupWeight: number | null = null
@@ -531,12 +567,12 @@ export function parseComboString(text: string): ArenaPair[] {
       const braces = (t.match(/\{/g) ?? []).length - (t.match(/\[/g) ?? []).length
       t = t.replace(/[{}[\]]/g, '').trim()
       const m = /^artist\s*:\s*(.+)$/i.exec(t)
-      if (m) {
-        const tag = m[1].trim().toLowerCase().replace(/_/g, ' ')
-        if (tag && !seen.has(tag)) {
-          seen.add(tag)
-          out.push({ tag, weight: roundWeight(w * Math.pow(1.05, braces)) })
-        }
+      const tag = (m ? m[1] : t).trim().toLowerCase().replace(/_/g, ' ')
+      if (tag && (m || isArtist?.(tag)) && !seen.has(tag)) {
+        seen.add(tag)
+        const pair: ArenaPair = { tag, weight: roundWeight(w * Math.pow(1.05, braces)) }
+        if (!m) pair.bare = true
+        out.push(pair)
       }
       if (closes) groupWeight = null
     }
@@ -675,7 +711,7 @@ export interface PoolArtist {
 
 function pickWeight(a: PoolArtist, shape: ComboShape, rng: Rng): number {
   if (a.fixedWeight != null) return roundWeight(a.fixedWeight)
-  return roundWeight(shape.minWeight + rng() * (shape.maxWeight - shape.minWeight))
+  return round1(shape.minWeight + rng() * (shape.maxWeight - shape.minWeight))
 }
 
 /** 원본 규칙: 작가 수 균등, 작가 균등 표본, 가중치 균등 분포. 순서는 무작위 */
@@ -741,7 +777,7 @@ export function breedCombo(
     const weight =
       f != null
         ? roundWeight(f)
-        : clampWeight(base + gaussian(rng) * opts.sigma, shape.minWeight, shape.maxWeight)
+        : round1(clampWeight(base + gaussian(rng) * opts.sigma, shape.minWeight, shape.maxWeight))
     const pos = v ? v.positions.reduce((s, x) => s + x, 0) / v.positions.length : rng()
     return { tag, weight, pos: pos + gaussian(rng) * 0.08 }
   })
@@ -999,16 +1035,16 @@ export function artistStats(
         const best = clampW(1 - t[1] / (2 * t[2]))
         const spread = Math.min(0.6, seW / Math.max(0.1, -2 * t[2]))
         preferredWeight = {
-          value: roundWeight(best),
-          low: roundWeight(clampW(best - spread)),
-          high: roundWeight(clampW(best + spread))
+          value: round1(best),
+          low: round1(clampW(best - spread)),
+          high: round1(clampW(best + spread))
         }
       } else if (Math.abs(t[1]) > seW) {
         const edge = t[1] > 0 ? shape.maxWeight : shape.minWeight
         preferredWeight = {
-          value: roundWeight(edge),
-          low: roundWeight(t[1] > 0 ? clampW(edge - 0.4) : edge),
-          high: roundWeight(t[1] > 0 ? edge : clampW(edge + 0.4))
+          value: round1(edge),
+          low: round1(t[1] > 0 ? clampW(edge - 0.4) : edge),
+          high: round1(t[1] > 0 ? edge : clampW(edge + 0.4))
         }
       }
     }

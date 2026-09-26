@@ -147,7 +147,7 @@ import {
   reorderRefs,
   updateRefImage
 } from './refs/repo'
-import { searchTags } from './tags'
+import { artistNameList, searchTags } from './tags'
 import { imagesRoot, libraryRoot, sceneDir, scenePresetDir, scenesRoot } from './images/storage'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readdir } from 'fs/promises'
@@ -302,6 +302,9 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('arena:artistsAdd', ({ names, list }) => ({ added: arena.addArtists(names, list) }))
   handle('arena:artistsUpdate', ({ tag, ...patch }) => arena.updateArtist(tag, patch))
   handle('arena:artistsRemove', ({ tags }) => arena.removeArtists(tags))
+  handle('arena:artistNames', () => ({
+    names: [...new Set([...artistNameList(), ...arena.listArtists().map((a) => a.tag)])]
+  }))
   handle('arena:promptFromImage', async ({ filePath }) => {
     try {
       const meta = await metadataFromPng(readFileSync(filePath))

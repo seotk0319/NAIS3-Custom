@@ -61,6 +61,32 @@ export async function copyText(value: string, message = '태그를 복사했어�
 
 export type PlaceMode = 'replace' | 'append'
 
+// ───────────────────────── 작가 이름 ─────────────────────────
+
+/** "artist:" 없이 쓴 작가 태그도 알아보도록 작가 DB·명단 이름을 한 번 받아 둔다 */
+let artistSet: Set<string> | null = null
+let artistLoad: Promise<void> | null = null
+
+export function loadArtistNames(force = false): Promise<void> {
+  if (artistLoad && !force) return artistLoad
+  artistLoad = window.nais
+    .invoke('arena:artistNames', undefined)
+    .then(({ names }) => {
+      artistSet = new Set(names)
+    })
+    .catch(() => {
+      artistLoad = null
+    })
+  return artistLoad
+}
+
+export function artistNamesReady(): boolean {
+  return artistSet != null
+}
+
+/** 작가 이름인지 (목록을 아직 못 받았으면 "artist:" 접두만 본다) */
+export const isKnownArtist = (name: string): boolean => artistSet?.has(name) ?? false
+
 /**
  * 조합 넣기 — 작가 조합은 맨 뒤에 온다.
  * {artist} 자리가 있으면 그 자리, replace면 지금 있는 작가 태그를 그 자리에서 바꾸고,
@@ -69,7 +95,7 @@ export type PlaceMode = 'replace' | 'append'
 export function placeCombo(text: string, combo: string, mode: PlaceMode = 'replace'): string {
   if (hasArtistToken(text)) return insertArtists(text, combo)
   if (mode === 'replace') {
-    const replaced = replaceArtistTags(text, combo)
+    const replaced = replaceArtistTags(text, combo, isKnownArtist)
     if (replaced != null) return replaced
   }
   return appendPrompt(text, combo)
@@ -88,14 +114,17 @@ export function applyComboToMain(combo: string, mode: PlaceMode = 'replace'): st
     const order = ['detail', 'additional', 'base'] as const
     const key =
       order.find((k) => hasArtistToken(parts[k])) ??
-      (mode === 'replace' ? order.find((k) => hasArtistTags(parts[k])) : undefined) ??
+      (mode === 'replace'
+        ? order.find((k) => hasArtistTags(parts[k], isKnownArtist))
+        : undefined) ??
       'detail'
-    const had = hasArtistToken(parts[key]) || (mode === 'replace' && hasArtistTags(parts[key]))
+    const had =
+      hasArtistToken(parts[key]) || (mode === 'replace' && hasArtistTags(parts[key], isKnownArtist))
     g.patchPromptParts({ [key]: placeCombo(parts[key], combo, mode) })
     return PART_LABEL[key] + ' 칸' + (had ? '의 작가 태그를 바꿨어요' : ' 맨 뒤에 넣었어요')
   }
   const text = g.request.prompt
-  const had = hasArtistToken(text) || (mode === 'replace' && hasArtistTags(text))
+  const had = hasArtistToken(text) || (mode === 'replace' && hasArtistTags(text, isKnownArtist))
   g.patchRequest({ prompt: placeCombo(text, combo, mode) })
   return had ? '프롬프트의 작가 태그를 바꿨어요' : '프롬프트 맨 뒤에 넣었어요'
 }

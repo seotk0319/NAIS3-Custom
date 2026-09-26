@@ -337,8 +337,9 @@ function QuadSide(): React.JSX.Element {
   const stage = useArenaStore((s) => s.snapshot?.session.stage ?? 'prelim')
   const progress = useArenaStore((s) => s.snapshot?.progress)
   const setPeek = useArenaStore((s) => s.setPeekStage)
+  const refine = useArenaStore((s) => s.snapshot?.session.config.mode === 'refine')
   if (!progress) return <div />
-  const nextName = stage === 'prelim' ? '본선' : '결선'
+  const nextName = stage === 'prelim' && !refine ? '본선' : '결선'
   const left = Math.max(0, progress.stageTarget - progress.stageVotes)
   const newRenders = progress.next?.newRenders ?? 0
   return (
@@ -380,7 +381,7 @@ function QuadSide(): React.JSX.Element {
             지금 {nextName}으로
           </Button>
           <p className="text-center text-[11.5px] text-faint">
-            지금까지의 순위로 {stage === 'prelim' ? '상위 30개' : '상위 8개'}를 올려요
+            지금까지의 순위로 {stage === 'prelim' && !refine ? '상위 30개' : '상위 8개'}를 올려요
           </p>
         </div>
       )}

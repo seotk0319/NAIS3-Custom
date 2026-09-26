@@ -29,6 +29,12 @@ export interface ArenaNegativeSeed {
   config: ArenaSessionConfig
 }
 
+/** 순위·확정 화면에서 "이 조합 미세 조정"을 눌렀을 때 시작 화면에 넘기는 조합 */
+export interface ArenaRefineSeed {
+  pairs: ArenaPair[]
+  label: string
+}
+
 export interface ArenaLastVote {
   duel: ArenaDuel
   result: ArenaVoteResult
@@ -61,6 +67,7 @@ interface ArenaState {
   /** 대결 중에도 단계 화면(다음 단계로)을 먼저 보기 */
   peekStage: boolean
   negativeSeed: ArenaNegativeSeed | null
+  refineSeed: ArenaRefineSeed | null
   lastVote: ArenaLastVote | null
   showTags: boolean
   undoBar: ArenaUndoBar | null
@@ -70,6 +77,7 @@ interface ArenaState {
   setShowTags: (on: boolean) => void
   setPeekStage: (on: boolean) => void
   setNegativeSeed: (seed: ArenaNegativeSeed | null) => void
+  setRefineSeed: (seed: ArenaRefineSeed | null) => void
   showUndo: (message: string, run: () => Promise<void>) => void
   clearUndo: () => void
 
@@ -201,6 +209,7 @@ export const useArenaStore = create<ArenaState>((set, get) => {
     dirty: false,
     peekStage: false,
     negativeSeed: null,
+    refineSeed: null,
     lastVote: null,
     showTags: localStorage.getItem(TAGS_KEY) === '1',
     undoBar: null,
@@ -223,6 +232,7 @@ export const useArenaStore = create<ArenaState>((set, get) => {
     },
     setPeekStage: (peekStage) => set({ peekStage }),
     setNegativeSeed: (negativeSeed) => set({ negativeSeed }),
+    setRefineSeed: (refineSeed) => set({ refineSeed }),
     showUndo: (message, run) => {
       const id = Date.now()
       set({ undoBar: { id, message, run } })

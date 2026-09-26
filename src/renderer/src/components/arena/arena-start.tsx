@@ -5,6 +5,7 @@ import {
   Heart,
   Plus,
   RotateCcw,
+  SlidersHorizontal,
   TriangleAlert,
   X
 } from 'lucide-react'
@@ -14,14 +15,22 @@ import {
   BUDGETS,
   DEFAULT_SCENES,
   EXTRA_SCENES,
+  REFINE_COUNT,
+  REFINE_STEPS,
+  appendPrompt,
   comboString,
+  estimateRefine,
   estimateTotal,
   hasArtistToken,
-  prependArtistToken,
+  makeArtistSlot,
+  parseComboString,
+  replaceArtistTags,
+  roundWeight,
+  slotLayout,
   type ArenaBudget,
   type ArenaGenParams,
   type ArenaSessionConfig,
-  type ArenaTarget
+  type RefineSize
 } from '@shared/arena'
 import { isV5Model } from '@shared/nai-models'
 import { estimateV5Images } from '@shared/v5-usage'
@@ -64,6 +73,8 @@ function num(v: string): number {
 export function ArenaStart(): React.JSX.Element {
   const seed = useArenaStore((s) => s.negativeSeed)
   const setNegativeSeed = useArenaStore((s) => s.setNegativeSeed)
+  const refineSeed = useArenaStore((s) => s.refineSeed)
+  const setRefineSeed = useArenaStore((s) => s.setRefineSeed)
   const artists = useArenaStore((s) => s.artists)
   const artistsLoaded = useArenaStore((s) => s.artistsLoaded)
   const creating = useArenaStore((s) => s.creating)
@@ -76,13 +87,22 @@ export function ArenaStart(): React.JSX.Element {
     const req = useGenerationStore.getState().request
     const c = seed?.config
     return {
-      prompt: c?.basePrompt ?? req.prompt,
+      // 작가 조합은 맨 뒤(디테일 칸 끝)에 온다 — 메인 프롬프트의 작가 태그 자리를 {artist}로 바꾼다
+      prompt: makeArtistSlot(c?.basePrompt ?? req.prompt),
       negative: c?.negativePrompt ?? req.negativePrompt,
       params: c?.params ?? paramsFromMain(),
-      scenes: c?.scenes?.length ? c.scenes.slice(0, ARENA_SLOT_COUNT) : [...DEFAULT_SCENES]
+      scenes: c?.scenes?.length ? c.scenes.slice(0, ARENA_SLOT_COUNT) : [...DEFAULT_SCENES],
+      seedText: comboString(refineSeed?.pairs ?? parseComboString(req.prompt))
     }
   })
-  const [target, setTarget] = useState<ArenaTarget>(seed ? 'negative' : 'positive')
+  const [kind, setKind] = useState<'find' | 'refine' | 'negative'>(
+    refineSeed ? 'refine' : seed ? 'negative' : 'find'
+  )
+  const target = kind === 'negative' ? 'negative' : 'positive'
+  const refine = kind === 'refine'
+  const [seedText, setSeedText] = useState(init.seedText)
+  const seedPairs = useMemo(() => parseComboString(seedText), [seedText])
+  const [refineSize, setRefineSize] = useState<RefineSize>('normal')
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState(init.prompt)
   const [negative, setNegative] = useState(init.negative)
@@ -108,12 +128,22 @@ export function ArenaStart(): React.JSX.Element {
     maxW: num(maxW),
     negW: num(negW)
   }
-  const needed = positive ? BUDGETS[budget].prelim : 2 + 2 * avoided.length
+  const refineEst = estimateRefine(budget, scenes.length)
+  const needed = refine
+    ? refineEst.first
+    : positive
+      ? BUDGETS[budget].prelim
+      : 2 + 2 * avoided.length
   const remaining = v5Usage && isV5Model(params.model) ? estimateV5Images(v5Usage) : null
-  const defaultName = seed && !positive ? seed.label + ' 네거티브' : todayName()
+  const defaultName =
+    seed && !positive
+      ? seed.label + ' 네거티브'
+      : refine
+        ? (refineSeed?.label ?? todayName()) + ' 미세 조정'
+        : todayName()
   const scenesEdited =
     scenes.length !== DEFAULT_SCENES.length || scenes.some((s, i) => s !== DEFAULT_SCENES[i])
-  const total = estimateTotal(budget, scenes.length)
+  const total = refine ? refineEst.total : estimateTotal(budget, scenes.length)
   const addScene = (): void => {
     if (scenes.length >= ARENA_SLOT_COUNT) return
     const next = EXTRA_SCENES.find((s) => !scenes.includes(s)) ?? ''
@@ -126,8 +156,10 @@ export function ArenaStart(): React.JSX.Element {
       text: (positive ? '긍정' : '네거티브') + ' 프롬프트에 작가 조합 자리({artist})가 없어요'
     }
   else if (scenes.some((s) => !s.trim())) reason = { text: '빈 장면을 채우거나 지워 주세요' }
+  else if (refine && seedPairs.length === 0)
+    reason = { text: '다듬을 조합에서 작가 태그(artist:…)를 찾지 못했어요' }
   else if (
-    positive &&
+    kind === 'find' &&
     (!Number.isInteger(shape.minA) ||
       !Number.isInteger(shape.maxA) ||
       shape.minA < 1 ||
@@ -138,7 +170,7 @@ export function ArenaStart(): React.JSX.Element {
     reason = { text: '가중치 범위를 확인해 주세요' }
   else if (!positive && !(shape.negW > 0)) reason = { text: '네거티브 가중치를 확인해 주세요' }
   else if (!artistsLoaded) reason = { text: '작가 명단을 불러오는 중이에요' }
-  else if (positive && liked.length < shape.maxA)
+  else if (kind === 'find' && liked.length < shape.maxA)
     reason = {
       text: '좋아하는 작가가 ' + shape.maxA + '명은 있어야 해요 · 지금 ' + liked.length + '명',
       action: (
@@ -159,6 +191,7 @@ export function ArenaStart(): React.JSX.Element {
 
   const start = (): void => {
     if (reason) return
+    const size = REFINE_STEPS[refineSize]
     const config: ArenaSessionConfig = {
       name: name.trim() || defaultName,
       target,
@@ -166,11 +199,19 @@ export function ArenaStart(): React.JSX.Element {
       negativePrompt: negative,
       params,
       scenes: scenes.map((s) => s.trim()),
-      minArtists: positive ? shape.minA : 1,
-      maxArtists: positive ? shape.maxA : 1,
+      minArtists: refine ? seedPairs.length : positive ? shape.minA : 1,
+      maxArtists: refine ? seedPairs.length : positive ? shape.maxA : 1,
       minWeight: positive ? shape.minW : shape.negW,
       maxWeight: positive ? shape.maxW : shape.negW,
       budget,
+      ...(refine
+        ? {
+            mode: 'refine' as const,
+            seedPairs,
+            refineStep: size.step,
+            refineMoves: size.moves
+          }
+        : {}),
       ...(positive
         ? {}
         : {
@@ -179,28 +220,46 @@ export function ArenaStart(): React.JSX.Element {
             negWeight: Math.round(shape.negW * 10) / 10
           })
     }
-    gate(needed, params.model, (limit) => void create(config, limit))
+    gate(
+      needed,
+      params.model,
+      (limit) =>
+        void create(config, limit).then((ok) => {
+          if (ok && refine) setRefineSeed(null)
+        })
+    )
   }
 
   return (
     <div className="flex min-h-0 flex-1 gap-4">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pb-2 pr-1">
         <h2 className="text-[16px] font-bold tracking-tight">무엇을 찾을까요?</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <TargetCard
-            on={positive}
-            onClick={() => setTarget('positive')}
+            on={kind === 'find'}
+            onClick={() => setKind('find')}
             icon={<Heart size={18} />}
             title="좋아하는 그림체 찾기"
-            desc="긍정 프롬프트의 작가 조합 자리를 채워 가며 비교해요"
+            desc="좋아하는 작가들로 새 조합을 만들어 비교해요"
             chips={['좋아하는 작가 ' + liked.length + '명']}
           />
           <TargetCard
+            on={refine}
+            onClick={() => setKind('refine')}
+            icon={<SlidersHorizontal size={18} />}
+            title="지금 조합 미세 조정"
+            desc="작가 순서를 한두 칸 옮기고 가중치를 조금씩 바꿔 비교해요"
+            chips={[
+              seedPairs.length ? '작가 ' + seedPairs.length + '명' : '조합을 넣어 주세요',
+              refineSeed ? refineSeed.label : '메인 프롬프트에서'
+            ]}
+          />
+          <TargetCard
             on={!positive}
-            onClick={() => setTarget('negative')}
+            onClick={() => setKind('negative')}
             icon={<CircleSlash size={18} />}
-            title="피하고 싶은 그림체 찾기 (네거티브)"
-            desc="네거티브의 작가 조합 자리에 넣고 그림이 나아지는지 봐요"
+            title="피하고 싶은 그림체 (네거티브)"
+            desc="네거티브에 작가를 넣고 그림이 나아지는지 봐요"
             chips={[
               '피하고 싶은 작가 ' + avoided.length + '명',
               seed ? '긍정 고정 · ' + seed.label : '긍정 조합 고정 없음'
@@ -225,7 +284,7 @@ export function ArenaStart(): React.JSX.Element {
             className="rounded-xl border-transparent bg-paper p-3"
           />
           {positive && (
-            <TokenLine missing={tokenMissing} onFix={() => setPrompt(prependArtistToken(prompt))} />
+            <TokenLine missing={tokenMissing} onFix={() => setPrompt(makeArtistSlot(prompt))} />
           )}
           {!positive && seed && (
             <p className="mt-1.5 text-[12px] text-muted">
@@ -245,10 +304,40 @@ export function ArenaStart(): React.JSX.Element {
           {!positive && (
             <TokenLine
               missing={tokenMissing}
-              onFix={() => setNegative(prependArtistToken(negative))}
+              onFix={() =>
+                setNegative(
+                  replaceArtistTags(negative, '{artist}') ?? appendPrompt(negative, '{artist}')
+                )
+              }
             />
           )}
         </Row>
+
+        {refine && (
+          <Row label="다듬을 조합" sub="순서·가중치 그대로 읽어요">
+            <Textarea
+              value={seedText}
+              onChange={(e) => setSeedText(e.target.value)}
+              rows={2}
+              placeholder="1.2::artist:omutatsu::, artist:wanke, 0.9::artist:kawacy::"
+              className="rounded-xl border-transparent bg-paper p-3 font-mono text-[12.5px]"
+            />
+            {seedPairs.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {seedPairs.map((p, i) => (
+                  <span
+                    key={p.tag}
+                    className="flex items-center gap-1.5 rounded-lg bg-paper px-2 py-1 text-[12.5px]"
+                  >
+                    <span className="text-[11px] font-semibold text-faint">{i + 1}</span>
+                    {p.tag}
+                    <b className="tabular-nums text-accent">{roundWeight(p.weight).toFixed(1)}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+          </Row>
+        )}
 
         <Row label="검증 장면" sub="장면마다 시드를 고정해요">
           <div className="flex flex-wrap items-center gap-2">
@@ -317,7 +406,56 @@ export function ArenaStart(): React.JSX.Element {
           )}
         </Row>
 
-        {positive ? (
+        {refine ? (
+          <>
+            <Row label="바꿀 폭" sub="작가는 넣거나 빼지 않아요">
+              <div className="flex flex-wrap items-center gap-2">
+                {(Object.keys(REFINE_STEPS) as RefineSize[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setRefineSize(k)}
+                    className={cn(
+                      'flex h-10 items-center gap-1.5 rounded-xl border-2 px-4 text-[13px] font-semibold transition-colors',
+                      refineSize === k
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-transparent bg-paper text-ink'
+                    )}
+                  >
+                    {REFINE_STEPS[k].label}
+                    <span className="font-normal text-muted">{REFINE_STEPS[k].desc}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center gap-3 text-[13px]">
+                <Range label="가중치 범위" a={minW} b={maxW} setA={setMinW} setB={setMaxW} />
+                <span className="text-[12px] text-muted">
+                  지금 가중치는 범위 밖이어도 그대로 둬요
+                </span>
+              </div>
+            </Row>
+            <Row label="예산" sub="변형 수">
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(BUDGETS) as ArenaBudget[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setBudget(k)}
+                    className={cn(
+                      'flex h-10 items-center gap-1.5 rounded-xl border-2 px-4 text-[13px] font-semibold transition-colors',
+                      budget === k
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-transparent bg-paper text-ink'
+                    )}
+                  >
+                    {BUDGETS[k].label}
+                    <span className="font-normal text-muted">
+                      변형 {REFINE_COUNT[k]}개 · 약 {estimateRefine(k, scenes.length).total}장
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </Row>
+          </>
+        ) : positive ? (
           <>
             <Row label="조합 모양">
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]">
@@ -391,7 +529,17 @@ export function ArenaStart(): React.JSX.Element {
               warn={remaining < needed}
             />
           )}
-          {positive ? (
+          {refine ? (
+            <SumRow
+              label="다듬을 조합"
+              value={seedPairs.length + '명 · 변형 ' + REFINE_COUNT[budget] + '개'}
+              note={
+                '변형마다 장면 ' +
+                slotLayout(scenes.length).main.length +
+                '개씩 같은 시드로 뽑아요 · 예선 뒤 바로 결선'
+              }
+            />
+          ) : positive ? (
             <SumRow
               label="좋아하는 작가"
               value={liked.length + '명'}
@@ -441,9 +589,11 @@ export function ArenaStart(): React.JSX.Element {
             className="h-[52px] rounded-xl text-[15px]"
             onClick={start}
           >
-            {positive
-              ? '예선 시작 · 먼저 ' + needed.toLocaleString() + '장'
-              : '네거티브 찾기 시작 · ' + needed.toLocaleString() + '장'}
+            {refine
+              ? '미세 조정 시작 · 먼저 ' + needed.toLocaleString() + '장'
+              : positive
+                ? '예선 시작 · 먼저 ' + needed.toLocaleString() + '장'
+                : '네거티브 찾기 시작 · ' + needed.toLocaleString() + '장'}
           </Button>
           <p className="text-center text-[11.5px] text-faint">
             {positive
@@ -547,7 +697,7 @@ function TokenLine({ missing, onFix }: { missing: boolean; onFix: () => void }):
       <TriangleAlert size={13} />
       작가 조합이 들어갈 자리가 없어요
       <Button size="sm" className="h-6 rounded-md px-2 text-[12px]" onClick={onFix}>
-        맨 앞에 넣기
+        맨 뒤에 넣기
       </Button>
     </div>
   )

@@ -46,6 +46,8 @@ import {
   emptyModel,
   fitModel,
   generateBatch,
+  neighborCombos,
+  REFINE_COUNT,
   hasArtistToken,
   insertArtists,
   insertScene,
@@ -529,10 +531,28 @@ export function createSession(
     minWeight: roundWeight(Math.min(config.minWeight, config.maxWeight)),
     maxWeight: roundWeight(Math.max(config.minWeight, config.maxWeight))
   }
-  const cfg: ArenaSessionConfig = { ...config, ...shape, scenes }
+  const refine = !negative && config.mode === 'refine'
+  const seedPairs = (config.seedPairs ?? []).filter((p) => p.tag)
+  if (refine) {
+    if (seedPairs.length === 0) return { error: '다듬을 조합을 넣어 주세요' }
+    // 원래 가중치가 범위 밖이어도 그 값은 쓸 수 있게 범위를 넓힌다
+    shape.minArtists = seedPairs.length
+    shape.maxArtists = seedPairs.length
+    shape.minWeight = roundWeight(Math.min(shape.minWeight, ...seedPairs.map((p) => p.weight)))
+    shape.maxWeight = roundWeight(Math.max(shape.maxWeight, ...seedPairs.map((p) => p.weight)))
+  }
+  const cfg: ArenaSessionConfig = {
+    ...config,
+    ...shape,
+    scenes,
+    mode: refine ? 'refine' : 'find',
+    seedPairs: refine ? seedPairs : undefined
+  }
   let candidates: string[] = []
   let pool: PoolArtist[] = []
-  if (negative) {
+  if (refine) {
+    // 작가 명단은 쓰지 않는다
+  } else if (negative) {
     const avoided = listArtists()
       .filter((a) => a.list === 'avoided')
       .map((a) => a.tag)
@@ -573,6 +593,30 @@ export function createSession(
       for (const slot of slotLayout(slots.length).neg) {
         ensureRender(id, baselineId, slot)
         for (const c of candidateIds) ensureRender(id, c, slot)
+      }
+    } else if (refine) {
+      // 원래 조합 + 이웃 변형. 차이가 작아서 본선 장면을 처음부터 모두 뽑아 같은 장면끼리 비교한다
+      const fixed = new Set(
+        listArtists()
+          .filter((a) => a.fixedWeight != null)
+          .map((a) => a.tag)
+      )
+      const variants = neighborCombos(
+        seedPairs,
+        REFINE_COUNT[cfg.budget] ?? REFINE_COUNT.normal,
+        {
+          minWeight: shape.minWeight,
+          maxWeight: shape.maxWeight,
+          step: config.refineStep ?? 0.3,
+          moves: config.refineMoves ?? 2,
+          fixed
+        },
+        Math.random
+      )
+      const main = slotLayout(slots.length).main
+      for (const v of variants) {
+        const cid = insertCombo(id, v.pairs, v.source)
+        for (const s of main) ensureRender(id, cid, s)
       }
     } else {
       const batch = generateBatch({
@@ -688,6 +732,10 @@ interface Ctx {
 
 function renderKey(comboId: number, slot: number): string {
   return comboId + ':' + slot
+}
+
+function isRefine(ctx: Ctx): boolean {
+  return ctx.session.config.mode === 'refine'
 }
 
 /** 이 세션의 장면 배치 (장면 수에 따라) */
@@ -1015,7 +1063,12 @@ function progressOf(ctx: Ctx): ArenaProgress {
     minAppear = withRender.length ? Math.min(...withRender.map((id) => appear.get(id) ?? 0)) : 0
     stageTarget = Math.ceil((pool.length * need) / 4)
     ready = withRender.length === pool.length && pool.length >= 4 && minAppear >= need
-    if (stage === 'prelim') {
+    if (stage === 'prelim' && isRefine(ctx)) {
+      const top = rankedVisible(ctx)
+        .slice(0, FINAL_SIZE)
+        .map((c) => c.id)
+      next = { stage: 'final', newRenders: missingCount(ctx, top, lay(ctx).all) }
+    } else if (stage === 'prelim') {
       const top = rankedVisible(ctx)
         .slice(0, MAIN_SIZE)
         .map((c) => c.id)
@@ -1133,7 +1186,7 @@ function snapshotOf(ctx: Ctx): ArenaSnapshot {
   for (const a of listArtists()) tags.add(a.tag)
   const combosMap = new Map(ctx.combos.filter((c) => !c.hidden).map((c) => [c.id, c.pairs]))
   const reviveIds =
-    ctx.session.stage === 'prelim'
+    ctx.session.stage === 'prelim' && !isRefine(ctx)
       ? rankedVisible(ctx)
           .slice(MAIN_SIZE, MAIN_SIZE + REVIVE_COUNT)
           .map((c) => c.id)
@@ -1284,7 +1337,24 @@ export function advance(
   const st = session.state
   const db = getDb()
   const setReached = db.prepare('UPDATE arena_combos SET stage_reached = ? WHERE id = ?')
-  if (session.stage === 'prelim') {
+  const startFinal = (ids: number[]): void => {
+    db.transaction(() => {
+      for (const id of ids) {
+        setReached.run('final', id)
+        for (const s of lay(ctx).all) ensureRender(sessionId, id, s)
+      }
+    })()
+    st.finalIds = ids
+    st.finalPairs = roundRobin(ids, Math.random)
+    session.stage = 'final'
+  }
+  if (session.stage === 'prelim' && isRefine(ctx)) {
+    const ids = rankedVisible(ctx)
+      .slice(0, FINAL_SIZE)
+      .map((c) => c.id)
+    if (ids.length < 2) return { snapshot: snapshotOf(ctx), error: '결선에 올릴 조합이 모자라요' }
+    startFinal(ids)
+  } else if (session.stage === 'prelim') {
     const top = rankedVisible(ctx)
       .slice(0, MAIN_SIZE)
       .map((c) => c.id)
@@ -1307,15 +1377,7 @@ export function advance(
       .sort((a, b) => (ctx.score.get(b) ?? 0) - (ctx.score.get(a) ?? 0))
       .slice(0, FINAL_SIZE)
     if (ids.length < 2) return { snapshot: snapshotOf(ctx), error: '결선에 올릴 조합이 모자라요' }
-    db.transaction(() => {
-      for (const id of ids) {
-        setReached.run('final', id)
-        for (const s of lay(ctx).all) ensureRender(sessionId, id, s)
-      }
-    })()
-    st.finalIds = ids
-    st.finalPairs = roundRobin(ids, Math.random)
-    session.stage = 'final'
+    startFinal(ids)
   } else if (['final', 'tune', 'order', 'confirm', 'done'].includes(session.stage)) {
     // 결선이 끝난 뒤에는 순위 화면에서 다른 결선 조합으로 다듬기 대상을 바꿀 수 있다
     if (session.stage === 'final' && !finalDone(ctx) && opts.tuneComboId == null)
@@ -1400,6 +1462,44 @@ export function addCombos(
   if (!ctx || ctx.session.target === 'negative' || ctx.session.stage !== 'prelim')
     return { added: 0, enqueue: { queued: 0, missing: 0 } }
   const cfg = ctx.session.config
+  if (isRefine(ctx)) {
+    const fixed = new Set(
+      listArtists()
+        .filter((a) => a.fixedWeight != null)
+        .map((a) => a.tag)
+    )
+    const keys = new Set(ctx.combos.map((c) => c.key))
+    const tops = rankedVisible(ctx).slice(0, 3)
+    const each = Math.max(1, Math.ceil(Math.min(60, count) / Math.max(1, tops.length)))
+    const made: { pairs: ArenaPair[]; source: ArenaComboSource }[] = []
+    for (const t of tops) {
+      const vs = neighborCombos(
+        t.pairs,
+        each + 1,
+        {
+          minWeight: cfg.minWeight,
+          maxWeight: cfg.maxWeight,
+          step: cfg.refineStep ?? 0.3,
+          moves: cfg.refineMoves ?? 2,
+          fixed
+        },
+        Math.random,
+        keys
+      )
+      for (const v of vs) {
+        keys.add(comboKey(v.pairs))
+        made.push(v)
+      }
+    }
+    const gen = Math.max(0, ...ctx.combos.map((c) => c.generation)) + 1
+    getDb().transaction(() => {
+      for (const v of made) {
+        const cid = insertCombo(sessionId, v.pairs, 'refine', { generation: gen })
+        for (const s of lay(ctx).main) ensureRender(sessionId, cid, s)
+      }
+    })()
+    return { added: made.length, enqueue: enqueueMissing(sessionId) }
+  }
   const ranked = rankedVisible(ctx).map((c) => ({
     pairs: c.pairs,
     certain: (ctx.se.get(c.id) ?? 1) < 0.6

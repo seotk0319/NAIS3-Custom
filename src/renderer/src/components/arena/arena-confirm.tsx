@@ -1,6 +1,6 @@
-import { CalendarPlus, Check, CircleSlash, Copy, LogIn, Undo2 } from 'lucide-react'
+import { CalendarPlus, Check, CircleSlash, Copy, LogIn, Sparkles, Undo2 } from 'lucide-react'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { comboString, hasArtistToken } from '@shared/arena'
+import { comboString, hasArtistTags, hasArtistToken } from '@shared/arena'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { useGenerationStore } from '../../stores/generation-store'
@@ -29,6 +29,7 @@ export function ArenaConfirm(): React.JSX.Element {
   const retune = useArenaStore((s) => s.retune)
   const setNegativeSeed = useArenaStore((s) => s.setNegativeSeed)
   const setView = useArenaStore((s) => s.setView)
+  const setRefineSeed = useArenaStore((s) => s.setRefineSeed)
   const [before, setBefore] = useState(false)
   const [busy, setBusy] = useState(false)
   const [reserveOpen, setReserveOpen] = useState(false)
@@ -205,6 +206,7 @@ export function ArenaConfirm(): React.JSX.Element {
               <Button
                 className="h-10 rounded-xl"
                 onClick={() => {
+                  setRefineSeed(null)
                   setNegativeSeed({
                     pairs: tuned.pairs,
                     label: session.name,
@@ -218,6 +220,16 @@ export function ArenaConfirm(): React.JSX.Element {
               <Button className="h-10 rounded-xl" onClick={() => void copyText(tags)}>
                 <Copy size={14} />
                 태그 복사
+              </Button>
+              <Button
+                className="col-span-2 h-10 rounded-xl"
+                onClick={() => {
+                  setNegativeSeed(null)
+                  setRefineSeed({ pairs: tuned.pairs, label: session.name })
+                  setView('start')
+                }}
+              >
+                <Sparkles size={14} />이 조합 미세 조정 · 순서·가중치 조금씩
               </Button>
             </div>
           </div>
@@ -275,7 +287,7 @@ export function ReserveDialog({
   const mainPrompt = useGenerationStore((s) => s.request.prompt)
   const [presetId, setPresetId] = useState<number | null>(null)
   const [per, setPer] = useState(1)
-  const [mode, setMode] = useState<'replace' | 'prepend'>('replace')
+  const [mode, setMode] = useState<'replace' | 'append'>('replace')
   const [scenes, setScenes] = useState<{ presetId: number; ids: number[] } | null>(null)
   const [busy, setBusy] = useState(false)
   const pid = presetId ?? activePresetId
@@ -298,6 +310,7 @@ export function ReserveDialog({
   const ids = scenes?.presetId === pid ? scenes.ids : null
   const total = (ids?.length ?? 0) * per
   const hasToken = hasArtistToken(mainPrompt)
+  const hasTags = hasArtistTags(mainPrompt)
 
   const reserve = async (): Promise<void> => {
     if (!ids || ids.length === 0) return
@@ -356,16 +369,18 @@ export function ReserveDialog({
                 value={mode}
                 options={[
                   ['replace', '바꾸기'],
-                  ['prepend', '앞에 붙이기']
+                  ['append', '뒤에 붙이기']
                 ]}
-                onChange={(v) => setMode(v as 'replace' | 'prepend')}
+                onChange={(v) => setMode(v as 'replace' | 'append')}
               />
               <span className="text-[11.5px] text-muted">
                 {mode === 'replace'
                   ? hasToken
                     ? '메인 프롬프트의 작가 조합 자리를 이 조합으로 바꿔요'
-                    : '작가 조합 자리가 없어서 맨 앞에 붙여요'
-                  : '메인 프롬프트 맨 앞에 이 조합을 붙여요'}
+                    : hasTags
+                      ? '지금 있는 작가 태그를 그 자리에서 이 조합으로 바꿔요'
+                      : '작가 태그가 없어서 디테일 칸 맨 뒤에 붙여요'
+                  : '지금 작가 태그는 두고 맨 뒤에 이 조합을 붙여요'}
               </span>
             </div>
           </Row>

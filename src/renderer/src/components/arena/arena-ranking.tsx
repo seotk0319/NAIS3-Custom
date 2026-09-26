@@ -1,4 +1,4 @@
-import { Copy, Download, LogIn, SlidersHorizontal, Star } from 'lucide-react'
+import { Copy, Download, LogIn, SlidersHorizontal, Sparkles, Star } from 'lucide-react'
 import { memo, useMemo, useState } from 'react'
 import { comboString, type ArenaComboView } from '@shared/arena'
 import { cn } from '../../lib/utils'
@@ -199,6 +199,9 @@ function Detail({
   const advance = useArenaStore((s) => s.advance)
   const advancing = useArenaStore((s) => s.advancing)
   const setView = useArenaStore((s) => s.setView)
+  const sessionName = useArenaStore((s) => s.snapshot?.session.name ?? '')
+  const setRefineSeed = useArenaStore((s) => s.setRefineSeed)
+  const setNegativeSeed = useArenaStore((s) => s.setNegativeSeed)
   const { gate, dialog } = useLimitGate()
   const shots = useMemo(
     () =>
@@ -290,6 +293,18 @@ function Detail({
           즐겨찾기
         </Button>
       </div>
+      {!negative && (
+        <Button
+          className="h-10 rounded-xl"
+          onClick={() => {
+            setNegativeSeed(null)
+            setRefineSeed({ pairs: combo.pairs, label: sessionName + ' ' + combo.rank + '위' })
+            setView('start')
+          }}
+        >
+          <Sparkles size={14} />이 조합 미세 조정 · 순서·가중치 조금씩
+        </Button>
+      )}
       {canTune && (
         <Button
           variant="accent"

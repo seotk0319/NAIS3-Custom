@@ -22,9 +22,93 @@ import {
   MAIN_SLOTS,
   TUNE_SLOTS,
   NEG_SLOTS,
+  parseComboString,
+  replaceArtistTags,
+  makeArtistSlot,
+  neighborCombos,
+  estimateRefine,
   type ArenaPair,
   type Comparison
 } from '../src/shared/arena'
+
+describe('arena combo in the detail prompt', () => {
+  it('reads a combo string in order with weights, including weight groups and braces', () => {
+    expect(
+      parseComboString(
+        '1.2::artist:omutatsu::, artist:wanke, 0.9::artist:a, artist:b::, {artist:c}, vivid'
+      )
+    ).toEqual([
+      { tag: 'omutatsu', weight: 1.2 },
+      { tag: 'wanke', weight: 1 },
+      { tag: 'a', weight: 0.9 },
+      { tag: 'b', weight: 0.9 },
+      { tag: 'c', weight: 1.1 }
+    ])
+  })
+
+  it('swaps the artist tags in place and keeps everything else', () => {
+    const detail = 'soft lighting, depth of field,\n1.4::artist:x::, artist:y, 0.8::artist:z::'
+    expect(replaceArtistTags(detail, '1.1::artist:new::')).toBe(
+      'soft lighting, depth of field,\n1.1::artist:new::'
+    )
+    expect(replaceArtistTags('no artists here', 'q')).toBeNull()
+    // 주석 줄은 건드리지 않는다
+    expect(replaceArtistTags('# artist:old\nartist:x, blue', 'artist:n')).toBe(
+      '# artist:old\nartist:n, blue'
+    )
+  })
+
+  it('puts the session artist slot at the end, after the scene', () => {
+    expect(makeArtistSlot('1girl, vivid colors')).toBe('1girl, vivid colors, {scene}, {artist}')
+    expect(makeArtistSlot('1girl, {scene}, soft, artist:a, artist:b')).toBe(
+      '1girl, {scene}, soft, {artist}'
+    )
+    expect(makeArtistSlot('1girl, {artist}, x')).toBe('1girl, {artist}, x')
+  })
+})
+
+describe('arena refine variants', () => {
+  const seed: ArenaPair[] = [
+    { tag: 'a', weight: 1.4 },
+    { tag: 'b', weight: 1 },
+    { tag: 'c', weight: 0.9 },
+    { tag: 'd', weight: 1.2 }
+  ]
+  const opts = { minWeight: 0.8, maxWeight: 1.6, step: 0.3, moves: 2 }
+
+  it('keeps the same artists and nudges only order and weight within range', () => {
+    const vs = neighborCombos(seed, 28, opts, mulberry32(5))
+    expect(vs).toHaveLength(28)
+    expect(vs[0]).toEqual({ pairs: seed, source: 'seed' })
+    expect(new Set(vs.map((v) => comboKey(v.pairs))).size).toBe(28)
+    for (const v of vs.slice(1)) {
+      expect(v.pairs.map((p) => p.tag).sort()).toEqual(['a', 'b', 'c', 'd'])
+      let changed = 0
+      for (const p of v.pairs) {
+        const orig = seed.find((s) => s.tag === p.tag)!
+        const d = Math.abs(p.weight - orig.weight)
+        expect(d).toBeLessThanOrEqual(0.6 + 1e-9)
+        if (d > 1e-9) {
+          expect(p.weight).toBeGreaterThanOrEqual(0.8)
+          expect(p.weight).toBeLessThanOrEqual(1.6)
+          changed++
+        }
+      }
+      // 한 변형에서 가중치가 바뀐 작가는 최대 두 명
+      expect(changed).toBeLessThanOrEqual(2)
+    }
+    expect(vs.some((v) => v.pairs[0].tag !== 'a' || v.pairs[1].tag !== 'b')).toBe(true)
+  })
+
+  it('leaves fixed-weight artists alone', () => {
+    const vs = neighborCombos(seed, 20, { ...opts, fixed: new Set(['a']) }, mulberry32(9))
+    for (const v of vs) expect(v.pairs.find((p) => p.tag === 'a')!.weight).toBe(1.4)
+  })
+
+  it('estimates images per scene count', () => {
+    expect(estimateRefine('normal', 3)).toEqual({ first: 84, total: 105 })
+  })
+})
 
 describe('arena scene count', () => {
   it('keeps the old fixed slots for 12-scene sessions', () => {

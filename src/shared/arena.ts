@@ -11,7 +11,16 @@ export type ArenaTarget = 'positive' | 'negative'
 export type ArenaStage = 'prelim' | 'main' | 'final' | 'tune' | 'order' | 'confirm' | 'done' | 'neg'
 export type ArenaBudget = 'light' | 'normal' | 'generous'
 export type ArenaComboSource =
-  'random' | 'model' | 'breed' | 'tune' | 'order' | 'tuned' | 'baseline' | 'candidate'
+  | 'random'
+  | 'model'
+  | 'breed'
+  | 'tune'
+  | 'order'
+  | 'tuned'
+  | 'baseline'
+  | 'candidate'
+  | 'seed'
+  | 'refine'
 export type ArenaRenderState = 'missing' | 'queued' | 'done' | 'failed'
 export type ArenaTier = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 
@@ -62,6 +71,14 @@ export interface ArenaSessionConfig {
   negCandidates?: string[]
   /** 네거티브 세션: 후보 작가 가중치 (기본 1.0) */
   negWeight?: number
+  /** find = 작가 명단에서 새 조합 찾기, refine = 기존 조합 하나를 미세 조정 */
+  mode?: 'find' | 'refine'
+  /** 미세 조정할 조합 (순서·가중치 그대로) */
+  seedPairs?: ArenaPair[]
+  /** 미세 조정 폭: 가중치를 한 번에 최대 얼마나 바꿀지 (0.1 단위) */
+  refineStep?: number
+  /** 미세 조정 폭: 변형 하나에서 바꾸는 곳 수 최대 */
+  refineMoves?: number
 }
 
 export interface ArenaTuneState {
@@ -344,6 +361,32 @@ export function estimateTotal(budget: ArenaBudget, scenes: number): number {
   return Math.round((BUDGETS[budget].prelim + main + final + 18 + n) / 10) * 10
 }
 
+/** 미세 조정 세션의 변형 수 (원래 조합 포함) */
+export const REFINE_COUNT: Record<ArenaBudget, number> = { light: 16, normal: 28, generous: 44 }
+
+export type RefineSize = 'small' | 'normal' | 'large'
+
+/** 미세 조정 폭 */
+export const REFINE_STEPS: Record<
+  RefineSize,
+  { step: number; moves: number; label: string; desc: string }
+> = {
+  small: { step: 0.2, moves: 1, label: '조금', desc: '가중치 ±0.2 · 한 곳만' },
+  normal: { step: 0.3, moves: 2, label: '보통', desc: '가중치 ±0.3 · 한두 곳' },
+  large: { step: 0.5, moves: 3, label: '크게', desc: '가중치 ±0.5 · 세 곳까지' }
+}
+
+/** 미세 조정: 변형마다 본선 장면에 한 장씩 + 결선에 모자란 장면 + 다듬기 18 + 확정 검증 */
+export function estimateRefine(
+  budget: ArenaBudget,
+  scenes: number
+): { first: number; total: number } {
+  const n = Math.max(1, Math.min(ARENA_SLOT_COUNT, scenes))
+  const m = slotLayout(n).main.length
+  const first = REFINE_COUNT[budget] * m
+  return { first, total: first + FINAL_SIZE * (n - m) + 18 + n }
+}
+
 // ───────────────────────── 프롬프트 ─────────────────────────
 
 export function roundWeight(w: number): number {
@@ -406,6 +449,143 @@ export function insertScene(prompt: string, scene: string): string {
 export function prependArtistToken(prompt: string): string {
   if (hasArtistToken(prompt)) return prompt
   return prompt.trim() ? ARTIST_TOKEN + ',\n' + prompt : ARTIST_TOKEN
+}
+
+/** 쉼표 조각 하나가 작가 태그인지 ("1.2::artist:a", "artist:b::", "{artist:c}" 등) */
+function isArtistChunk(chunk: string): boolean {
+  return /(^|[\s{[(:])artist\s*:/i.test(chunk.trim())
+}
+
+export function hasArtistTags(text: string): boolean {
+  return text
+    .split('\n')
+    .some((l) => !l.trimStart().startsWith('#') && l.split(',').some(isArtistChunk))
+}
+
+/**
+ * 프롬프트 안의 작가 태그를 모두 빼고, 첫 작가 태그가 있던 자리에 replacement를 넣는다.
+ * 작가 태그가 없으면 null. 주석 줄은 건드리지 않는다.
+ */
+export function replaceArtistTags(text: string, replacement: string): string | null {
+  let placed = false
+  let found = false
+  const lines = text.split('\n').map((line) => {
+    if (line.trimStart().startsWith('#')) return line
+    const chunks = line.split(',')
+    if (!chunks.some(isArtistChunk)) return line
+    found = true
+    const out: string[] = []
+    for (const c of chunks) {
+      if (isArtistChunk(c)) {
+        if (!placed && replacement) out.push(replacement)
+        placed = true
+      } else if (c.trim()) out.push(c.trim())
+    }
+    const trailing = /,\s*$/.test(line) && out.length ? ',' : ''
+    return out.join(', ') + trailing
+  })
+  return found ? lines.join('\n') : null
+}
+
+/** 프롬프트 맨 뒤에 붙인다 */
+export function appendPrompt(text: string, tail: string): string {
+  const t = text.replace(/[\s,]+$/, '')
+  return t ? t + ', ' + tail : tail
+}
+
+/**
+ * 세션 프롬프트에 작가 자리 만들기 — 작가 조합이 맨 뒤에 오게 한다.
+ * 이미 작가 태그가 있으면 그 자리를, 없으면 끝을 쓴다. 장면 자리가 없으면 작가 앞에 {scene}을 둔다.
+ */
+export function makeArtistSlot(prompt: string): string {
+  if (hasArtistToken(prompt)) return prompt
+  const tail = prompt.includes(SCENE_TOKEN) ? ARTIST_TOKEN : SCENE_TOKEN + ', ' + ARTIST_TOKEN
+  return replaceArtistTags(prompt, tail) ?? appendPrompt(prompt, tail)
+}
+
+/**
+ * "1.2::artist:a::, artist:b, 0.9::artist:c, artist:d::" → 순서·가중치 그대로 작가만 뽑는다.
+ * 가중치 묶음(w::…::)이 여러 태그에 걸쳐도 따라가고, {…}/[…]는 1.05배씩 반영한다.
+ */
+export function parseComboString(text: string): ArenaPair[] {
+  const out: ArenaPair[] = []
+  const seen = new Set<string>()
+  let groupWeight: number | null = null
+  for (const line of text.split('\n')) {
+    if (line.trimStart().startsWith('#')) continue
+    for (const raw of line.split(',')) {
+      let t = raw.trim()
+      if (!t) continue
+      let w = groupWeight ?? 1
+      const open = /^(-?\d+(?:\.\d+)?)::/.exec(t)
+      if (open) {
+        w = Number(open[1])
+        t = t.slice(open[0].length)
+        groupWeight = w
+      }
+      let closes = false
+      if (/::\s*$/.test(t)) {
+        t = t.replace(/::\s*$/, '')
+        closes = true
+      }
+      const braces = (t.match(/\{/g) ?? []).length - (t.match(/\[/g) ?? []).length
+      t = t.replace(/[{}[\]]/g, '').trim()
+      const m = /^artist\s*:\s*(.+)$/i.exec(t)
+      if (m) {
+        const tag = m[1].trim().toLowerCase().replace(/_/g, ' ')
+        if (tag && !seen.has(tag)) {
+          seen.add(tag)
+          out.push({ tag, weight: roundWeight(w * Math.pow(1.05, braces)) })
+        }
+      }
+      if (closes) groupWeight = null
+    }
+  }
+  return out
+}
+
+/**
+ * 미세 조정 변형: 원래 조합 + (한두 곳을 바꾼) 이웃 조합들.
+ * 바꾸는 방법 = 옆 작가와 자리 바꾸기(가끔 두 칸) 또는 가중치 ±0.1~step. 작가는 넣거나 빼지 않는다.
+ */
+export function neighborCombos(
+  seed: ArenaPair[],
+  count: number,
+  opts: { minWeight: number; maxWeight: number; step: number; moves: number; fixed?: Set<string> },
+  rng: Rng,
+  existingKeys: Set<string> = new Set()
+): { pairs: ArenaPair[]; source: ArenaComboSource }[] {
+  const keys = new Set(existingKeys)
+  const out: { pairs: ArenaPair[]; source: ArenaComboSource }[] = []
+  const seedKey = comboKey(seed)
+  if (!keys.has(seedKey)) {
+    keys.add(seedKey)
+    out.push({ pairs: seed.map((p) => ({ ...p })), source: 'seed' })
+  }
+  const tunable = seed.filter((p) => !opts.fixed?.has(p.tag)).map((p) => p.tag)
+  const maxSteps = Math.max(1, Math.round(opts.step * 10))
+  for (let tries = 0; out.length < count && tries < count * 60; tries++) {
+    const v = seed.map((p) => ({ ...p }))
+    const moves = 1 + Math.floor(rng() * Math.max(1, opts.moves))
+    for (let m = 0; m < moves; m++) {
+      if (v.length >= 2 && (tunable.length === 0 || rng() < 0.4)) {
+        const i = Math.floor(rng() * (v.length - 1))
+        const to = v.length >= 3 && rng() < 0.25 ? Math.min(v.length - 1, i + 2) : i + 1
+        const [moved] = v.splice(i, 1)
+        v.splice(to, 0, moved)
+      } else if (tunable.length) {
+        const tag = tunable[Math.floor(rng() * tunable.length)]
+        const p = v.find((x) => x.tag === tag)!
+        const d = ((1 + Math.floor(rng() * maxSteps)) / 10) * (rng() < 0.5 ? -1 : 1)
+        p.weight = clampWeight(p.weight + d, opts.minWeight, opts.maxWeight)
+      }
+    }
+    const key = comboKey(v)
+    if (keys.has(key)) continue
+    keys.add(key)
+    out.push({ pairs: v, source: 'refine' })
+  }
+  return out
 }
 
 /**

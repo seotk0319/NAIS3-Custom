@@ -49,9 +49,10 @@ function PrelimMainEnd({ stage }: { stage: 'prelim' | 'main' }): React.JSX.Eleme
   const { gate, dialog } = useLimitGate()
 
   const sceneCount = useArenaStore((s) => s.snapshot?.session.slots.length ?? 12)
+  const refine = useArenaStore((s) => s.snapshot?.session.config.mode === 'refine')
   const mainScenes = slotLayout(sceneCount).main.length
   const prelim = stage === 'prelim'
-  const size = prelim ? MAIN_SIZE : FINAL_SIZE
+  const size = prelim && !refine ? MAIN_SIZE : FINAL_SIZE
   const { top, pool, byId, thumbs } = useMemo(() => {
     const list = (combos ?? []).filter((c) => !c.hidden)
     const inStage = prelim || !mainIds ? list : list.filter((c) => mainIds.includes(c.id))
@@ -66,23 +67,31 @@ function PrelimMainEnd({ stage }: { stage: 'prelim' | 'main' }): React.JSX.Eleme
 
   const newRenders = (progress?.next?.newRenders ?? 0) + (prelim ? revive.length * 4 : 0)
   const ready = progress?.ready ?? false
-  const nextName = prelim ? '본선' : '결선'
+  const nextName = prelim && !refine ? '본선' : '결선'
   const title = ready
     ? (prelim ? '예선' : '본선') + '이 끝났어요. 상위 ' + size + '개가 ' + nextName + '에 올라가요'
     : '지금까지의 순위로 상위 ' + size + '개를 ' + nextName + '에 올려요'
-  const sub = prelim
-    ? '조합 ' +
+  const sub = refine
+    ? '변형 ' +
       pool +
       '개를 ' +
       (progress?.stageVotes ?? 0) +
-      '판 동안 봤어요 · 본선은 조합마다 장면 ' +
-      mainScenes +
-      '개, 이미 있는 장면은 다시 써요'
-    : '본선 ' +
-      (progress?.stageVotes ?? 0) +
-      '판 · 결선은 장면 ' +
+      '판 동안 봤어요 · 결선은 장면 ' +
       sceneCount +
       '개 세트끼리 겨뤄요'
+    : prelim
+      ? '조합 ' +
+        pool +
+        '개를 ' +
+        (progress?.stageVotes ?? 0) +
+        '판 동안 봤어요 · 본선은 조합마다 장면 ' +
+        mainScenes +
+        '개, 이미 있는 장면은 다시 써요'
+      : '본선 ' +
+        (progress?.stageVotes ?? 0) +
+        '판 · 결선은 장면 ' +
+        sceneCount +
+        '개 세트끼리 겨뤄요'
 
   const start = (): void =>
     gate(

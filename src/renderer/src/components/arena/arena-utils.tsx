@@ -1,5 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { hasArtistToken, insertArtists, type ArenaRender } from '@shared/arena'
+import {
+  appendPrompt,
+  hasArtistTags,
+  hasArtistToken,
+  insertArtists,
+  replaceArtistTags,
+  type ArenaRender
+} from '@shared/arena'
 import { isV5Model } from '@shared/nai-models'
 import { estimateV5Images } from '@shared/v5-usage'
 import { cn } from '../../lib/utils'
@@ -52,37 +59,50 @@ export async function copyText(value: string, message = '태그를 복사했어�
   }
 }
 
-/** {artist} 자리가 있으면 바꾸고, 없으면 맨 앞에 붙인다 */
-export function placeCombo(
-  text: string,
-  combo: string,
-  mode: 'replace' | 'prepend' = 'replace'
-): string {
-  if (mode === 'replace' && hasArtistToken(text)) return insertArtists(text, combo)
-  const rest = hasArtistToken(text) ? insertArtists(text, '') : text
-  return rest.trim() ? combo + ', ' + rest.replace(/^\s+/, '') : combo
+export type PlaceMode = 'replace' | 'append'
+
+/**
+ * 조합 넣기 — 작가 조합은 맨 뒤에 온다.
+ * {artist} 자리가 있으면 그 자리, replace면 지금 있는 작가 태그를 그 자리에서 바꾸고,
+ * 작가 태그가 없거나 append면 맨 뒤에 붙인다.
+ */
+export function placeCombo(text: string, combo: string, mode: PlaceMode = 'replace'): string {
+  if (hasArtistToken(text)) return insertArtists(text, combo)
+  if (mode === 'replace') {
+    const replaced = replaceArtistTags(text, combo)
+    if (replaced != null) return replaced
+  }
+  return appendPrompt(text, combo)
 }
 
-/** 메인 프롬프트에 조합을 넣는다 (3분할이면 {artist}가 있는 칸, 없으면 기본 칸) */
-export function applyComboToMain(combo: string, mode: 'replace' | 'prepend' = 'replace'): void {
+const PART_LABEL = { base: '고정', additional: '가변', detail: '디테일' } as const
+
+/**
+ * 메인 프롬프트에 조합을 넣는다. 3분할이면 {artist}가 있는 칸 → 작가 태그가 있는 칸(뒤 칸부터)
+ * → 디테일 칸 순서로 고른다. 어디에 넣었는지 사람이 읽을 문구를 돌려준다.
+ */
+export function applyComboToMain(combo: string, mode: PlaceMode = 'replace'): string {
   const g = useGenerationStore.getState()
   const parts = g.request.promptParts
   if (g.promptSplitEnabled && parts) {
+    const order = ['detail', 'additional', 'base'] as const
     const key =
-      mode === 'replace'
-        ? ((['base', 'additional', 'detail'] as const).find((k) => hasArtistToken(parts[k])) ??
-          'base')
-        : 'base'
+      order.find((k) => hasArtistToken(parts[k])) ??
+      (mode === 'replace' ? order.find((k) => hasArtistTags(parts[k])) : undefined) ??
+      'detail'
+    const had = hasArtistToken(parts[key]) || (mode === 'replace' && hasArtistTags(parts[key]))
     g.patchPromptParts({ [key]: placeCombo(parts[key], combo, mode) })
-  } else {
-    g.patchRequest({ prompt: placeCombo(g.request.prompt, combo, mode) })
+    return PART_LABEL[key] + ' 칸' + (had ? '의 작가 태그를 바꿨어요' : ' 맨 뒤에 넣었어요')
   }
+  const text = g.request.prompt
+  const had = hasArtistToken(text) || (mode === 'replace' && hasArtistTags(text))
+  g.patchRequest({ prompt: placeCombo(text, combo, mode) })
+  return had ? '프롬프트의 작가 태그를 바꿨어요' : '프롬프트 맨 뒤에 넣었어요'
 }
 
 /** 조합을 메인 프롬프트에 넣고 메인 탭으로 */
 export function sendComboToMain(combo: string): void {
-  applyComboToMain(combo)
-  toast('메인 프롬프트에 넣었어요', 'success')
+  toast(applyComboToMain(combo), 'success')
   useLayoutStore.getState().setCenterMode('main')
 }
 

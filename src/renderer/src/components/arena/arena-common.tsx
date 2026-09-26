@@ -345,7 +345,11 @@ export function StageStepper({
   progress: ArenaProgress
   duel: ArenaDuel | null
 }): React.JSX.Element {
-  const cur = stepIndex(stage)
+  // 미세 조정 세션은 본선 없이 예선 → 결선
+  const refine = useArenaStore((s) => s.snapshot?.session.config.mode === 'refine')
+  const steps = refine ? STEPS.filter((s) => s.key !== 'main') : STEPS
+  const idx = stepIndex(stage)
+  const cur = refine && idx >= 2 ? idx - 1 : idx
   const note = (): string | null => {
     if (stage === 'prelim' || stage === 'main') return progress.stageVotes + '판'
     if (stage === 'final') return duel?.kind === 'set' ? duel.index + 1 + ' / ' + duel.total : '끝'
@@ -356,7 +360,7 @@ export function StageStepper({
   }
   return (
     <div className="flex items-center gap-0.5 rounded-xl bg-paper p-1">
-      {STEPS.map((s, i) => {
+      {steps.map((s, i) => {
         const done = i < cur
         const on = i === cur
         return (

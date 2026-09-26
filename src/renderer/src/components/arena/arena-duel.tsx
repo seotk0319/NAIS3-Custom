@@ -5,6 +5,7 @@ import { thumbnailUrl } from '../../lib/constants'
 import { cn } from '../../lib/utils'
 import { useArenaStore } from '../../stores/arena-store'
 import { Button } from '../ui/button'
+import { ContextMenuItem } from '../ui/context-menu'
 import {
   ArenaImage,
   Card,
@@ -201,15 +202,18 @@ const QuadCard = memo(function QuadCard({
         picked && 'ring-[3px] ring-accent'
       )}
     >
-      <button
-        className="block size-full cursor-pointer"
-        onClick={() => onPick(index)}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          onWorst(index)
-        }}
-      >
-        <ArenaImage comboId={comboId} slot={slot} full />
+      <button className="block size-full cursor-pointer" onClick={() => onPick(index)}>
+        <ArenaImage
+          comboId={comboId}
+          slot={slot}
+          full
+          menuExtra={
+            <ContextMenuItem onSelect={() => onWorst(index)}>
+              <ThumbsDown size={13} className="text-danger" />
+              {worst ? '제일 별로 표시 빼기' : '제일 별로로 표시'}
+            </ContextMenuItem>
+          }
+        />
       </button>
       <span className="pointer-events-none absolute left-2.5 top-2.5 grid size-6 place-items-center rounded-md bg-surface/95 text-[12px] font-bold text-ink">
         {index + 1}

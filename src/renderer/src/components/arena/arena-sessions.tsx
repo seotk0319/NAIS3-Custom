@@ -32,7 +32,7 @@ export function ArenaSessions(): React.JSX.Element {
             onKeyDown={(e) => e.key === 'Enter' && void openSession(s.id)}
             className="group flex cursor-pointer items-center gap-4 border-b border-line px-3 py-3 last:border-b-0 hover:bg-surface/60 [contain-intrinsic-size:auto_72px] [content-visibility:auto]"
           >
-            <Thumb path={s.thumbPath} className="size-12 rounded-xl" />
+            <Thumb path={s.thumbPath} className="size-12 rounded-xl" noMenu />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <b className="truncate text-[14px]">{s.name}</b>

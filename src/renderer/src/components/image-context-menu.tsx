@@ -30,12 +30,15 @@ export function ImageContextMenu({
   filePath,
   onDelete,
   deleteLabel = '삭제',
+  extra,
   children
 }: {
   filePath: string
   /** 지정 시 메뉴에 '삭제' 표시 — 호스트가 삭제+목록 갱신을 처리 */
   onDelete?: () => void
   deleteLabel?: string
+  /** 메뉴 맨 위에 붙일 화면 전용 항목 (그림체 탭의 작가 조합 등) */
+  extra?: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element {
   const startInpaint = useGenerationStore((s) => s.startInpaintFromPath)
@@ -43,7 +46,19 @@ export function ImageContextMenu({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent>
+      {/* 메뉴는 포털로 뜨지만 React 이벤트는 부모 컴포넌트로 올라간다 — 카드 버튼 등의
+          클릭 처리(예: 그림체 대결에서 고르기)가 메뉴 항목 클릭에 반응하지 않게 막는다 */}
+      <ContextMenuContent
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.stopPropagation()}
+      >
+        {extra && (
+          <>
+            {extra}
+            <ContextMenuSeparator />
+          </>
+        )}
         <ContextMenuItem onSelect={() => void setI2iSource(filePath)}>
           <ImageIcon size={13} className="text-indigo-400" /> I2I
         </ContextMenuItem>

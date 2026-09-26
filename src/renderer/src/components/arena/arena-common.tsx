@@ -1,9 +1,20 @@
-import { Check, Clock, ImageOff, Image as ImageIcon } from 'lucide-react'
+import { Check, Clock, Copy, ImageOff, Image as ImageIcon } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
-import type { ArenaDuel, ArenaProgress, ArenaRender, ArenaStage, ArenaTier } from '@shared/arena'
+import {
+  comboString,
+  roundWeight,
+  type ArenaDuel,
+  type ArenaProgress,
+  type ArenaRender,
+  type ArenaStage,
+  type ArenaTier
+} from '@shared/arena'
 import { imageUrl, thumbnailUrl } from '../../lib/constants'
 import { cn } from '../../lib/utils'
 import { useArenaRender, useArenaStore } from '../../stores/arena-store'
+import { toast } from '../../stores/toast-store'
+import { ImageContextMenu } from '../image-context-menu'
+import { ContextMenuItem } from '../ui/context-menu'
 import { Switch } from '../ui/switch'
 
 // ───────────────────────── 작은 부품 ─────────────────────────
@@ -172,7 +183,8 @@ export const ArenaImage = memo(function ArenaImage({
   full,
   lazy,
   className,
-  compact
+  compact,
+  menuExtra
 }: {
   comboId: number | undefined
   slot: number | undefined
@@ -180,32 +192,107 @@ export const ArenaImage = memo(function ArenaImage({
   lazy?: boolean
   className?: string
   compact?: boolean
+  /** 오른쪽 클릭 메뉴에 더할 항목 (예선 카드의 "제일 별로") */
+  menuExtra?: ReactNode
 }): React.JSX.Element {
   const render = useArenaRender(comboId, slot)
   if (!render || render.state !== 'done' || !render.filePath)
     return <Placeholder state={render?.state} compact={compact} className={className} />
   return (
-    <img
-      src={full ? imageUrl(render.filePath) : thumbnailUrl(render.filePath)}
-      decoding="async"
-      loading={lazy ? 'lazy' : undefined}
-      draggable={false}
-      alt=""
-      className={cn('size-full select-none bg-surface-2 object-cover', className)}
-    />
+    <ImageContextMenu
+      filePath={render.filePath}
+      extra={
+        <>
+          <ComboMenuHeader filePath={render.filePath} />
+          {menuExtra}
+        </>
+      }
+    >
+      <img
+        src={full ? imageUrl(render.filePath) : thumbnailUrl(render.filePath)}
+        decoding="async"
+        loading={lazy ? 'lazy' : undefined}
+        draggable={false}
+        alt=""
+        className={cn('size-full select-none bg-surface-2 object-cover', className)}
+      />
+    </ImageContextMenu>
   )
 })
+
+/**
+ * 오른쪽 클릭 메뉴 맨 위: 이 그림의 작가 조합을 순서·가중치대로 보여 주고 복사한다.
+ * 메뉴가 열릴 때만 만들어지므로 대결 화면을 다시 그리지 않는다.
+ */
+function ComboMenuHeader({ filePath }: { filePath: string }): React.JSX.Element {
+  const render = useArenaStore((s) => s.snapshot?.renders.find((r) => r.filePath === filePath))
+  const slot = render?.slot ?? -1
+  const combo = useArenaStore((s) =>
+    render ? s.snapshot?.combos.find((c) => c.id === render.comboId) : undefined
+  )
+  const negative = useArenaStore((s) => s.snapshot?.session.target === 'negative')
+  const scene = useArenaStore((s) => s.snapshot?.session.slots[slot]?.scene)
+  const pairs = combo?.pairs ?? []
+  const text = comboString(pairs)
+  const title = !combo
+    ? '전체 프롬프트는 메타데이터 보기에서 볼 수 있어요'
+    : negative
+      ? pairs.length
+        ? '네거티브에 넣은 작가'
+        : '기준 · 네거티브 작가 없음'
+      : '작가 조합 · 순서대로'
+  return (
+    <>
+      <div className="max-w-[320px] px-3 pb-1.5 pt-1">
+        <div className="text-[11px] font-semibold text-muted">{title}</div>
+        {pairs.length > 0 && (
+          <ol className="mt-1 flex flex-col gap-0.5">
+            {pairs.map((p, i) => (
+              <li key={p.tag} className="flex items-baseline gap-2 text-[12.5px]">
+                <span className="w-3 shrink-0 text-right text-[11px] text-faint">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate">{p.tag}</span>
+                <span className="shrink-0 font-semibold tabular-nums text-accent">
+                  {roundWeight(p.weight).toFixed(1)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+        {scene && (
+          <div className="mt-1.5 truncate text-[11px] text-faint">
+            장면 {slot + 1} · {scene}
+          </div>
+        )}
+      </div>
+      {text && (
+        <ContextMenuItem
+          onSelect={() => {
+            navigator.clipboard.writeText(text).then(
+              () => toast('작가 태그를 복사했어요', 'success'),
+              () => toast('복사하지 못했어요', 'error')
+            )
+          }}
+        >
+          <Copy size={13} className="text-accent" /> 작가 태그 복사
+        </ContextMenuItem>
+      )}
+    </>
+  )
+}
 
 export function Thumb({
   path,
   className,
-  children
+  children,
+  noMenu
 }: {
   path: string | null | undefined
   className?: string
   children?: ReactNode
+  /** 다른 세션 이미지처럼 조합을 알 수 없는 곳은 메뉴를 달지 않는다 */
+  noMenu?: boolean
 }): React.JSX.Element {
-  return (
+  const box = (
     <div className={cn('relative shrink-0 overflow-hidden rounded-lg bg-surface-2', className)}>
       {path ? (
         <img
@@ -223,6 +310,12 @@ export function Thumb({
       )}
       {children}
     </div>
+  )
+  if (!path || noMenu) return box
+  return (
+    <ImageContextMenu filePath={path} extra={<ComboMenuHeader filePath={path} />}>
+      {box}
+    </ImageContextMenu>
   )
 }
 

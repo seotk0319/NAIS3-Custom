@@ -132,6 +132,8 @@ export interface QueueItem {
   filePath?: string
   /** 전이성 오류(429/5xx 등)로 백오프 대기 중 — state는 'generating' 유지, UI 안내용 */
   retrying?: boolean
+  /** 씬 카드 "+ 1장"으로 넣은 바로 뽑기. 예약보다 먼저, 누른 순서대로 나간다. */
+  priority?: boolean
 }
 
 export interface QueueStatus {
@@ -464,6 +466,7 @@ export interface IpcInvokeMap {
   }
   'queue:enqueue': { req: { request: GenerationRequest; count: number }; res: QueueEnqueueResult }
   'queue:enqueueMany': { req: { requests: GenerationRequest[] }; res: QueueEnqueueResult }
+  'queue:enqueueQuick': { req: { request: GenerationRequest }; res: QueueEnqueueResult }
   'queue:cancel': { req: { ids: string[] }; res: void }
   'queue:reset': { req: void; res: void }
   'queue:status': { req: void; res: QueueStatus }

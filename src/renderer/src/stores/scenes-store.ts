@@ -553,9 +553,17 @@ export const useScenesStore = create<ScenesState>((set, get) => ({
     const scene = get().scenes.find((s) => s.id === sceneId)
     if (!scene) return
     const preset = get().presets.find((p) => p.id === get().activePresetId)
-    const result = await window.nais.invoke('queue:enqueue', {
-      request: { ...buildSceneRequest(scene, preset?.characterIds ?? null), seed: sceneSeed(0) },
-      count: 1
+    // 바로 뽑기: 예약이 남아 있어도 받고, 예약보다 먼저 누른 순서대로 나간다.
+    // 시드 고정이면 이 씬에 이미 걸린 장수만큼 밀어 같은 그림이 반복되지 않게 한다.
+    const live =
+      useGenerationStore
+        .getState()
+        .queue?.items.filter(
+          (i) =>
+            i.request.sceneId === sceneId && (i.state === 'pending' || i.state === 'generating')
+        ).length ?? 0
+    const result = await window.nais.invoke('queue:enqueueQuick', {
+      request: { ...buildSceneRequest(scene, preset?.characterIds ?? null), seed: sceneSeed(live) }
     })
     if (result.blockedReason) toast(enqueueBlockedMessage(result.blockedReason), 'info')
   }

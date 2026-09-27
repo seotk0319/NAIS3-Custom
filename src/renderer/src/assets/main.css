@@ -128,3 +128,10 @@ input {
   .panel-in-left > :first-child, .panel-in-right > :first-child { animation: none; }
 }
 
+/* 씬 카드 "+ 1장"을 누르면 버튼 위로 +1이 떠오른다 */
+@keyframes quick-pop {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-20px); }
+}
+.quick-pop { animation: quick-pop 700ms ease-out forwards; }
+

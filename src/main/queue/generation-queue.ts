@@ -108,6 +108,26 @@ export class GenerationQueue extends EventEmitter {
     return this.enqueueRequests(requests)
   }
 
+  /**
+   * 바로 뽑기 한 장. 남은 예약이 있어도 받고, 빈 계정은 예약보다 이것부터 가져간다.
+   * 바로 뽑기끼리는 들어온 순서대로 나간다.
+   */
+  tryEnqueueQuick(request: GenerationRequest): QueueEnqueueResult {
+    const accounts = this.accountsForNewBatch()
+    if (accounts.length === 0) return { ids: [], blockedReason: 'no-account' }
+    const id = randomUUID()
+    this.items.set(id, {
+      id,
+      state: 'pending',
+      request,
+      priority: true,
+      allowedAccountIds: accounts.map((account) => account.id)
+    })
+    this.emitChanged()
+    this.pump()
+    return { ids: [id] }
+  }
+
   private enqueueRequests(requests: GenerationRequest[]): QueueEnqueueResult {
     if (requests.length === 0) return { ids: [] }
     const accounts = this.accountsForNewBatch()
@@ -190,9 +210,12 @@ export class GenerationQueue extends EventEmitter {
   status(): QueueStatus {
     let pending = 0
     let generating = 0
+    let batchPending = 0
     for (const item of this.items.values()) {
-      if (item.state === 'pending') pending++
-      else if (item.state === 'generating') generating++
+      if (item.state === 'pending') {
+        pending++
+        if (!item.priority) batchPending++
+      } else if (item.state === 'generating') generating++
     }
     const allAccounts = this.getAccounts().filter((account) => account.id && account.token.trim())
     const accounts = this.accelerationEnabled() ? allAccounts : allAccounts.slice(0, 1)
@@ -212,7 +235,7 @@ export class GenerationQueue extends EventEmitter {
       accountCount: allAccounts.length,
       busyAccountCount,
       availableSlots,
-      accepting: pending === 0 && availableSlots > 0
+      accepting: batchPending === 0 && (availableSlots > 0 || this.hasLiveQuick())
     }
   }
 
@@ -230,9 +253,18 @@ export class GenerationQueue extends EventEmitter {
 
   private blockedReason(accounts: GenerationAccount[]): QueueEnqueueBlockedReason | undefined {
     if (accounts.length === 0) return 'no-account'
-    if (this.nextPending()) return 'pending'
+    // 바로 뽑기만 남아 있으면 예약 묶음은 그 뒤에 줄 선다.
+    if (this.nextPending(false)) return 'pending'
+    if (this.hasLiveQuick()) return undefined
     if (!accounts.some((account) => this.isAccountIdle(account.id))) return 'busy'
     return undefined
+  }
+
+  private hasLiveQuick(): boolean {
+    for (const item of this.items.values()) {
+      if (item.priority && (item.state === 'pending' || item.state === 'generating')) return true
+    }
+    return false
   }
 
   private isAccountIdle(id: string): boolean {
@@ -292,8 +324,10 @@ export class GenerationQueue extends EventEmitter {
   private nextDispatchable(): { item: InternalQueueItem; account: GenerationAccount } | undefined {
     const accounts = this.getAccounts().filter((account) => account.id && account.token.trim())
     if (accounts.length === 0) return undefined
-    for (const item of this.items.values()) {
-      if (item.state !== 'pending') continue
+    // 바로 뽑기(priority)를 먼저, 그다음 예약 순서대로.
+    const pending = [...this.items.values()].filter((item) => item.state === 'pending')
+    const ordered = [...pending.filter((i) => i.priority), ...pending.filter((i) => !i.priority)]
+    for (const item of ordered) {
       for (let offset = 0; offset < accounts.length; offset++) {
         const index = (this.roundRobinIndex + offset) % accounts.length
         const account = accounts[index]
@@ -322,10 +356,11 @@ export class GenerationQueue extends EventEmitter {
       if (controller.signal.aborted || isAbortError(error)) {
         this.markTerminal(item, 'cancelled')
       } else if (error instanceof AccountPausedError) {
-        if (!this.isAnlasSpendingEnabled()) this.pausedAccounts.set(account.id, {
-          reason: error.message,
-          retryAt: Date.now() + error.retryAfterMs
-        })
+        if (!this.isAnlasSpendingEnabled())
+          this.pausedAccounts.set(account.id, {
+            reason: error.message,
+            retryAt: Date.now() + error.retryAfterMs
+          })
         item.state = 'pending'
         delete item.accountId
         delete item.error
@@ -382,9 +417,10 @@ export class GenerationQueue extends EventEmitter {
     }
   }
 
-  private nextPending(): InternalQueueItem | undefined {
+  /** includeQuick=false면 예약 묶음 항목만 본다 (바로 뽑기 제외). */
+  private nextPending(includeQuick = true): InternalQueueItem | undefined {
     for (const item of this.items.values()) {
-      if (item.state === 'pending') return item
+      if (item.state === 'pending' && (includeQuick || !item.priority)) return item
     }
     return undefined
   }

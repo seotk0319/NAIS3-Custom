@@ -237,4 +237,55 @@ describe('GenerationQueue', () => {
     expect(status.items.every((item) => item.request.prompt === '')).toBe(true)
     expect(status.counts).toMatchObject({ done: 600, pending: 0, generating: 0 })
   })
+
+  it('takes quick picks while a batch is pending and runs them first, in click order', async () => {
+    const order: number[] = []
+    const gates: Array<() => void> = []
+    const queue = new GenerationQueue(
+      (req) =>
+        new Promise<string>((resolve) => {
+          order.push(req.seed)
+          gates.push(() => resolve(req.seed + '.png'))
+        })
+    )
+    queue.setDelayMs(0)
+    queue.enqueueMany([request({ seed: 1 }), request({ seed: 2 }), request({ seed: 3 })])
+    await vi.waitFor(() => expect(order).toEqual([1]))
+
+    // 예약이 남아 있으면 일반 묶음은 막히지만, 바로 뽑기는 받는다
+    expect(queue.tryEnqueueMany([request({ seed: 9 })]).blockedReason).toBe('pending')
+    expect(queue.tryEnqueueQuick(request({ seed: 101, sceneId: 5 })).ids).toHaveLength(1)
+    expect(queue.tryEnqueueQuick(request({ seed: 102, sceneId: 6 })).ids).toHaveLength(1)
+    expect(
+      queue
+        .status()
+        .items.filter((i) => i.priority)
+        .map((i) => i.request.seed)
+    ).toEqual([101, 102])
+
+    for (let n = 0; n < 5; n++) {
+      await vi.waitFor(() => expect(gates.length).toBe(n + 1))
+      gates[n]()
+    }
+    await vi.waitFor(() => expect(queue.status().counts.done).toBe(5))
+    expect(order).toEqual([1, 101, 102, 2, 3])
+  })
+
+  it('lets a batch queue up behind quick picks', async () => {
+    const active = deferred<string>()
+    const queue = new GenerationQueue(() => active.promise)
+    queue.tryEnqueueQuick(request({ seed: 1 }))
+    queue.tryEnqueueQuick(request({ seed: 2 }))
+    await tick()
+
+    const result = queue.tryEnqueueMany([request({ seed: 3 })])
+    expect(result.blockedReason).toBeUndefined()
+    expect(result.ids).toHaveLength(1)
+    expect(queue.status().accepting).toBe(false)
+  })
+
+  it('refuses a quick pick only when there is no account', () => {
+    const queue = new GenerationQueue(async () => 'x.png', { getAccounts: () => [] })
+    expect(queue.tryEnqueueQuick(request()).blockedReason).toBe('no-account')
+  })
 })

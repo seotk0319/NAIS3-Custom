@@ -272,6 +272,7 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
 
   handle('queue:enqueue', ({ request, count }) => ctx.queue.tryEnqueue(request, count))
   handle('queue:enqueueMany', ({ requests }) => ctx.queue.tryEnqueueMany(requests))
+  handle('queue:enqueueQuick', ({ request }) => ctx.queue.tryEnqueueQuick(request))
   handle('queue:cancel', ({ ids }) => ctx.queue.cancel(ids))
   handle('queue:reset', () => {
     ctx.queue.reset()

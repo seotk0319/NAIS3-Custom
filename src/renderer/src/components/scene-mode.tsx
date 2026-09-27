@@ -19,7 +19,8 @@ import {
   Square,
   Trash2,
   UserRound,
-  UsersRound
+  UsersRound,
+  X
 } from 'lucide-react'
 import {
   closestCenter,
@@ -43,7 +44,7 @@ import {
   useState,
   type CSSProperties
 } from 'react'
-import type { Scene, ScenePreset } from '@shared/types'
+import type { QueueItem, Scene, ScenePreset } from '@shared/types'
 import { RESOLUTIONS, imageUrl, thumbnailUrl } from '../lib/constants'
 import { useCharactersStore } from '../stores/characters-store'
 import { useGenerationStore } from '../stores/generation-store'
@@ -122,7 +123,10 @@ function PresetDropdown(): React.JSX.Element {
             <ChevronDown size={14} className="shrink-0 text-muted" />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-[max(var(--radix-popover-trigger-width),24rem)] p-1">
+        <PopoverContent
+          align="start"
+          className="w-[max(var(--radix-popover-trigger-width),24rem)] p-1"
+        >
           <div className="max-h-64 overflow-y-auto overflow-x-hidden no-scrollbar">
             {/* 드래그로 순서 변경 */}
             <SortableList
@@ -430,7 +434,10 @@ function useGridWindow(
     const overscan = Math.max(OVERSCAN_ROWS, Math.ceil((s.clientHeight * OVERSCAN_VIEWPORT) / rowH))
     const first = Math.max(0, Math.floor((s.scrollTop - top) / rowH) - overscan)
     const last = Math.min(rows, Math.ceil((s.scrollTop + s.clientHeight - top) / rowH) + overscan)
-    const next = { start: Math.min(count, first * columns), end: Math.min(count, Math.max(first, last) * columns) }
+    const next = {
+      start: Math.min(count, first * columns),
+      end: Math.min(count, Math.max(first, last) * columns)
+    }
     if (next.start !== rangeRef.current.start || next.end !== rangeRef.current.end) {
       rangeRef.current = next
       setRange(next)
@@ -539,6 +546,28 @@ function SceneGrid(): React.JSX.Element {
     }
     return m
   }, [queueItems])
+  // 바로 뽑기(+ 1장) 줄: 생성 중인 것부터, 그다음 누른 순서대로
+  const quickItems = useMemo(() => {
+    const live = (queueItems ?? []).filter(
+      (it) => it.priority && (it.state === 'pending' || it.state === 'generating')
+    )
+    return [
+      ...live.filter((it) => it.state === 'generating'),
+      ...live.filter((it) => it.state === 'pending')
+    ]
+  }, [queueItems])
+  // 씬마다 기다리는 바로 뽑기의 순번 (카드 오른쪽 위 번호)
+  const quickByScene = useMemo(() => {
+    const m = new Map<number, number[]>()
+    quickItems.forEach((it, i) => {
+      const sid = it.request.sceneId
+      if (sid == null) return
+      const arr = m.get(sid) ?? []
+      if (it.state === 'pending') arr.push(i + 1)
+      m.set(sid, arr)
+    })
+    return m
+  }, [quickItems])
 
   // 씬 개수와 이미지 장수는 서로 다른 단위라 따로 센다.
   const stats = useMemo(() => {
@@ -568,19 +597,33 @@ function SceneGrid(): React.JSX.Element {
   // 일괄 예약·취소 대상: 편집 모드 선택 → 지금 필터에 보이는 씬 → 전체 씬
   const reserveTarget = useMemo((): { ids?: number[]; label: string; chip: string } => {
     if (editMode && selection.size > 0) {
-      return { ids: [...selection], label: `선택한 씬 ${selection.size}개`, chip: `선택 ${selection.size}개` }
+      return {
+        ids: [...selection],
+        label: `선택한 씬 ${selection.size}개`,
+        chip: `선택 ${selection.size}개`
+      }
     }
     if (filter !== 'all') {
       const n = visibleScenes.length
       const kind = filter === 'empty' ? '이미지 없는 씬' : '예약된 씬'
-      return { ids: visibleScenes.map((sc) => sc.id), label: `${kind} ${n.toLocaleString()}개`, chip: `${n.toLocaleString()}개 씬마다` }
+      return {
+        ids: visibleScenes.map((sc) => sc.id),
+        label: `${kind} ${n.toLocaleString()}개`,
+        chip: `${n.toLocaleString()}개 씬마다`
+      }
     }
     return { label: '모든 씬', chip: '씬마다' }
   }, [editMode, selection, filter, visibleScenes])
   const targetLabel = reserveTarget.label
   // 격자 칸 수 = 씬 + (전체 보기일 때) 씬 추가 버튼
   const gridCount = visibleScenes.length + (filter === 'all' ? 1 : 0)
-  const gridWindow = useGridWindow(scrollRef, gridRef, gridCount, columns, CARD_ASPECT[cardOrientation])
+  const gridWindow = useGridWindow(
+    scrollRef,
+    gridRef,
+    gridCount,
+    columns,
+    CARD_ASPECT[cardOrientation]
+  )
   const targetEmpty = reserveTarget.ids !== undefined && reserveTarget.ids.length === 0
   const targetReserved = useMemo(() => {
     if (reserveTarget.ids === undefined) return stats.reserved > 0
@@ -618,7 +661,7 @@ function SceneGrid(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl bg-surface">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl bg-surface">
       {curationOpen ? (
         <SceneCuration onClose={() => setCurationOpen(false)} />
       ) : (
@@ -660,7 +703,11 @@ function SceneGrid(): React.JSX.Element {
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-52 p-1">
-                <MenuItem icon={<FileUp size={13} />} label="씬 JSON 내보내기" onClick={exportJson} />
+                <MenuItem
+                  icon={<FileUp size={13} />}
+                  label="씬 JSON 내보내기"
+                  onClick={exportJson}
+                />
                 <MenuItem
                   icon={<FolderArchive size={13} />}
                   label="ZIP 내보내기"
@@ -703,6 +750,7 @@ function SceneGrid(): React.JSX.Element {
           </div>
 
           <RunProgress />
+          <QuickTray items={quickItems} scenes={scenes} />
 
           {/* 요약 줄: 씬 개수와 이미지 장수를 나눠 보여주고, 씬마다 몇 장씩 뽑을지 정한다 */}
           <div className="flex min-w-0 flex-wrap items-center gap-2 px-5 pb-4">
@@ -729,12 +777,14 @@ function SceneGrid(): React.JSX.Element {
               이미지 <b className="font-semibold text-ink">{stats.images.toLocaleString()}</b>장
               {stats.reserved > 0 && (
                 <>
-                  {' · '}예약 <b className="font-semibold text-accent">{stats.reserved.toLocaleString()}</b>장
+                  {' · '}예약{' '}
+                  <b className="font-semibold text-accent">{stats.reserved.toLocaleString()}</b>장
                 </>
               )}
               {stats.queued > 0 && (
                 <>
-                  {' · '}생성 대기 <b className="font-semibold text-ink">{stats.queued.toLocaleString()}</b>장
+                  {' · '}생성 대기{' '}
+                  <b className="font-semibold text-ink">{stats.queued.toLocaleString()}</b>장
                 </>
               )}
             </span>
@@ -792,7 +842,10 @@ function SceneGrid(): React.JSX.Element {
           <div
             ref={scrollRef}
             data-scene-scroll
-            className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 no-scrollbar"
+            className={cn(
+              'min-h-0 flex-1 overflow-y-auto px-5 no-scrollbar',
+              quickItems.length > 0 ? 'pb-28' : 'pb-5'
+            )}
           >
             <DndContext
               sensors={sensors}
@@ -817,6 +870,8 @@ function SceneGrid(): React.JSX.Element {
                       live={scene.id === generatingSceneId ? previewPng : null}
                       generating={scene.id === generatingSceneId}
                       remaining={remainingByScene.get(scene.id) ?? 0}
+                      quickOrder={quickByScene.get(scene.id) ?? NO_ORDER}
+                      quickLive={quickByScene.has(scene.id)}
                     />
                   ))}
                   {filter === 'all' && gridWindow.end === gridCount && (
@@ -1010,11 +1065,15 @@ function dndStyle(sortable: ReturnType<typeof useSortable>): CSSProperties {
   }
 }
 
+const NO_ORDER: number[] = []
+
 const SceneCard = memo(function SceneCard(props: {
   scene: Scene
   live: string | null
   generating: boolean
   remaining: number
+  quickOrder: number[]
+  quickLive: boolean
 }): React.JSX.Element {
   const sortable = useSortable({ id: `scene-${props.scene.id}` })
   return <SceneCardBody {...props} sortable={sortable} />
@@ -1025,10 +1084,14 @@ function SceneCardBody({
   live,
   generating,
   remaining,
+  quickOrder,
+  quickLive,
   sortable
 }: {
   scene: Scene
   live: string | null
+  quickOrder: number[]
+  quickLive: boolean
   generating: boolean
   /** 이 씬의 큐 잔여 장수(대기+생성 중). 0이면 배지 숨김 */
   remaining: number
@@ -1043,6 +1106,12 @@ function SceneCardBody({
   const duplicate = useScenesStore((s) => s.duplicate)
   const remove = useScenesStore((s) => s.remove)
   const adjustReserve = useScenesStore((s) => s.adjustReserve)
+  const columns = useScenesStore((s) => s.columns)
+  // 4열부터는 이름 자리가 모자라 버튼을 이미지 오른쪽 아래로 옮긴다
+  const compact = columns >= 4
+  const quickButton = (
+    <QuickButton sceneId={scene.id} compact={compact} live={quickLive} lifted={generating} />
+  )
   const thumbnailRevision = useGenerationStore((s) =>
     scene.thumbnailPath ? s.imageRevisions[scene.thumbnailPath] : undefined
   )
@@ -1139,7 +1208,9 @@ function SceneCardBody({
                       ? runTotal > 1
                         ? `생성 중 ${(runTotal - remaining).toLocaleString()} / ${runTotal.toLocaleString()}`
                         : '생성 중'
-                      : `대기 · 남은 ${remaining}장`}
+                      : compact
+                        ? `대기 ${remaining}`
+                        : `대기 · 남은 ${remaining}장`}
                   </span>
                 )}
               </div>
@@ -1154,8 +1225,25 @@ function SceneCardBody({
               </div>
             )}
 
+            {!editMode && compact && quickButton}
+
             {/* 우측 상단 — 편집 체크박스 / 3점 메뉴 */}
             <div className="absolute right-2 top-2 flex items-center gap-1">
+              {!editMode &&
+                quickOrder.slice(0, compact ? 1 : 4).map((n) => (
+                  <span
+                    key={n}
+                    className="grid h-[22px] min-w-[22px] place-items-center rounded-full bg-black/60 px-1.5 text-[11px] font-bold tabular-nums text-white backdrop-blur-sm"
+                    title={'바로 뽑기 ' + n + '번째'}
+                  >
+                    {n}
+                  </span>
+                ))}
+              {!editMode && quickOrder.length > (compact ? 1 : 4) && (
+                <span className="grid h-[22px] min-w-[22px] place-items-center rounded-full bg-black/60 px-1.5 text-[11px] font-bold tabular-nums text-white backdrop-blur-sm">
+                  +{quickOrder.length - (compact ? 1 : 4)}
+                </span>
+              )}
               {editMode ? (
                 <span
                   className={cn(
@@ -1225,9 +1313,16 @@ function SceneCardBody({
                 </div>
               )}
               <div className="mt-0.5 truncate text-[11px] tabular-nums text-faint">
-                {scene.imageCount > 0 ? `이미지 ${scene.imageCount.toLocaleString()}장` : '아직 이미지 없음'}
+                {scene.imageCount > 0
+                  ? `이미지 ${scene.imageCount.toLocaleString()}장`
+                  : '아직 이미지 없음'}
               </div>
             </div>
+            {/* 바로 뽑기: 3열까지는 이름 옆, 더 좁으면 이미지 위 */}
+            {!editMode && !compact && quickButton}
+            {!editMode && columns <= 3 && (
+              <span className="-mr-1 shrink-0 text-[11px] text-faint">예약</span>
+            )}
             {/* 예약 +/- */}
             <div
               className={cn(
@@ -1282,6 +1377,159 @@ function SceneCardBody({
   )
 }
 
+/** 씬 카드 "+ 1장": 누를 때마다 1장씩, 예약보다 먼저 누른 순서대로 뽑는다. */
+function QuickButton({
+  sceneId,
+  compact,
+  live,
+  lifted
+}: {
+  sceneId: number
+  /** 4열 이상: 이미지 오른쪽 아래에 띄우고 평소엔 마우스를 올릴 때만 보인다 */
+  compact: boolean
+  /** 이 씬에 바로 뽑기가 걸려 있음 */
+  live: boolean
+  /** 생성 진행 막대 위로 올린다 */
+  lifted: boolean
+}): React.JSX.Element {
+  const generateOne = useScenesStore((s) => s.generateOne)
+  // 누를 때마다 +1이 떠오르게 하는 키
+  const [pops, setPops] = useState<number[]>([])
+  return (
+    <button
+      className={cn(
+        'relative flex h-7 shrink-0 items-center gap-1 rounded-lg pl-1.5 pr-2 text-[12px] font-semibold transition active:scale-95',
+        compact && 'absolute bottom-2 right-2 z-10 shadow-sm backdrop-blur-sm',
+        compact && !live && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+        compact && lifted && 'bottom-6',
+        live
+          ? 'bg-accent text-white dark:text-paper'
+          : compact
+            ? 'bg-surface/90 text-accent hover:bg-accent hover:text-white dark:hover:text-paper'
+            : 'bg-accent-soft text-accent hover:bg-accent hover:text-white dark:hover:text-paper'
+      )}
+      title="누를 때마다 1장씩, 누른 순서대로 바로 뽑아요 (예약보다 먼저)"
+      onClick={(e) => {
+        e.stopPropagation()
+        const key = Date.now() + Math.random()
+        setPops((p) => [...p, key])
+        setTimeout(() => setPops((p) => p.filter((k) => k !== key)), 700)
+        void generateOne(sceneId)
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Plus size={13} strokeWidth={2.4} />
+      1장
+      {pops.map((k) => (
+        <span
+          key={k}
+          className="quick-pop pointer-events-none absolute -top-1 right-1 text-[12px] font-extrabold text-accent"
+        >
+          +1
+        </span>
+      ))}
+    </button>
+  )
+}
+
+/**
+ * 바로 뽑기 줄: 카드 "+ 1장"으로 넣은 장을 누른 순서대로 보여준다.
+ * 한 장씩 빼거나 기다리는 것을 모두 비울 수 있다. 생성 중인 장은 그대로 둔다.
+ */
+function QuickTray({
+  items,
+  scenes
+}: {
+  items: QueueItem[]
+  scenes: Scene[]
+}): React.JSX.Element | null {
+  const byId = useMemo(() => new Map(scenes.map((s) => [s.id, s])), [scenes])
+  if (items.length === 0) return null
+  const MAX = 14
+  const pendingIds = items.filter((it) => it.state === 'pending').map((it) => it.id)
+  const cancel = (ids: string[]): void => {
+    if (ids.length) void window.nais.invoke('queue:cancel', { ids })
+  }
+  return (
+    <div className="absolute inset-x-5 bottom-4 z-20 flex items-center gap-4 rounded-2xl bg-surface/95 py-3 pl-5 pr-3.5 shadow-[0_10px_34px_rgba(30,30,70,0.16)] ring-1 ring-line backdrop-blur">
+      <div className="shrink-0 whitespace-nowrap">
+        <div className="text-[14px] font-bold text-ink">
+          바로 뽑기 <span className="text-accent">{items.length.toLocaleString()}장</span>
+        </div>
+        <div className="mt-0.5 text-[12px] text-faint">누른 순서대로 · 예약보다 먼저</div>
+      </div>
+      <div className="flex min-w-0 flex-1 gap-2 overflow-hidden pt-1">
+        {items.slice(0, MAX).map((it, i) => {
+          const sc = it.request.sceneId != null ? byId.get(it.request.sceneId) : undefined
+          const src = sc?.thumbnailPath
+            ? thumbnailUrl(sc.thumbnailPath)
+            : sc?.thumbnail
+              ? 'data:image/webp;base64,' + sc.thumbnail
+              : null
+          const running = it.state === 'generating'
+          const label = running ? '생성 중' : shortSceneName(sc?.name)
+          return (
+            <div key={it.id} className="group/q relative w-12 shrink-0" title={sc?.name}>
+              <div
+                className={cn(
+                  'size-12 overflow-hidden rounded-[10px] bg-paper',
+                  running && 'ring-2 ring-accent'
+                )}
+              >
+                {src ? (
+                  <img src={src} className="size-full object-cover" draggable={false} />
+                ) : (
+                  <div className="grid size-full place-items-center text-faint">
+                    <ImageOff size={16} strokeWidth={1.4} />
+                  </div>
+                )}
+              </div>
+              <span
+                className={cn(
+                  'absolute -left-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[10px] font-extrabold text-white ring-2 ring-surface',
+                  running ? 'bg-accent dark:text-paper' : 'bg-ink dark:text-paper'
+                )}
+              >
+                {i + 1}
+              </span>
+              {!running && (
+                <button
+                  className="absolute -right-1.5 -top-1.5 grid size-[18px] place-items-center rounded-full bg-surface text-muted opacity-0 shadow ring-1 ring-line transition hover:text-danger group-hover/q:opacity-100"
+                  title="이 장만 빼기"
+                  onClick={() => cancel([it.id])}
+                >
+                  <X size={11} strokeWidth={2.6} />
+                </button>
+              )}
+              <div className="mt-1 truncate text-center text-[10px] text-faint">{label}</div>
+            </div>
+          )
+        })}
+      </div>
+      {items.length > MAX && (
+        <span className="shrink-0 text-[12px] text-faint">
+          외 {(items.length - MAX).toLocaleString()}장
+        </span>
+      )}
+      <Button
+        variant="ghost"
+        className="h-9 shrink-0 bg-paper px-3.5 text-[13px]"
+        disabled={pendingIds.length === 0}
+        onClick={() => cancel(pendingIds)}
+      >
+        대기 모두 취소
+      </Button>
+    </div>
+  )
+}
+
+/** "lj1-10. 이주희 / 우울" → "우울" */
+function shortSceneName(name?: string): string {
+  if (!name) return '씬'
+  const parts = name.split('/')
+  return parts[parts.length - 1].trim() || name
+}
+
 /**
  * 씬 생성 진행 줄: 이번 묶음의 완료 장수 / 전체 장수, 막대, 씬 완료 수, 속도와 남은 시간.
  * 씬 개수와 이미지 장수는 단위가 달라 큰 숫자는 장수로, 씬은 옆의 작은 글씨로 센다.
@@ -1295,8 +1543,10 @@ function RunProgress(): React.JSX.Element | null {
   return (
     <div className="flex min-w-0 items-center gap-4 px-5 pb-3">
       <div className="shrink-0 whitespace-nowrap text-[13px] text-muted">
-        <b className="mr-0.5 text-[20px] font-bold tabular-nums text-ink">{run.done.toLocaleString()}</b>/{' '}
-        {run.total.toLocaleString()}장
+        <b className="mr-0.5 text-[20px] font-bold tabular-nums text-ink">
+          {run.done.toLocaleString()}
+        </b>
+        / {run.total.toLocaleString()}장
       </div>
       <div className="h-2 min-w-16 flex-1 overflow-hidden rounded-full bg-paper">
         <i
@@ -1306,7 +1556,9 @@ function RunProgress(): React.JSX.Element | null {
       </div>
       <div className="shrink-0 truncate whitespace-nowrap text-[12px] tabular-nums text-faint">
         씬 {run.sceneDone.toLocaleString()} / {run.sceneTotal.toLocaleString()}개 완료
-        {run.failed > 0 && <span className="text-danger"> · 실패 {run.failed.toLocaleString()}</span>}
+        {run.failed > 0 && (
+          <span className="text-danger"> · 실패 {run.failed.toLocaleString()}</span>
+        )}
         {run.perMinute ? ` · 분당 약 ${Math.round(run.perMinute)}장` : ''}
         {eta ? ` · ${eta} 남음` : ' · 남은 시간 계산 중'}
       </div>

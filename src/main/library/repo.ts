@@ -19,11 +19,13 @@ export function listLibraryDates(): LibraryDateGroup[] {
   // 로컬 날짜 변환은 여기서 한다 (시간대가 :30·:45인 곳도 맞게).
   const db = getDb()
   const all = db
-    .prepare('SELECT substr(created_at, 1, 15) AS bucket, COUNT(*) AS count FROM images GROUP BY bucket')
+    .prepare(
+      'SELECT substr(created_at, 1, 15) AS bucket, COUNT(*) AS count FROM images GROUP BY bucket'
+    )
     .all() as { bucket: string; count: number }[]
   const arena = db
     .prepare(
-      "SELECT substr(created_at, 1, 15) AS bucket, COUNT(*) AS count FROM images WHERE kind = 'arena' GROUP BY bucket"
+      "SELECT substr(created_at, 1, 15) AS bucket, COUNT(*) AS count FROM images WHERE kind IN ('arena', 'manga') GROUP BY bucket"
     )
     .all() as { bucket: string; count: number }[]
   const minus = new Map(arena.map((r) => [r.bucket, r.count]))

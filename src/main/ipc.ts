@@ -37,6 +37,7 @@ import {
 } from './characters/repo'
 import { getDbPath, getDb } from './db'
 import * as arena from './arena/service'
+import * as manga from './manga/service'
 import { analyzeArtists } from './images/artists'
 import { metadataFromPng, metadataFromPayloadJson } from './images/metadata'
 import {
@@ -280,6 +281,22 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('queue:status', () => ctx.queue.status())
 
   // 그림체 월드컵
+  handle('manga:list', () => ({ items: manga.listProjects() }))
+  handle('manga:get', ({ id }) => manga.getSnapshot(id))
+  handle('manga:create', (req) => manga.createProject(req))
+  handle('manga:expand', ({ id, ...req }) => manga.expand(id, req))
+  handle('manga:propose', ({ id }) => manga.proposeNext(id))
+  handle('manga:accept', ({ id }) => manga.acceptProposal(id))
+  handle('manga:updatePanel', ({ id, panelId, patch }) => manga.updatePanel(id, panelId, patch))
+  handle('manga:deletePanel', ({ id, panelId }) => manga.deletePanel(id, panelId))
+  handle('manga:movePanel', ({ id, panelId, dir }) => manga.movePanel(id, panelId, dir))
+  handle('manga:setLayout', ({ id, pageId, layout }) => manga.setLayout(id, pageId, layout))
+  handle('manga:reseed', ({ id, pageId }) => manga.setSeed(id, pageId))
+  handle('manga:update', ({ id, patch }) => manga.updateProject(id, patch))
+  handle('manga:delete', ({ id }) => manga.deleteProject(id))
+  handle('manga:render', ({ id, pageId, base }) => manga.renderPage(id, pageId, base))
+  handle('manga:auto', ({ id, ...opts }) => manga.setAuto(id, opts))
+  handle('manga:export', ({ id }) => manga.exportPages(id))
   handle('arena:sessions', () => ({ items: arena.listSessions() }))
   handle('arena:get', ({ id }) => arena.getSnapshot(id))
   handle('arena:create', ({ config, limit }) => arena.createSession(config, limit))

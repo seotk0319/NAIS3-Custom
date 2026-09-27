@@ -8,6 +8,7 @@ import { DirectorMode } from './components/director-mode'
 import { LibraryView } from './components/library-view'
 import { InboxView } from './components/inbox-view'
 import { ArenaView } from './components/arena/arena-view'
+import { MangaView } from './components/manga/manga-view'
 import { InpaintHost } from './components/inpaint-host'
 import { CensorEditor } from './components/censor-editor'
 import { ArtistTagsDialog } from './components/artist-tags-dialog'
@@ -49,6 +50,8 @@ export default function App(): React.JSX.Element {
             <InboxView />
           ) : mode === 'arena' ? (
             <ArenaView />
+          ) : mode === 'manga' ? (
+            <MangaView />
           ) : mode === 'scene' ? (
             <SceneMode />
           ) : mode === 'director' ? (
@@ -63,8 +66,9 @@ export default function App(): React.JSX.Element {
   )
   const [ready, setReady] = useState(false)
   // 좌우 패널: 한 번 만들면 지우지 않고 숨기기만 한다 (탭을 옮길 때마다 새로 만들던 비용 제거)
-  const showLeft = leftOpen && centerMode !== 'inbox' && centerMode !== 'arena'
-  const showRight = rightOpen && centerMode !== 'inbox' && centerMode !== 'arena'
+  const fullWidth = centerMode === 'inbox' || centerMode === 'arena' || centerMode === 'manga'
+  const showLeft = leftOpen && !fullWidth
+  const showRight = rightOpen && !fullWidth
   const [leftMounted, setLeftMounted] = useState(showLeft)
   const [rightMounted, setRightMounted] = useState(showRight)
   if (showLeft && !leftMounted) setLeftMounted(true)

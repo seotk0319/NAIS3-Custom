@@ -1,9 +1,18 @@
-import { Bell, Image, Images, LayoutGrid, Trophy, Wand2, type LucideIcon } from 'lucide-react'
+import {
+  Bell,
+  BookOpenText,
+  Image,
+  Images,
+  LayoutGrid,
+  Trophy,
+  Wand2,
+  type LucideIcon
+} from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '../lib/utils'
 import { useLayoutStore } from '../stores/layout-store'
 
-type Page = 'main' | 'scene' | 'director' | 'library' | 'arena' | 'inbox'
+type Page = 'main' | 'scene' | 'director' | 'library' | 'arena' | 'manga' | 'inbox'
 
 const PAGES: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'main', label: '메인', icon: Image },
@@ -11,6 +20,7 @@ const PAGES: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'director', label: '디렉터', icon: Wand2 },
   { id: 'library', label: '라이브러리', icon: Images },
   { id: 'arena', label: '그림체', icon: Trophy },
+  { id: 'manga', label: '만화', icon: BookOpenText },
   { id: 'inbox', label: '알림', icon: Bell }
 ]
 

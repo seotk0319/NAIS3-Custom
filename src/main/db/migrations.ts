@@ -465,6 +465,19 @@ export const migrations: ((db: Database.Database) => void)[] = [
       CREATE INDEX IF NOT EXISTS idx_arena_renders_session ON arena_renders(session_id, state);
       CREATE INDEX IF NOT EXISTS idx_arena_votes_session ON arena_votes(session_id, id);
     `)
+  },
+
+  // v19: 만화 탭. 작품 하나 = 한 줄 (인물·컷·페이지·칸 모양을 JSON으로)
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS manga_projects (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        data_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `)
   }
 ]
 

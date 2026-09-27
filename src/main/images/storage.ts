@@ -53,11 +53,7 @@ export function scenePresetDir(presetName: string | null): string {
 }
 
 /** 씬 이미지 폴더 경로: 프리셋명/씬명 */
-export function sceneDir(
-  presetName: string | null,
-  sceneName: string,
-  sceneId?: number
-): string {
+export function sceneDir(presetName: string | null, sceneName: string, sceneId?: number): string {
   const scene = cleanStorageSegment(sceneName, `씬-${sceneId ?? 0}`)
   return join(scenePresetDir(presetName), scene)
 }
@@ -76,6 +72,7 @@ export async function saveGeneratedImage(input: {
     | 'director'
     | 'mosaic'
     | 'arena'
+    | 'manga'
     | DirectorMethod
   sceneId?: number
   /** 일반 저장 폴더 아래 하위 폴더 (그림체 월드컵: arena/<세션>). 날짜 폴더 대신 쓴다 */
@@ -125,7 +122,8 @@ export async function saveGeneratedImage(input: {
 
   if (input.sceneName) {
     // 씬 이미지는 첫 장은 씬 이름 그대로, 중복부터 씬 이름_2, _3 ...
-    const safeName = input.sceneName.replace(/[/\\:*?"<>|]/g, '_').trim() || `씬-${input.sceneId ?? 0}`
+    const safeName =
+      input.sceneName.replace(/[/\\:*?"<>|]/g, '_').trim() || `씬-${input.sceneId ?? 0}`
     let max = 0
     const escaped = safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const firstRe = new RegExp(`^${escaped}\\.`)
@@ -271,7 +269,7 @@ export function listImages(
   const where: string[] = []
   const values: (string | number)[] = []
   // 그림체 월드컵 이미지는 월드컵 탭에서만 본다 (히스토리·라이브러리에 수백 장이 섞이지 않게)
-  where.push("kind != 'arena'")
+  where.push("kind NOT IN ('arena', 'manga')")
   if (filter?.date) {
     // 줄마다 시간대 변환하던 date(…,'localtime') 대신 범위 조건 (idx_images_created 사용)
     const range = localDateRange(filter.date)
@@ -287,9 +285,11 @@ export function listImages(
     values.push(filter.virtualFolderId)
   }
   const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
-  const total = (db.prepare(`SELECT COUNT(*) AS c FROM images${clause}`).get(...values) as {
-    c: number
-  }).c
+  const total = (
+    db.prepare(`SELECT COUNT(*) AS c FROM images${clause}`).get(...values) as {
+      c: number
+    }
+  ).c
   const rows = db
     .prepare(
       `SELECT id, file_path, thumbnail, kind, seed, created_at, library_folder_id
@@ -341,8 +341,7 @@ export async function overwriteCensoredImage(
 }> {
   const db = getDb()
   const row = db.prepare('SELECT scene_id FROM images WHERE file_path = ?').get(filePath) as
-    | { scene_id: number | null }
-    | undefined
+    { scene_id: number | null } | undefined
   if (!row && !allowExternal) throw new Error('앱에 등록된 이미지 파일이 아닙니다')
   ensureCensorBackup(filePath)
 
@@ -389,7 +388,10 @@ async function writeCensoredFile(filePath: string, output: Buffer): Promise<Buff
   const db = getDb()
   const update = db.transaction(() => {
     db.prepare('UPDATE images SET thumbnail = ? WHERE file_path = ?').run(thumbnail, filePath)
-    db.prepare('UPDATE library_images SET thumbnail = ? WHERE file_path = ?').run(thumbnail, filePath)
+    db.prepare('UPDATE library_images SET thumbnail = ? WHERE file_path = ?').run(
+      thumbnail,
+      filePath
+    )
   })
   update()
   return thumbnail
@@ -402,8 +404,7 @@ export async function restoreCensoredImage(
 ): Promise<{ thumbnail: string; sceneId: number | null; revision: number }> {
   const db = getDb()
   const row = db.prepare('SELECT scene_id FROM images WHERE file_path = ?').get(filePath) as
-    | { scene_id: number | null }
-    | undefined
+    { scene_id: number | null } | undefined
   if (!row && !allowExternal) throw new Error('앱에 등록된 이미지 파일이 아닙니다')
   const backupPath = censorBackupPath(filePath)
   if (!existsSync(backupPath)) throw new Error('복원할 최초 원본이 없습니다')

@@ -17,6 +17,17 @@ import type {
   ArenaSnapshot,
   ArenaVoteResult
 } from './arena'
+import type {
+  MangaBrief,
+  MangaCastInput,
+  MangaDialogueMode,
+  MangaIntent,
+  MangaPanel,
+  MangaProject,
+  MangaSnapshot,
+  MangaSummary,
+  Poly
+} from './manga'
 
 export interface CharacterPromptInput {
   prompt: string
@@ -111,6 +122,8 @@ export interface GenerationRequest {
   sceneId?: number
   /** 그림체 월드컵 이미지면 arena_renders.id — 바이브·캐릭레퍼를 쓰지 않고 월드컵 폴더에 저장한다 */
   arenaRenderId?: number
+  /** 만화 페이지면 작품·페이지 — 바이브·캐릭레퍼를 쓰지 않고 만화 폴더에 저장한다 */
+  mangaPage?: { projectId: number; pageId: string }
 }
 
 export interface PromptParts {
@@ -826,6 +839,67 @@ export interface IpcInvokeMap {
   'arena:artistNames': { req: undefined; res: { names: string[] } }
   /** 이미지 메타데이터의 프롬프트 (작가 추가에 끌어다 놓기) */
   'arena:promptFromImage': { req: { filePath: string }; res: { text: string } }
+  'manga:list': { req: undefined; res: { items: MangaSummary[] } }
+  'manga:get': { req: { id: number }; res: MangaSnapshot | null }
+  'manga:create': {
+    req: { brief: MangaBrief; cast: MangaCastInput[]; style: { prompt: string; negative: string } }
+    res: MangaSnapshot
+  }
+  'manga:expand': {
+    req: {
+      id: number
+      count: number
+      intent: MangaIntent
+      dialogue: MangaDialogueMode
+      instruction?: string
+      finish?: boolean
+    }
+    res: MangaSnapshot
+  }
+  'manga:propose': { req: { id: number }; res: MangaSnapshot }
+  'manga:accept': { req: { id: number }; res: MangaSnapshot }
+  'manga:updatePanel': {
+    req: {
+      id: number
+      panelId: string
+      patch: Partial<
+        Pick<
+          MangaPanel,
+          'description' | 'descriptionKo' | 'dialogueKo' | 'importance' | 'framing' | 'angle'
+        >
+      >
+    }
+    res: MangaSnapshot | null
+  }
+  'manga:deletePanel': { req: { id: number; panelId: string }; res: MangaSnapshot | null }
+  'manga:movePanel': {
+    req: { id: number; panelId: string; dir: -1 | 1 }
+    res: MangaSnapshot | null
+  }
+  'manga:setLayout': {
+    req: { id: number; pageId: string; layout: Poly[] | null }
+    res: MangaSnapshot | null
+  }
+  'manga:reseed': { req: { id: number; pageId: string }; res: MangaSnapshot | null }
+  'manga:update': {
+    req: {
+      id: number
+      patch: Partial<Pick<MangaProject, 'title' | 'style' | 'ended' | 'cast'>> & {
+        brief?: Partial<MangaBrief>
+      }
+    }
+    res: MangaSnapshot | null
+  }
+  'manga:delete': { req: { id: number }; res: void }
+  'manga:render': {
+    req: { id: number; pageId: string; base: GenerationRequest }
+    res: { ok: boolean; reason?: string }
+  }
+  'manga:auto': {
+    req: { id: number; auto: boolean; autoRender: boolean; base?: GenerationRequest }
+    res: MangaSnapshot | null
+  }
+  'manga:export': { req: { id: number }; res: { folder: string | null; count: number } }
 }
 
 /** 메인 → 렌더러 이벤트 채널 */
@@ -858,6 +932,7 @@ export interface IpcEventMap {
     filePath?: string
     state?: ArenaRenderState
   }
+  'manga:changed': { projectId: number }
   /** 자동 업데이트 상태 (이 저장소 GitHub release) */
   'update:status': {
     state: 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'

@@ -33,6 +33,7 @@ import { GenerationQueue } from './queue/generation-queue'
 import { getPresetName, getScene } from './scenes/repo'
 import { startInbox, closeInbox } from './notifications/service'
 import { arenaRenderSaved, arenaRenderTarget, initArena } from './arena/service'
+import { initManga, mangaPageSaved, mangaSubDir } from './manga/service'
 
 // Custom 프로필이면 userData를 먼저 분리 (단일 인스턴스 잠금·DB보다 앞서야 함)
 initProfilePaths()
@@ -164,7 +165,9 @@ app.whenReady().then(() => {
       const token = account.token
       // 그림체 월드컵 이미지는 바이브·캐릭터 레퍼런스 없이 그림체만 비교한다
       const arenaRenderId = rawRequest.arenaRenderId
-      const isArena = arenaRenderId != null
+      const mangaPage = rawRequest.mangaPage
+      // 만화 페이지도 월드컵처럼 바이브·캐릭터 레퍼런스 없이 그린다
+      const isArena = arenaRenderId != null || mangaPage != null
       const maySpend = (): boolean => PROFILE !== 1 || getSetting('anlas_spending') !== '0'
       const ensureFree = async (): Promise<void> => {
         if (maySpend()) return
@@ -309,22 +312,28 @@ app.whenReady().then(() => {
       // saveGeneratedImage가 auto_save 설정을 읽어 처리한다 (씬 포함).
       // 씬 생성은 씬루트/<프리셋>/<씬 이름>/에 모아 저장 (NAIS2와 동일 계층)
       const scene = request.sceneId ? getScene(request.sceneId) : null
-      const arenaTarget = isArena ? arenaRenderTarget(arenaRenderId) : null
+      const arenaTarget = arenaRenderId != null ? arenaRenderTarget(arenaRenderId) : null
       const saved = await saveGeneratedImage({
         png,
         sentPayload,
         seed: request.seed,
-        kind: isArena
-          ? 'arena'
-          : request.sceneId
-            ? 'scene'
-            : source
-              ? source.maskBase64
-                ? 'inpaint'
-                : 'i2i'
-              : 't2i',
+        kind: mangaPage
+          ? 'manga'
+          : isArena
+            ? 'arena'
+            : request.sceneId
+              ? 'scene'
+              : source
+                ? source.maskBase64
+                  ? 'inpaint'
+                  : 'i2i'
+                : 't2i',
         sceneId: request.sceneId,
-        subDir: isArena ? (arenaTarget?.dir ?? 'arena/unknown') : undefined,
+        subDir: mangaPage
+          ? mangaSubDir(mangaPage.projectId)
+          : isArena
+            ? (arenaTarget?.dir ?? 'arena/unknown')
+            : undefined,
         format: imageFormat,
         sceneName: scene?.name,
         scenePresetName: scene ? (getPresetName(scene.presetId) ?? undefined) : undefined,
@@ -346,7 +355,8 @@ app.whenReady().then(() => {
         console.error('계정별 생성 장수 저장 실패')
       }
 
-      if (isArena) arenaRenderSaved(arenaRenderId, saved.filePath)
+      if (mangaPage) await mangaPageSaved(mangaPage, saved.filePath)
+      else if (arenaRenderId != null) arenaRenderSaved(arenaRenderId, saved.filePath)
       else broadcast('images:added', saved)
 
       // 씬 생성이면 해당 씬 갱신 알림 (목록 썸네일/개수, 상세 이미지 갱신용)
@@ -380,6 +390,7 @@ app.whenReady().then(() => {
 
   registerIpcHandlers({ dbVersion, queue })
   initArena(queue, (payload) => broadcast('arena:changed', payload))
+  initManga(queue, (payload) => broadcast('manga:changed', payload))
   if (PROFILE === 1) void startInbox()
 
   app.on('browser-window-created', (_, window) => {

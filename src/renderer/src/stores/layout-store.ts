@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { recordNav } from '../lib/nav-history'
 
-export type CenterMode = 'main' | 'scene' | 'director' | 'library' | 'inbox' | 'arena'
+export type CenterMode = 'main' | 'scene' | 'director' | 'library' | 'inbox' | 'arena' | 'manga'
 
 type PanelPrefs = Record<CenterMode, { left: boolean; right: boolean }>
 
@@ -15,7 +15,8 @@ const DEFAULT_PANELS: PanelPrefs = {
   director: { left: false, right: true },
   library: { left: false, right: false },
   inbox: { left: false, right: false },
-  arena: { left: false, right: false }
+  arena: { left: false, right: false },
+  manga: { left: false, right: false }
 }
 
 interface LayoutState {

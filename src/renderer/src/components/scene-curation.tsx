@@ -4,6 +4,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  ClipboardCopy,
   Eraser,
   FileText,
   ImagePlus,
@@ -21,6 +22,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CharRefType, ExtraCharRef, GenerationRequest, SceneImage } from '@shared/types'
 import { imageUrl } from '../lib/constants'
+import { copyFileName } from '../lib/copy-file-name'
 import { requestFromMetadata } from '../lib/metadata-request'
 import { cn } from '../lib/utils'
 import { setImagePathDrag } from '../lib/image-drag'
@@ -632,6 +634,9 @@ export function SceneCuration({ onClose }: { onClose: () => void }): React.JSX.E
                     </ContextMenuItem>
                     <ContextMenuItem onSelect={() => void showMeta({ filePath: current.filePath })}>
                       <FileText size={13} className="text-sky-400" /> 메타데이터 확인
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => copyFileName(current.filePath)}>
+                      <ClipboardCopy size={13} className="text-teal-400" /> 파일명 복사
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>

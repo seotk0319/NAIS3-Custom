@@ -1,4 +1,5 @@
 import {
+  ClipboardCopy,
   Copy,
   Download,
   FileText,
@@ -10,6 +11,7 @@ import {
   Wand2
 } from 'lucide-react'
 import { toast } from '../stores/toast-store'
+import { copyFileName } from '../lib/copy-file-name'
 import { openInDirector } from '../stores/director-store'
 import { setI2iSource, useGenerationStore } from '../stores/generation-store'
 import { useMetadataStore } from '../stores/metadata-store'
@@ -82,6 +84,9 @@ export function ImageContextMenu({
           }}
         >
           <Copy size={13} className="text-teal-400" /> 이미지 복사
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => copyFileName(filePath)}>
+          <ClipboardCopy size={13} className="text-teal-400" /> 파일명 복사
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void window.nais.invoke('images:saveAs', { filePath })}>
           <Download size={13} className="text-emerald-400" /> 다른 이름으로 저장

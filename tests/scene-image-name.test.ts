@@ -29,25 +29,33 @@ vi.mock('../src/main/db', () => ({
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('scene image names', () => {
-  it('skips names still recorded in the DB after the files were moved out of the folder', async () => {
+  it('never reuses a name, even after the newest file is deleted or moved out', async () => {
     const { saveGeneratedImage } = await import('../src/main/images/storage')
     const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } })
       .png()
       .toBuffer()
     const save = (): Promise<{ filePath: string }> =>
-      saveGeneratedImage({ png, sentPayload: '{}', seed: 1, kind: 'scene', sceneId: 7, sceneName: '우울', scenePresetName: '프리셋' })
-
+      saveGeneratedImage({
+        png,
+        sentPayload: '{}',
+        seed: 1,
+        kind: 'scene',
+        sceneId: 7,
+        sceneName: '우울',
+        scenePresetName: '프리셋'
+      })
+    const dir = join(root, '프리셋', '우울')
     const a = await save()
     const b = await save()
-    // 선별: 두 파일을 폴더 밖으로 옮긴다 (DB 기록은 그대로)
-    const dir = join(root, '프리셋', '우울')
-    for (const f of readdirSync(dir)) rmSync(join(dir, f))
+    // 가장 최근 이미지를 지우고(파일 삭제) 다시 뽑는다
+    rmSync(b.filePath)
     const c = await save()
-
-    expect(a.filePath.endsWith('우울.png')).toBe(true)
-    expect(b.filePath.endsWith('우울_2.png')).toBe(true)
-    expect(c.filePath.endsWith('우울_3.png')).toBe(true)
-    expect(readdirSync(dir)).toEqual(['우울_3.png'])
+    // 선별: 남은 파일을 폴더 밖으로 옮긴다 (DB 기록은 그대로)
+    for (const f of readdirSync(dir)) rmSync(join(dir, f))
+    const d = await save()
+    const names = [a, b, c, d].map((x) => x.filePath)
+    expect(new Set(names).size).toBe(4)
+    for (const n of names) expect(n).toMatch(/[\\/]우울_\d{8}-\d{6}_[0-9a-f]{6}\.png$/)
+    expect(readdirSync(dir)).toHaveLength(1)
   })
 })
-

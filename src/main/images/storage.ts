@@ -1,7 +1,7 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { createHash, randomUUID } from 'crypto'
-import { extname, join, resolve, sep } from 'path'
+import { extname, join, resolve } from 'path'
 import sharp from 'sharp'
 import type { DirectorMethod, HistoryItem, ImageMetadata } from '../../shared/types'
 import { getDb } from '../db'
@@ -121,34 +121,19 @@ export async function saveGeneratedImage(input: {
   const fileBuffer = stripExif ? await sanitizeImageMetadata(metadataBuffer, ext) : metadataBuffer
 
   if (input.sceneName) {
-    // 씬 이미지는 첫 장은 씬 이름 그대로, 중복부터 씬 이름_2, _3 ...
+    // 씬 이미지: 씬이름_생성시각_난수. 이름을 절대 다시 쓰지 않는다 — 지운 이미지 이름을 새 이미지가 받으면
+    // 화면이 같은 주소로 기억해 둔 옛 썸네일을 보여 주고, 옮긴 파일의 DB 기록과도 겹친다.
     const safeName =
       input.sceneName.replace(/[/\\:*?"<>|]/g, '_').trim() || `씬-${input.sceneId ?? 0}`
-    let max = 0
-    const escaped = safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const firstRe = new RegExp(`^${escaped}\\.`, 'i')
-    const numberedRe = new RegExp(`^${escaped}_(\\d+)\\.`, 'i')
-    // 폴더 파일만 보면 안 된다: 선별하느라 파일을 폴더 밖으로 옮겨도 DB에는 그 경로가 남아 있어
-    // 같은 이름을 다시 쓰면 images.file_path 중복으로 저장이 막힌다. DB에 기록된 이름도 함께 센다.
-    const taken = new Set(takenNamesInDir(monthDir))
-    for (const f of [...readdirSync(monthDir), ...taken]) {
-      if (firstRe.test(f)) max = Math.max(max, 1)
-      const m = numberedRe.exec(f)
-      if (m) max = Math.max(max, Number(m[1]))
-    }
+    const p2 = (n: number): string => String(n).padStart(2, '0')
+    const stamp = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
     for (;;) {
-      const name = max === 0 ? `${safeName}.${ext}` : `${safeName}_${max + 1}.${ext}`
-      filePath = join(monthDir, name)
-      if (taken.has(name.toLowerCase())) {
-        max++
-        continue
-      }
+      filePath = join(monthDir, `${safeName}_${stamp}_${randomUUID().slice(0, 6)}.${ext}`)
       try {
         writeFileSync(filePath, fileBuffer, { flag: 'wx' })
         break
       } catch (error) {
         if (!isFileExistsError(error)) throw error
-        max++
       }
     }
   } else {
@@ -199,24 +184,6 @@ export async function saveGeneratedImage(input: {
     }
     throw error
   }
-}
-
-/** 이 폴더 바로 아래 파일로 DB에 기록된 이미지 이름들 (소문자). 파일이 옮겨져 없어도 포함된다 */
-function takenNamesInDir(dir: string): string[] {
-  const prefix = resolve(dir).replace(/[\\/]+$/, '') + sep
-  const like = prefix.replace(/[\\%_]/g, (c) => '\\' + c) + '%'
-  const rows = getDb()
-    .prepare("SELECT file_path FROM images WHERE file_path LIKE ? ESCAPE '\\'")
-    .all(like) as { file_path: string }[]
-  const out: string[] = []
-  for (const r of rows) {
-    const full = resolve(r.file_path)
-    if (full.toLowerCase().startsWith(prefix.toLowerCase())) {
-      const rest = full.slice(prefix.length)
-      if (rest && !/[\\/]/.test(rest)) out.push(rest.toLowerCase())
-    }
-  }
-  return out
 }
 
 function isFileExistsError(error: unknown): boolean {

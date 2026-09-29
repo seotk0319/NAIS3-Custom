@@ -38,6 +38,7 @@ import {
 import { getDbPath, getDb } from './db'
 import * as arena from './arena/service'
 import * as manga from './manga/service'
+import * as gpt from './gpt/service'
 import { analyzeArtists } from './images/artists'
 import { metadataFromPng, metadataFromPayloadJson } from './images/metadata'
 import {
@@ -281,6 +282,12 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
   handle('queue:status', () => ctx.queue.status())
 
   // 그림체 월드컵
+  handle('gpt:status', () => gpt.authStatus())
+  handle('gpt:generate', ({ request, count }) => gpt.generate(request, count))
+  handle('gpt:jobs', () => ({ jobs: gpt.listJobs() }))
+  handle('gpt:cancel', ({ id }) => gpt.cancel(id))
+  handle('gpt:clearFinished', () => gpt.clearFinished())
+  handle('gpt:images', ({ limit, offset }) => gpt.listImages(limit, offset))
   handle('manga:list', () => ({ items: manga.listProjects() }))
   handle('manga:get', ({ id }) => manga.getSnapshot(id))
   handle('manga:create', (req) => manga.createProject(req))

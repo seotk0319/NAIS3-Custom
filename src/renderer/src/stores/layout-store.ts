@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { recordNav } from '../lib/nav-history'
 
-export type CenterMode = 'main' | 'scene' | 'director' | 'library' | 'inbox' | 'arena' | 'manga'
+export type CenterMode =
+  'main' | 'scene' | 'director' | 'library' | 'inbox' | 'arena' | 'manga' | 'gpt'
 
 type PanelPrefs = Record<CenterMode, { left: boolean; right: boolean }>
 
@@ -16,7 +17,8 @@ const DEFAULT_PANELS: PanelPrefs = {
   library: { left: false, right: false },
   inbox: { left: false, right: false },
   arena: { left: false, right: false },
-  manga: { left: false, right: false }
+  manga: { left: false, right: false },
+  gpt: { left: false, right: false }
 }
 
 interface LayoutState {
@@ -64,6 +66,9 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   hiddenPages: [],
   setCenterMode: (centerMode) => {
     if (centerMode !== get().centerMode) recordNav() // 마우스 뒤로/앞으로용 히스토리
+    // 스튜디오(그림체·만화·GPT)는 상단에서 한 탭이라, 다시 들어올 때 마지막 화면으로 간다
+    if (centerMode === 'arena' || centerMode === 'manga' || centerMode === 'gpt')
+      localStorage.setItem('studio_last', centerMode)
     const p = get().panels[centerMode]
     set({ centerMode, leftOpen: p.left, rightOpen: p.right })
   },

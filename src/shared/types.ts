@@ -17,6 +17,7 @@ import type {
   ArenaSnapshot,
   ArenaVoteResult
 } from './arena'
+import type { GptAuthStatus, GptJob, GptRequest } from './gpt'
 import type {
   MangaBrief,
   MangaCastInput,
@@ -839,6 +840,15 @@ export interface IpcInvokeMap {
   'arena:artistNames': { req: undefined; res: { names: string[] } }
   /** 이미지 메타데이터의 프롬프트 (작가 추가에 끌어다 놓기) */
   'arena:promptFromImage': { req: { filePath: string }; res: { text: string } }
+  'gpt:status': { req: undefined; res: GptAuthStatus }
+  'gpt:generate': { req: { request: GptRequest; count: number }; res: { ids: string[] } }
+  'gpt:jobs': { req: undefined; res: { jobs: GptJob[] } }
+  'gpt:cancel': { req: { id: string }; res: void }
+  'gpt:clearFinished': { req: undefined; res: void }
+  'gpt:images': {
+    req: { limit: number; offset: number }
+    res: { items: HistoryItem[]; total: number }
+  }
   'manga:list': { req: undefined; res: { items: MangaSummary[] } }
   'manga:get': { req: { id: number }; res: MangaSnapshot | null }
   'manga:create': {
@@ -933,6 +943,7 @@ export interface IpcEventMap {
     state?: ArenaRenderState
   }
   'manga:changed': { projectId: number }
+  'gpt:changed': { jobs: GptJob[] }
   /** 자동 업데이트 상태 (이 저장소 GitHub release) */
   'update:status': {
     state: 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'

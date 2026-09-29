@@ -9,6 +9,7 @@ import { MangaEditor } from './manga-editor'
 import { MangaReader } from './manga-reader'
 import { MangaStart } from './manga-start'
 import { MangaWork } from './manga-work'
+import { StudioTabs } from '../studio-tabs'
 
 let autoOpened = false
 
@@ -67,7 +68,7 @@ function Header(): React.JSX.Element {
   const current = list.find((m) => m.id === currentId)
   return (
     <div className="drag flex h-16 shrink-0 items-center gap-3 px-5">
-      <span className="text-[22px] font-bold tracking-tight text-ink">만화</span>
+      <StudioTabs />
       <Select
         value={isNew ? 'new' : String(currentId)}
         onValueChange={(v) => (v === 'new' ? newStory() : void open(Number(v)))}

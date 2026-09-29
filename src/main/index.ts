@@ -34,6 +34,7 @@ import { getPresetName, getScene } from './scenes/repo'
 import { startInbox, closeInbox } from './notifications/service'
 import { arenaRenderSaved, arenaRenderTarget, initArena } from './arena/service'
 import { initManga, mangaPageSaved, mangaSubDir } from './manga/service'
+import { initGpt } from './gpt/service'
 
 // Custom 프로필이면 userData를 먼저 분리 (단일 인스턴스 잠금·DB보다 앞서야 함)
 initProfilePaths()
@@ -391,6 +392,10 @@ app.whenReady().then(() => {
   registerIpcHandlers({ dbVersion, queue })
   initArena(queue, (payload) => broadcast('arena:changed', payload))
   initManga(queue, (payload) => broadcast('manga:changed', payload))
+  initGpt(
+    (jobs) => broadcast('gpt:changed', { jobs }),
+    (item) => broadcast('images:added', item)
+  )
   if (PROFILE === 1) void startInbox()
 
   app.on('browser-window-created', (_, window) => {

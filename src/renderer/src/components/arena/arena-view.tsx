@@ -19,6 +19,7 @@ import { ArenaSessions } from './arena-sessions'
 import { StageEnd } from './arena-stage'
 import { ArenaStart } from './arena-start'
 import { OrderDuel, TuneDuel } from './arena-tune'
+import { StudioTabs } from '../studio-tabs'
 
 /** 그림체 탭. 한 번 마운트된 뒤 다른 탭에서는 display:none으로 숨는다 */
 export function ArenaView(): React.JSX.Element {
@@ -75,7 +76,7 @@ function Header(): React.JSX.Element {
   ]
   return (
     <div className="drag flex h-16 shrink-0 items-center gap-3 px-5">
-      <span className="text-[22px] font-bold tracking-tight">그림체 월드컵</span>
+      <StudioTabs />
       <SessionSelect />
       <div className="no-drag flex items-center gap-0.5 rounded-xl bg-paper p-1">
         {tabs.map((t) => (

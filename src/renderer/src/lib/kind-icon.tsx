@@ -35,7 +35,8 @@ const KIND_MAP: Record<string, { Icon: LucideIcon; className: string; label: str
     className: 'text-violet-300',
     label: '정리+'
   },
-  mosaic: { Icon: Grid3x3, className: 'text-orange-400', label: '모자이크' }
+  mosaic: { Icon: Grid3x3, className: 'text-orange-400', label: '모자이크' },
+  gpt: { Icon: Sparkles, className: 'text-teal-400', label: 'GPT' }
 }
 
 export function kindMeta(kind: string): { Icon: LucideIcon; className: string; label: string } {

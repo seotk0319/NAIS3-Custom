@@ -150,7 +150,8 @@ const TOGGLABLE_PAGES: { id: CenterMode; label: string }[] = [
   { id: 'director', label: '디렉터' },
   { id: 'library', label: '라이브러리' },
   { id: 'arena', label: '그림체' },
-  { id: 'manga', label: '만화' }
+  { id: 'manga', label: '만화' },
+  { id: 'gpt', label: 'GPT 이미지' }
 ]
 
 function PageToggles(): React.JSX.Element {
@@ -922,6 +923,10 @@ function AboutSection(): React.JSX.Element {
         만화 탭은 okawaritsuika 님의
         &lsquo;NAIMangaMaker&rsquo;(github.com/okawaritsuika/NAIMangaMaker, 아카라이브 최초 공개)의
         이야기·컷·페이지 흐름을 제작자 허락을 받아 바탕으로 삼았어요. 고마워요.
+      </p>
+      <p className="mt-2 text-[12px] leading-relaxed text-faint">
+        GPT 이미지 탭의 ChatGPT 연결 방식은 lidge-jun 님의 &lsquo;ima2-gen&rsquo;(MIT,
+        github.com/lidge-jun/ima2-gen)을 참고했어요. 고마워요.
       </p>
     </div>
   )

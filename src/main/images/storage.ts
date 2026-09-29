@@ -73,6 +73,7 @@ export async function saveGeneratedImage(input: {
     | 'mosaic'
     | 'arena'
     | 'manga'
+    | 'gpt'
     | DirectorMethod
   sceneId?: number
   /** 일반 저장 폴더 아래 하위 폴더 (그림체 월드컵: arena/<세션>). 날짜 폴더 대신 쓴다 */

@@ -19,7 +19,7 @@ export function PrivacyLock(): React.JSX.Element | null {
   const locked = usePrivacyStore((s) => s.locked)
 
   // 마지막 움직임 시각. 다른 앱을 쓰는 동안엔 이 창에 입력이 없으니 그 시간도 쉬는 시간으로 센다
-  const last = useRef(Date.now())
+  const last = useRef(0)
   useEffect(() => {
     if (!enabled) return
     last.current = Date.now()

@@ -7,6 +7,7 @@ import {
   Info,
   Keyboard,
   KeyRound,
+  Lock,
   Image as ImageIcon,
   Palette,
   Plus,
@@ -34,6 +35,7 @@ import { useScenesStore } from '../stores/scenes-store'
 import { useUpdateStore } from '../stores/update-store'
 import { askConfirm } from '../stores/dialog-store'
 import { toast } from '../stores/toast-store'
+import { PRIVACY_MINUTES, usePrivacyStore } from '../stores/privacy-store'
 import {
   SHORTCUT_LABELS,
   comboFromEvent,
@@ -50,12 +52,14 @@ import { Slider } from './ui/slider'
 import { Switch } from './ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 
-type SectionId = 'appearance' | 'generation' | 'storage' | 'shortcuts' | 'account' | 'about'
+type SectionId =
+  'appearance' | 'generation' | 'storage' | 'privacy' | 'shortcuts' | 'account' | 'about'
 
 const NAV: { id: SectionId; label: string; icon: typeof Info }[] = [
   { id: 'appearance', label: '모양', icon: Palette },
   { id: 'generation', label: '생성', icon: ImageIcon },
   { id: 'storage', label: '저장', icon: FolderOpen },
+  { id: 'privacy', label: '프라이버시', icon: Lock },
   { id: 'shortcuts', label: '단축키', icon: Keyboard },
   { id: 'account', label: 'NAI 계정', icon: KeyRound },
   { id: 'about', label: '정보', icon: Info }
@@ -77,6 +81,80 @@ function Row({
         {hint && <p className="mt-0.5 text-[11.5px] text-faint">{hint}</p>}
       </div>
       <div className="shrink-0">{children}</div>
+    </div>
+  )
+}
+
+function PrivacySection(): React.JSX.Element {
+  const enabled = usePrivacyStore((s) => s.enabled)
+  const minutes = usePrivacyStore((s) => s.minutes)
+  const lockOnHide = usePrivacyStore((s) => s.lockOnHide)
+  const setEnabled = usePrivacyStore((s) => s.setEnabled)
+  const setMinutes = usePrivacyStore((s) => s.setMinutes)
+  const setLockOnHide = usePrivacyStore((s) => s.setLockOnHide)
+  const lock = usePrivacyStore((s) => s.lock)
+  const setSettingsOpen = useLayoutStore((s) => s.setSettingsOpen)
+  return (
+    <div>
+      <p className="mb-2 text-[12px] text-faint">
+        자리를 비운 사이 화면이 보이지 않게 가려요. 잠겨 있어도 생성은 계속돼요.
+      </p>
+      <div className="divide-y divide-line">
+        <Row
+          label="프라이버시 모드"
+          hint="설정한 시간 동안 움직임이 없으면 화면을 흐리게 가리고 잠가요"
+        >
+          <Switch checked={enabled} onCheckedChange={setEnabled} />
+        </Row>
+        <div className={cn('py-2.5', !enabled && 'pointer-events-none opacity-45')}>
+          <div className="flex items-baseline justify-between">
+            <p className="text-[13px] text-ink">잠그기까지</p>
+            <p className="text-[11.5px] text-faint">이 창에서 마우스·키보드 움직임 기준</p>
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            {PRIVACY_MINUTES.map((m) => (
+              <button
+                key={m}
+                onClick={() => setMinutes(m)}
+                className={cn(
+                  'h-9 flex-1 rounded-lg text-[13px] font-semibold transition-colors',
+                  minutes === m
+                    ? 'bg-accent text-white dark:text-paper'
+                    : 'bg-surface-2 text-muted hover:text-ink'
+                )}
+              >
+                {m}분
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className={cn(!enabled && 'pointer-events-none opacity-45')}>
+          <Row label="바로 잠그기" hint="단축키로 지금 바로 가려요">
+            <span className="flex gap-1">
+              <kbd className="rounded-md bg-surface-2 px-2 py-0.5 text-[12px] font-bold text-muted">
+                Ctrl
+              </kbd>
+              <kbd className="rounded-md bg-surface-2 px-2 py-0.5 text-[12px] font-bold text-muted">
+                L
+              </kbd>
+            </span>
+          </Row>
+          <Row label="창을 내리면 바로 잠그기" hint="최소화하면 돌아왔을 때 잠겨 있어요">
+            <Switch checked={lockOnHide} onCheckedChange={setLockOnHide} />
+          </Row>
+        </div>
+      </div>
+      <Button
+        variant="ghost"
+        disabled={!enabled}
+        className="mt-3 h-10 w-full bg-accent-soft font-semibold text-accent hover:bg-accent-soft"
+        onClick={() => {
+          setSettingsOpen(false)
+          window.setTimeout(() => lock('manual'), 150)
+        }}
+      >
+        지금 잠가 보기
+      </Button>
     </div>
   )
 }
@@ -996,6 +1074,9 @@ export function SettingsDialog({
               </TabsContent>
               <TabsContent value="storage" className="m-0">
                 <StorageSection />
+              </TabsContent>
+              <TabsContent value="privacy" className="m-0">
+                <PrivacySection />
               </TabsContent>
               <TabsContent value="shortcuts" className="m-0">
                 <ShortcutsSection />

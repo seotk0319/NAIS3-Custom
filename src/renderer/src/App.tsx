@@ -19,6 +19,7 @@ import { SceneMode } from './components/scene-mode'
 import { Titlebar } from './components/titlebar'
 import { SettingsDialog } from './components/token-dialog'
 import { TextPromptHost } from './components/text-prompt-host'
+import { PrivacyLock } from './components/privacy-lock'
 import { TooltipProvider } from './components/ui/tooltip'
 import { useCharactersStore } from './stores/characters-store'
 import { useFragmentsStore } from './stores/fragments-store'
@@ -30,6 +31,7 @@ import { bindUpdateEvents } from './stores/update-store'
 import { bindNavMouse } from './lib/nav-history'
 import { useLayoutStore, type CenterMode } from './stores/layout-store'
 import { useThemeStore } from './stores/theme-store'
+import { usePrivacyStore } from './stores/privacy-store'
 
 export default function App(): React.JSX.Element {
   const leftOpen = useLayoutStore((s) => s.leftOpen)
@@ -136,7 +138,8 @@ export default function App(): React.JSX.Element {
         useFragmentsStore.getState().load(),
         useVibesStore.getState().load(),
         useCharRefsStore.getState().load(),
-        useShortcutsStore.getState().hydrate()
+        useShortcutsStore.getState().hydrate(),
+        usePrivacyStore.getState().hydrate()
       ])
       // 스플래시가 너무 순식간에 사라지지 않게 최소 표시 시간 확보
       setTimeout(() => setReady(true), 350)
@@ -216,6 +219,7 @@ export default function App(): React.JSX.Element {
         <MetadataDialog />
         <ArtistTagsDialog />
         <Toaster />
+        <PrivacyLock />
         <AnimatePresence>{!ready && <LoadingScreen key="loading" />}</AnimatePresence>
       </div>
     </TooltipProvider>

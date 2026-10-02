@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Bell,
-  CheckCircle2,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -9,7 +9,6 @@ import {
   Pause,
   Play,
   Search,
-  Send,
   Settings2,
   TriangleAlert,
   X
@@ -25,7 +24,7 @@ import type {
 import { cn } from '../lib/utils'
 import { useLayoutStore } from '../stores/layout-store'
 import { useTranslateStore } from '../stores/translate-store'
-import { ReplyTranslate, TranslatableText } from './inbox-translate'
+import { ReplyComposer, TranslatableText } from './inbox-translate'
 
 // Nine separated hues. The previous palette repeated blue, teal and lilac, so three
 // pairs of platforms were not distinguishable at any dot size.
@@ -969,153 +968,152 @@ export function InboxView(): React.JSX.Element {
 
       {selected && (
         <aside
-          className="flex w-64 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line bg-paper/40 p-5 xl:w-80"
+          className="flex w-[clamp(320px,28vw,460px)] shrink-0 flex-col border-l border-line bg-paper/40"
           aria-label="알림 상세"
         >
-          <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold">알림 상세</h2>
-            <button aria-label="알림 상세 닫기" onClick={() => setSelected(null)}>
+          <header className="flex shrink-0 items-center gap-1 pb-2.5 pl-5 pr-3.5 pt-3.5">
+            <h2 className="mr-auto text-[15px] font-semibold">알림 상세</h2>
+            <button
+              aria-label="원문에서 보기"
+              title="원문에서 보기 (사이트에서 읽음 처리될 수 있어요)"
+              disabled={!selected.url}
+              onClick={() => void openSource(selected)}
+              className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-40"
+            >
+              <ExternalLink size={15} />
+            </button>
+            <button
+              aria-label="알림 상세 닫기"
+              onClick={() => setSelected(null)}
+              className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            >
               <X size={16} />
             </button>
-          </div>
-          <div className="flex items-center gap-2 text-[12px]">
-            <span
-              aria-hidden
-              className="h-4 w-1 rounded-full"
-              style={{ backgroundColor: colors[selected.platform] }}
-            />
-            <span className="font-medium" style={{ color: tone(selected.platform) }}>
-              {INBOX_PLATFORMS[selected.platform]}
-            </span>
-            <Dot />
-            <span className="text-muted">{INBOX_EVENTS[selected.event]}</span>
-          </div>
-          {selected.thumbnail && (
-            <WorkThumb item={selected} className="aspect-[3/4] w-full rounded-xl text-[40px]" />
-          )}
-          <h3 className="text-[16px] font-semibold leading-snug">{selected.title}</h3>
-          <TranslatableText
-            key={selected.id + (comment?.merged ? ':full' : ':body')}
-            text={comment?.text ?? selected.body}
-          />
-          <dl className="grid grid-cols-[4rem_1fr] gap-y-3 text-[12px]">
-            <dt className="text-muted">작성자</dt>
-            <dd className="break-words">{selected.actor?.name || '제공되지 않음'}</dd>
-            <dt className="text-muted">작품</dt>
-            <dd className="break-words">
-              {selected.work?.title ||
-                (selected.work?.id ? '작품 ID: ' + selected.work.id : '제공되지 않음')}
-            </dd>
-            <dt className="text-muted">작성일</dt>
-            <dd>{time(selected.at)}</dd>
-            <dt className="text-muted">읽음 상태</dt>
-            <dd>
-              {selected.unread === null ? '제공되지 않음' : selected.unread ? '읽지 않음' : '읽음'}
-            </dd>
-          </dl>
-          {selected.canReply && (
-            <div className="flex flex-col gap-2">
-              <p className="text-[12px] font-semibold text-muted">
-                <span style={{ color: tone(selected.platform) }}>
-                  {INBOX_PLATFORMS[selected.platform]}
-                </span>{' '}
-                · 답글 달 댓글
+          </header>
+          <div className="mx-5 flex shrink-0 items-center gap-3 border-b border-line pb-3.5">
+            <WorkThumb item={selected} className="size-12 shrink-0 rounded-xl text-[18px]" />
+            <div className="min-w-0">
+              <p className="truncate text-[14px] font-semibold">
+                {workNameOf(selected) || selected.title}
               </p>
-              {replyTarget === undefined || replyTarget === 'loading' ? (
-                <p className="rounded-xl bg-surface-2 px-3 py-2.5 text-[12px] text-faint">
-                  원래 댓글을 찾고 있어요…
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
+                <span className="shrink-0 font-medium" style={{ color: tone(selected.platform) }}>
+                  {INBOX_PLATFORMS[selected.platform]}
+                </span>
+                <Dot />
+                <span className="shrink-0">{INBOX_EVENTS[selected.event] || '기타'}</span>
+                <Dot />
+                <span className="truncate">{time(selected.at)}</span>
+                {selected.unread !== null && (
+                  <>
+                    <Dot />
+                    <span className="shrink-0">{selected.unread ? '안 읽음' : '읽음'}</span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-4">
+            {/* 작품 이름이 없으면 위 머리 줄이 이미 제목을 보여준다 */}
+            {!selected.canReply && workNameOf(selected) && (
+              <h3 className="text-[15px] font-semibold leading-snug">{selected.title}</h3>
+            )}
+            {(selected.canReply || !!(comment?.text ?? selected.body)) && (
+              <div className="shrink-0">
+                {selected.canReply && (
+                  <p className="text-[12px] font-semibold text-ink">
+                    {(replyTarget && replyTarget !== 'loading' && replyTarget.ok
+                      ? replyTarget.author
+                      : null) ||
+                      selected.actor?.name ||
+                      '작성자 미확인'}
+                    <span className="ml-1.5 font-normal text-faint">{time(selected.at)}</span>
+                  </p>
+                )}
+                <TranslatableText
+                  key={selected.id + (comment?.merged ? ':full' : ':body')}
+                  text={comment?.text ?? selected.body}
+                  variant="bubble"
+                />
+              </div>
+            )}
+            {selected.canReply &&
+              (replyTarget === undefined || replyTarget === 'loading' ? (
+                <p className="text-[11.5px] text-faint">원래 댓글을 찾고 있어요…</p>
+              ) : !replyTarget.ok ? (
+                <p className="rounded-xl bg-danger/10 px-3 py-2.5 text-[12px] text-danger">
+                  {replyTarget.message}
                 </p>
-              ) : replyTarget.ok ? (
+              ) : comment?.merged || !replyTarget.content?.trim() ? null : (
+                // 알림 본문과 다른 댓글(답글 알림의 부모 등)에 답글을 다는 경우 그 댓글을 따로 보여준다.
                 <div className="shrink-0 rounded-xl border border-line px-3 py-2.5 text-[12px]">
-                  <p className="font-semibold text-ink">
+                  <p className="text-[11px] font-medium text-faint">답글 달 댓글</p>
+                  <p className="mt-1 font-semibold text-ink">
                     {replyTarget.author || '작성자 미확인'}
                     <span className="ml-1.5 font-normal text-faint">
                       {time(replyTarget.at ?? null)}
                     </span>
                   </p>
-                  {comment?.merged ? (
-                    <p className="mt-1 text-faint">위 댓글에 답글을 달아요</p>
-                  ) : (
-                    <TranslatableText
-                      key={selected.id + ':target'}
-                      text={replyTarget.content || ''}
-                      plain
-                    />
-                  )}
+                  <TranslatableText
+                    key={selected.id + ':target'}
+                    text={replyTarget.content || ''}
+                    variant="plain"
+                  />
                 </div>
-              ) : (
-                <p className="rounded-xl bg-danger/10 px-3 py-2.5 text-[12px] text-danger">
-                  {replyTarget.message}
-                </p>
-              )}
-              {(() => {
-                const mine = repliedOf(selected)
-                return mine ? (
-                  <div className="rounded-xl bg-accent-soft px-3 py-2.5 text-[12px]">
-                    <p className="flex items-center gap-1.5 font-semibold text-accent">
-                      <CheckCircle2 size={13} className="shrink-0" /> 내 답글
-                      <span className="ml-auto truncate font-normal text-accent/75">
-                        {mine.via === 'site' ? '사이트에서 · ' : 'NAIS3에서 · '}
-                        {mine.at ? ago(mine.at, now) : '방금'}
-                      </span>
-                    </p>
-                    <p className="mt-1 line-clamp-4 select-text whitespace-pre-wrap break-words text-ink/80">
-                      {mine.content}
-                    </p>
-                  </div>
-                ) : null
-              })()}
-              <textarea
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault()
-                    void sendReply(selected)
-                  }
-                }}
-                maxLength={1000}
-                rows={3}
-                placeholder="답글을 입력하세요 (Ctrl+Enter로 보내기)"
-                className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-faint focus:ring-2 focus:ring-accent/40"
-              />
-              <ReplyTranslate
-                key={selected.id + ':reply'}
-                value={replyText}
-                onChange={setReplyText}
-                source={
-                  replyTarget && replyTarget !== 'loading' && replyTarget.ok && replyTarget.content
-                    ? replyTarget.content
-                    : (comment?.text ?? selected.body)
-                }
-              />
-              <button
-                disabled={
-                  !replyText.trim() ||
-                  replying !== null ||
-                  !(replyTarget && replyTarget !== 'loading' && replyTarget.ok)
-                }
-                onClick={() => void sendReply(selected)}
-                className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-[13px] font-semibold text-white disabled:opacity-40 dark:text-paper"
-              >
-                <Send size={14} /> {replying === selected.id ? '보내는 중…' : '답글 보내기'}
-              </button>
-              {replyNote && (
-                <p className={cn('text-[12px]', replyNote.ok ? 'text-accent' : 'text-danger')}>
-                  {replyNote.message}
-                </p>
-              )}
-            </div>
+              ))}
+            {(() => {
+              const mine = repliedOf(selected)
+              return mine ? (
+                <div className="ml-auto max-w-[88%] shrink-0 text-right">
+                  <p className="flex items-center justify-end gap-1 text-[12px] font-semibold text-accent">
+                    <Check size={12} className="shrink-0" /> 내 답글
+                    <span className="ml-1 font-normal text-faint">
+                      {mine.via === 'site'
+                        ? INBOX_PLATFORMS[selected.platform] + '에서 · '
+                        : 'NAIS3에서 · '}
+                      {mine.at ? ago(mine.at, now) : '방금'}
+                    </span>
+                  </p>
+                  <p className="mt-1.5 select-text whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-accent-soft px-3.5 py-2.5 text-left text-[13.5px] leading-relaxed">
+                    {mine.content}
+                  </p>
+                </div>
+              ) : null
+            })()}
+          </div>
+          {selected.canReply && (
+            <ReplyComposer
+              key={selected.id + ':reply'}
+              value={replyText}
+              onChange={setReplyText}
+              source={
+                replyTarget && replyTarget !== 'loading' && replyTarget.ok && replyTarget.content
+                  ? replyTarget.content
+                  : (comment?.text ?? selected.body)
+              }
+              placeholder={
+                repliedOf(selected)
+                  ? '한 번 더 답글 달기'
+                  : selected.actor?.name
+                    ? selected.actor.name + '님에게 답글'
+                    : '답글 쓰기'
+              }
+              ready={!!(replyTarget && replyTarget !== 'loading' && replyTarget.ok)}
+              sending={replying === selected.id}
+              onSend={() => void sendReply(selected)}
+            />
           )}
-          <button
-            disabled={!selected.url}
-            onClick={() => void openSource(selected)}
-            className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-3 text-[13px] font-semibold text-paper disabled:opacity-40"
+          <p
+            className={cn(
+              'shrink-0 px-5 pb-3 text-[11px] leading-relaxed',
+              replyNote ? (replyNote.ok ? 'text-accent' : 'text-danger') : 'text-faint'
+            )}
           >
-            원문에서 보기 <ExternalLink size={14} />
-          </button>
-          <p className="text-[11px] leading-relaxed text-faint">
-            원문을 열면 해당 사이트의 동작에 따라 읽음 처리될 수 있어요.
+            {replyNote
+              ? replyNote.message
+              : selected.canReply
+                ? 'Ctrl+Enter로 보내요 · 원문을 열면 사이트에서 읽음 처리될 수 있어요'
+                : '원문을 열면 해당 사이트의 동작에 따라 읽음 처리될 수 있어요.'}
           </p>
         </aside>
       )}

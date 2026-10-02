@@ -34,8 +34,10 @@ import { ReplyError } from './babe-reply'
 import { imageReadAllowed, IMAGE_ROUTES, readWorkImage } from './work-image-routes'
 import {
   checkContent,
+  findEdenReplies,
   REPLY_ADAPTERS,
   writeAllowed,
+  type FoundReply,
   type ReplyComment,
   type ReplyContext,
   type ReplyItem,
@@ -110,6 +112,8 @@ export function createDirectCollector(options: {
   babeWorks(): Promise<unknown>
   /** 그 플랫폼 작품의 대표 이미지 주소 (로그인 계정으로 읽음). 연결 안 된 플랫폼은 null. */
   workImage(platform: string, workId: string): Promise<string | null>
+  /** 에덴 댓글 번호 → 사이트에서 내가 그 뒤에 단 답글 (읽기만 한다). */
+  edenReplies(commentIds: string[]): Promise<Record<string, FoundReply>>
   status(): Promise<{
     error: string | null
     platforms: Record<DirectPlatformId, DirectPlatformState>
@@ -770,6 +774,10 @@ export function createDirectCollector(options: {
     async resolveReply(platform, item) {
       const { adapter, ctx } = await replyContext(platform)
       return adapter.resolve(ctx, item)
+    },
+    async edenReplies(commentIds) {
+      const { ctx } = await replyContext('eden')
+      return findEdenReplies(ctx, commentIds)
     },
     async reply(platform, item, content) {
       const text = checkContent(content)

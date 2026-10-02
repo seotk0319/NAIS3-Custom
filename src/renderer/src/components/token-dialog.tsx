@@ -7,6 +7,7 @@ import {
   Info,
   Keyboard,
   KeyRound,
+  Languages,
   Lock,
   Image as ImageIcon,
   Palette,
@@ -44,6 +45,7 @@ import {
   type ShortcutAction
 } from '../stores/shortcuts-store'
 import { ThemeToggle } from './theme-toggle'
+import { TranslateSection } from './translate-settings'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog'
 import { Input } from './ui/input'
@@ -53,13 +55,22 @@ import { Switch } from './ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 
 type SectionId =
-  'appearance' | 'generation' | 'storage' | 'privacy' | 'shortcuts' | 'account' | 'about'
+  | 'appearance'
+  | 'generation'
+  | 'storage'
+  | 'privacy'
+  | 'translate'
+  | 'shortcuts'
+  | 'account'
+  | 'about'
 
 const NAV: { id: SectionId; label: string; icon: typeof Info }[] = [
   { id: 'appearance', label: '모양', icon: Palette },
   { id: 'generation', label: '생성', icon: ImageIcon },
   { id: 'storage', label: '저장', icon: FolderOpen },
   { id: 'privacy', label: '프라이버시', icon: Lock },
+  // 알림 모아보기(댓글 답글)에서만 쓰므로 알림 탭이 있는 Custom 1에만 보인다.
+  { id: 'translate', label: '번역', icon: Languages },
   { id: 'shortcuts', label: '단축키', icon: Keyboard },
   { id: 'account', label: 'NAI 계정', icon: KeyRound },
   { id: 'about', label: '정보', icon: Info }
@@ -1027,23 +1038,42 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void
 }): React.JSX.Element {
   const [section, setSection] = useState<SectionId>('appearance')
+  const [profile, setProfile] = useState<number | null>(null)
+  useEffect(() => {
+    void window.nais.invoke('app:profile', undefined).then((v) => setProfile(v.profile))
+  }, [])
+  const nav = NAV.filter((n) => n.id !== 'translate' || profile === 1)
+  // 다른 화면이 특정 섹션으로 열어 달라고 했으면 그 섹션을 먼저 보여준다.
+  const requested = useLayoutStore((s) => s.settingsSection) as SectionId | null
+  const clearRequested = useLayoutStore((s) => s.clearSettingsSection)
+  const current = requested && nav.some((n) => n.id === requested) ? requested : section
+  const choose = (next: SectionId): void => {
+    setSection(next)
+    clearRequested()
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && requested) choose(current)
+        onOpenChange(next)
+      }}
+    >
       <DialogContent
         aria-describedby={undefined}
         className="grid h-[62vh] max-w-[640px] grid-rows-[1fr] gap-0 overflow-hidden p-0"
       >
         <DialogTitle className="sr-only">설정</DialogTitle>
         <Tabs
-          value={section}
-          onValueChange={(v) => setSection(v as SectionId)}
+          value={current}
+          onValueChange={(v) => choose(v as SectionId)}
           className="flex h-full min-h-0"
           orientation="vertical"
         >
           <nav className="flex w-40 shrink-0 flex-col border-r border-line bg-surface-2/50 p-2">
             <TabsList className="flex flex-col items-stretch gap-0.5 bg-transparent p-0">
-              {NAV.map(({ id, label, icon: Icon }) => (
+              {nav.map(({ id, label, icon: Icon }) => (
                 <TabsTrigger
                   key={id}
                   value={id}
@@ -1062,7 +1092,7 @@ export function SettingsDialog({
             {/* 헤더 — 섹션명. 우측 상단 X가 이 영역 위에 놓여 본문과 겹치지 않는다 */}
             <div className="flex shrink-0 items-center border-b border-line px-6 py-3.5">
               <h2 className="text-[14px] font-semibold text-ink">
-                {NAV.find((n) => n.id === section)?.label}
+                {NAV.find((n) => n.id === current)?.label}
               </h2>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 no-scrollbar">
@@ -1077,6 +1107,9 @@ export function SettingsDialog({
               </TabsContent>
               <TabsContent value="privacy" className="m-0">
                 <PrivacySection />
+              </TabsContent>
+              <TabsContent value="translate" className="m-0">
+                <TranslateSection />
               </TabsContent>
               <TabsContent value="shortcuts" className="m-0">
                 <ShortcutsSection />

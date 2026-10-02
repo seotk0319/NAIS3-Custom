@@ -18,6 +18,7 @@ import type {
   ArenaVoteResult
 } from './arena'
 import type { GptAuthStatus, GptJob, GptRequest } from './gpt'
+import type { TranslateResult, TranslateStatus, TranslateTarget, TranslateUsage } from './translate'
 import type {
   MangaBrief,
   MangaCastInput,
@@ -442,6 +443,14 @@ export interface IpcInvokeMap {
   'inbox:disconnect': { req: { platform: string }; res: { ok: true } }
   /** Turns one platform's collection and display on or off. */
   'inbox:select': { req: { platform: string; selected: boolean }; res: { ok: true } }
+  'translate:status': { req: void; res: TranslateStatus }
+  'translate:usage': { req: void; res: TranslateUsage }
+  'translate:setKey': {
+    req: { key: string }
+    res: { ok: boolean; message: string; usage?: TranslateUsage }
+  }
+  'translate:deleteKey': { req: void; res: { ok: true } }
+  'translate:run': { req: { text: string; target: TranslateTarget }; res: TranslateResult }
   'db:status': { req: void; res: { version: number; path: string } }
   /** 앱 버전 */
   'app:version': { req: void; res: { version: string } }

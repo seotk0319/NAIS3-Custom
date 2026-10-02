@@ -114,6 +114,19 @@ export function deleteNaiToken(): void {
   db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(TOKEN_KEY, ACCOUNTS_KEY)
 }
 
+// 댓글 번역용 DeepL API 키. NAI 토큰과 같은 방식으로 암호화해 저장한다.
+const DEEPL_KEY = 'deepl_key_encrypted'
+export function getDeeplKey(): string | null {
+  const stored = getSetting(DEEPL_KEY)
+  return stored ? decryptValue(stored) : null
+}
+export function setDeeplKey(key: string): void {
+  setSetting(DEEPL_KEY, encryptValue(key.trim()))
+}
+export function deleteDeeplKey(): void {
+  getDb().prepare('DELETE FROM settings WHERE key = ?').run(DEEPL_KEY)
+}
+
 /** 마스킹 표시용 메타 (WHIMS 프로바이더 키 UI 패턴) */
 export function getNaiTokenInfo(): { hasToken: boolean; prefix: string; length: number } {
   const token = getNaiToken()

@@ -25,6 +25,14 @@ import {
   type WorkCatalog
 } from './work-images'
 import { readFile, writeFile } from 'node:fs/promises'
+import {
+  edenTargets,
+  emptyReplied,
+  mergeFound,
+  readReplied,
+  type EdenStored,
+  type RepliedRecord
+} from './replied'
 
 let store: InboxStore | null = null
 let direct: ReturnType<typeof createDirectCollector> | null = null
@@ -43,7 +51,8 @@ let catalogRefresh: Promise<void> | null = null
 let catalogFailedAt = 0
 const catalogFile = (): string => join(app.getPath('userData'), 'creator-inbox', 'babe-works.json')
 function refreshCatalog(): Promise<void> | null {
-  if (!direct || catalogRefresh || Date.now() - catalogFailedAt < CATALOG_BACKOFF) return catalogRefresh
+  if (!direct || catalogRefresh || Date.now() - catalogFailedAt < CATALOG_BACKOFF)
+    return catalogRefresh
   catalogRefresh = direct
     .babeWorks()
     .then(async (list) => {
@@ -94,7 +103,8 @@ const MISSING_TTL = 24 * 60 * 60_000
 let platformImages: Record<string, { url: string | null; at: string }> = {}
 let platformLoaded = false
 let filling: Promise<void> | null = null
-const platformFile = (): string => join(app.getPath('userData'), 'creator-inbox', 'work-thumbs.json')
+const platformFile = (): string =>
+  join(app.getPath('userData'), 'creator-inbox', 'work-thumbs.json')
 async function loadPlatformImages(): Promise<void> {
   if (platformLoaded) return
   platformLoaded = true
@@ -171,6 +181,49 @@ async function ready(): Promise<InboxStore> {
   return store
 }
 
+// 내가 단 답글 기록. NAIS3에서 보낸 답글은 바로, 에덴 사이트에서 단 답글은 뒤에서 찾아 남긴다.
+// 에덴 확인은 3분에 한 번만 하고, 실패하면(로그인 풀림 등) 10분 쉬었다가 다시 본다.
+const REPLIED_EVERY = 3 * 60_000
+let replied: RepliedRecord = emptyReplied()
+let repliedLoaded = false
+let repliedChecking: Promise<void> | null = null
+let repliedCheckedAt = 0
+const repliedFile = (): string => join(app.getPath('userData'), 'creator-inbox', 'replied.json')
+async function loadReplied(): Promise<void> {
+  if (repliedLoaded) return
+  repliedLoaded = true
+  try {
+    replied = readReplied(JSON.parse(await readFile(repliedFile(), 'utf8')))
+  } catch {
+    // 처음이면 비어 있다.
+  }
+}
+const saveReplied = (): Promise<void> =>
+  writeFile(repliedFile(), JSON.stringify(replied)).catch(() => undefined)
+function checkEdenReplies(items: EdenStored[]): boolean {
+  if (repliedChecking) return true
+  if (!direct || Date.now() - repliedCheckedAt < REPLIED_EVERY) return false
+  const full = !replied.edenFullAt
+  const targets = edenTargets(items, replied, full)
+  repliedCheckedAt = Date.now()
+  if (!targets.length) return false
+  const collector = direct
+  repliedChecking = (async () => {
+    try {
+      const found = await collector.edenReplies(targets.map((t) => t.commentId))
+      mergeFound(replied, targets, found)
+      if (full) replied.edenFullAt = new Date().toISOString()
+      await saveReplied()
+    } catch {
+      // 에덴 연결이 없거나 로그인이 풀렸으면 조용히 넘어가고 10분 뒤 다시 본다.
+      repliedCheckedAt = Date.now() + 7 * 60_000
+    }
+  })().finally(() => {
+    repliedChecking = null
+  })
+  return true
+}
+
 export async function getInbox(query: InboxQuery): Promise<InboxResult> {
   await startInbox()
   if (!store)
@@ -187,9 +240,18 @@ export async function getInbox(query: InboxQuery): Promise<InboxResult> {
     }
   const view = await store.view()
   await loadPlatformImages()
-  const result = queryInbox(view, query, Date.now(), await workCatalog(), platformImageMap())
+  await loadReplied()
+  const result = queryInbox(
+    view,
+    query,
+    Date.now(),
+    await workCatalog(),
+    platformImageMap(),
+    replied.items
+  )
   noticeUnknownWorks(view.items)
   result.thumbnailsPending = fillPlatformImages(view.items)
+  result.repliesPending = checkEdenReplies(view.items as EdenStored[])
   if (!direct) return result
   const status = await direct.status()
   return {
@@ -338,6 +400,9 @@ export async function replyInbox(id: string, content: string): Promise<InboxRepl
   try {
     const item = await replyItem(id)
     await direct!.reply(item.platform as never, item, content)
+    await loadReplied()
+    replied.items[id] = { at: new Date().toISOString(), content: content.trim(), via: 'app' }
+    await saveReplied()
     return { ok: true, message: '답글을 달았어요.' }
   } catch (error) {
     return { ok: false, message: replyMessage(error, '답글을 달지 못했어요') }

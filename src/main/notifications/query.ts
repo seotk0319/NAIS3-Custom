@@ -7,7 +7,8 @@ import type {
   InboxResult,
   InboxItem,
   InboxPlatform,
-  InboxEvent
+  InboxEvent,
+  InboxReplied
 } from '../../shared/inbox'
 
 // Luna returns HTML-escaped text. Decode for display/search only; React still renders text.
@@ -78,7 +79,8 @@ export function queryInbox(
   query: InboxQuery = {},
   now = Date.now(),
   catalog: WorkCatalog = emptyCatalog(),
-  platformImages: PlatformImages = {}
+  platformImages: PlatformImages = {},
+  replied: Record<string, InboxReplied> = {}
 ): InboxResult {
   const events = Object.fromEntries(Object.keys(INBOX_EVENTS).map((k) => [k, 0])) as Record<
     InboxEvent,
@@ -129,6 +131,9 @@ export function queryInbox(
     !query.event || (group ? group.includes(value) : query.event === value)
   // A platform the person turned off keeps its stored rows but leaves the inbox.
   const shown = (item: InboxItem): boolean => view.selection?.[item.platform] !== false
+  // 답글을 달 수 있는 댓글 중 아직 내 답글이 없는 것
+  const awaitingReply = (item: InboxItem): boolean =>
+    (item.event === 'comment' || item.event === 'reply') && !replied[item.id] && canReplyTo(item)
   const filtered = displayItems.filter((item) => {
     if (Object.hasOwn(counts, item.platform)) counts[item.platform]++
     if (!shown(item)) return false
@@ -138,6 +143,7 @@ export function queryInbox(
       platformMatches &&
       eventMatches(item.event) &&
       (!query.unread || item.unread === true) &&
+      (!query.unreplied || awaitingReply(item)) &&
       (!search ||
         [item.title, item.body, item.actor?.name, item.work?.title, item.work?.id].some((v) =>
           v?.toLocaleLowerCase().includes(search)
@@ -162,7 +168,8 @@ export function queryInbox(
     unread: item.unread,
     url: item.url,
     thumbnail: thumbnailFor(item, catalog, platformImages),
-    canReply: canReplyTo(item)
+    canReply: canReplyTo(item),
+    replied: replied[item.id] ?? null
   }))
   return {
     available: true,

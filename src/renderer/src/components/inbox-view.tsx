@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Bell,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -22,6 +23,9 @@ import type {
   InboxReplyTarget
 } from '@shared/inbox'
 import { cn } from '../lib/utils'
+import { useLayoutStore } from '../stores/layout-store'
+import { useTranslateStore } from '../stores/translate-store'
+import { ReplyTranslate, TranslatableText } from './inbox-translate'
 
 // Nine separated hues. The previous palette repeated blue, teal and lilac, so three
 // pairs of platforms were not distinguishable at any dot size.
@@ -158,14 +162,23 @@ export function InboxView(): React.JSX.Element {
   const [view, setView] = useState<View>('conversation')
   const [event, setEvent] = useState('')
   const [unreadOnly, setUnreadOnly] = useState(false)
+  const [unrepliedOnly, setUnrepliedOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<InboxItem | null>(null)
-  // 답글: 알림별 입력값과 보낸 기록(이번 실행 동안만 기억)
+  // 답글: 알림별 입력값. 보낸 답글은 본체가 기록하고, 다시 읽기 전까지만 여기서 먼저 보여준다.
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [replying, setReplying] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, { ok: boolean; message: string }>>({})
   const [replied, setReplied] = useState<Record<string, string>>({})
+  const repliedOf = (item: InboxItem): { content: string; at: string | null; via: string } | null =>
+    item.replied ?? (replied[item.id] ? { content: replied[item.id], at: null, via: 'app' } : null)
+  // DeepL 키 상태. 설정 창에서 키를 바꾸고 닫으면 다시 읽는다.
+  const settingsOpen = useLayoutStore((s) => s.settingsOpen)
+  const loadTranslate = useTranslateStore((s) => s.load)
+  useEffect(() => {
+    if (!settingsOpen) void loadTranslate()
+  }, [settingsOpen, loadTranslate])
   // 답글 대상 확인: 알림별로 한 번 불러와 기억한다 (크랙·네코는 시각으로 찾으므로 보여주고 보낸다).
   const [targets, setTargets] = useState<Record<string, InboxReplyTarget | 'loading'>>({})
   const replyTarget = selected ? targets[selected.id] : undefined
@@ -209,6 +222,7 @@ export function InboxView(): React.JSX.Element {
       if (result.ok) {
         setReplied((previous) => ({ ...previous, [item.id]: content }))
         setDrafts((previous) => ({ ...previous, [item.id]: '' }))
+        setRevision((v) => v + 1)
       }
     } catch {
       setNotes((previous) => ({
@@ -232,6 +246,7 @@ export function InboxView(): React.JSX.Element {
   // keeps render pure; the list refetches every 10 seconds anyway.
   const [now, setNow] = useState(0)
   const eventQuery = event || (view === 'all' ? '' : view)
+  const unrepliedQuery = unrepliedOnly && view !== 'reaction'
 
   useEffect(() => {
     let disposed = false,
@@ -242,13 +257,14 @@ export function InboxView(): React.JSX.Element {
           platform,
           event: eventQuery,
           unread: unreadOnly,
+          unreplied: unrepliedQuery,
           search,
           page
         })
         if (disposed) return
         setNow(Date.now())
         setData(result)
-        pendingRef.current = result.thumbnailsPending === true
+        pendingRef.current = result.thumbnailsPending === true || result.repliesPending === true
         setError(result.error || '')
         setSelected((previous) =>
           previous ? result.items.find((item) => item.id === previous.id) || null : null
@@ -256,7 +272,7 @@ export function InboxView(): React.JSX.Element {
       } catch {
         if (!disposed) setError('알림을 불러오지 못했어요. 잠시 뒤 다시 확인해주세요.')
       }
-      // 작품 이미지를 뒤에서 채우는 중이면 조금 일찍 다시 읽어 썸네일을 바로 채운다.
+      // 작품 이미지나 사이트 답글을 뒤에서 확인하는 중이면 조금 일찍 다시 읽어 바로 채운다.
       if (!disposed) timer = setTimeout(() => void refresh(), pendingRef.current ? 3_000 : 10_000)
     }
     timer = setTimeout(() => void refresh(), search ? 180 : 0)
@@ -264,7 +280,7 @@ export function InboxView(): React.JSX.Element {
       disposed = true
       clearTimeout(timer)
     }
-  }, [platform, eventQuery, unreadOnly, search, page, revision])
+  }, [platform, eventQuery, unreadOnly, unrepliedQuery, search, page, revision])
 
   const totalPages = data ? Math.max(1, Math.ceil(data.filtered / data.pageSize)) : 1
   const latest =
@@ -423,9 +439,9 @@ export function InboxView(): React.JSX.Element {
             >
               {item.title}
             </span>
-            {replied[item.id] && (
+            {repliedOf(item) && (
               <span className="shrink-0 rounded-md bg-accent-soft px-1.5 py-px text-[11px] font-semibold text-accent">
-                답글 보냄
+                답글 완료
               </span>
             )}
           </span>
@@ -825,21 +841,33 @@ export function InboxView(): React.JSX.Element {
               ))}
             </div>
           )}
-          <button
-            role="switch"
-            aria-checked={unreadOnly}
-            onClick={() => reset(() => setUnreadOnly((v) => !v))}
-            className={cn(
-              'ml-auto inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors',
-              unreadOnly ? 'bg-accent-soft font-semibold text-accent' : 'text-muted hover:text-ink'
-            )}
-          >
-            <span
-              aria-hidden
-              className={cn('size-1.5 rounded-full', unreadOnly ? 'bg-accent' : 'bg-faint')}
-            />
-            안 읽은 것만
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            {(
+              [
+                ...(view === 'reaction'
+                  ? []
+                  : [['답글 안 단 것만', unrepliedOnly, setUnrepliedOnly] as const]),
+                ['안 읽은 것만', unreadOnly, setUnreadOnly] as const
+              ] as const
+            ).map(([label, on, setOn]) => (
+              <button
+                key={label}
+                role="switch"
+                aria-checked={on}
+                onClick={() => reset(() => setOn((v) => !v))}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors',
+                  on ? 'bg-accent-soft font-semibold text-accent' : 'text-muted hover:text-ink'
+                )}
+              >
+                <span
+                  aria-hidden
+                  className={cn('size-1.5 rounded-full', on ? 'bg-accent' : 'bg-faint')}
+                />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div
@@ -852,9 +880,11 @@ export function InboxView(): React.JSX.Element {
             <p className="p-10 text-center text-[13px] text-muted">
               {!data.total
                 ? '연결된 계정의 첫 알림을 기다리고 있어요.'
-                : unreadOnly
-                  ? '안 읽은 알림이 없어요.'
-                  : '조건에 맞는 알림이 없어요.'}
+                : unrepliedQuery
+                  ? '답글을 기다리는 댓글이 없어요.'
+                  : unreadOnly
+                    ? '안 읽은 알림이 없어요.'
+                    : '조건에 맞는 알림이 없어요.'}
             </p>
           ) : (
             days.map((day) => (
@@ -947,9 +977,7 @@ export function InboxView(): React.JSX.Element {
             <WorkThumb item={selected} className="aspect-[3/4] w-full rounded-xl text-[40px]" />
           )}
           <h3 className="text-[16px] font-semibold leading-snug">{selected.title}</h3>
-          <p className="select-text whitespace-pre-wrap break-words rounded-lg border border-line bg-paper p-3 text-[13px] leading-relaxed">
-            {selected.body || '내용 없음'}
-          </p>
+          <TranslatableText key={selected.id + ':body'} text={selected.body} />
           <dl className="grid grid-cols-[4rem_1fr] gap-y-3 text-[12px]">
             <dt className="text-muted">작성자</dt>
             <dd className="break-words">{selected.actor?.name || '제공되지 않음'}</dd>
@@ -994,11 +1022,23 @@ export function InboxView(): React.JSX.Element {
                   {replyTarget.message}
                 </p>
               )}
-              {replied[selected.id] && (
-                <p className="rounded-lg bg-accent-soft px-3 py-2 text-[12px] text-accent">
-                  보낸 답글: {replied[selected.id]}
-                </p>
-              )}
+              {(() => {
+                const mine = repliedOf(selected)
+                return mine ? (
+                  <div className="rounded-xl bg-accent-soft px-3 py-2.5 text-[12px]">
+                    <p className="flex items-center gap-1.5 font-semibold text-accent">
+                      <CheckCircle2 size={13} className="shrink-0" /> 내 답글
+                      <span className="ml-auto truncate font-normal text-accent/75">
+                        {mine.via === 'site' ? '사이트에서 · ' : 'NAIS3에서 · '}
+                        {mine.at ? ago(mine.at, now) : '방금'}
+                      </span>
+                    </p>
+                    <p className="mt-1 line-clamp-4 select-text whitespace-pre-wrap break-words text-ink/80">
+                      {mine.content}
+                    </p>
+                  </div>
+                ) : null
+              })()}
               <textarea
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
@@ -1012,6 +1052,16 @@ export function InboxView(): React.JSX.Element {
                 rows={3}
                 placeholder="답글을 입력하세요 (Ctrl+Enter로 보내기)"
                 className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-faint focus:ring-2 focus:ring-accent/40"
+              />
+              <ReplyTranslate
+                key={selected.id + ':reply'}
+                value={replyText}
+                onChange={setReplyText}
+                source={
+                  replyTarget && replyTarget !== 'loading' && replyTarget.ok
+                    ? replyTarget.content || selected.body
+                    : selected.body
+                }
               />
               <button
                 disabled={

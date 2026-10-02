@@ -21,6 +21,13 @@ import {
   selectInboxPlatform
 } from './notifications/service'
 import {
+  removeTranslateKey,
+  saveTranslateKey,
+  translateStatus,
+  translateText,
+  translateUsage
+} from './translate/service'
+import {
   createCharacter,
   createFolder,
   deleteCharacter,
@@ -194,6 +201,11 @@ export function registerIpcHandlers(ctx: { dbVersion: number; queue: GenerationQ
     handle('inbox:replyTarget', ({ id }) => previewReply(String(id || '')))
     handle('inbox:disconnect', ({ platform }) => disconnectInboxPlatform(platform))
     handle('inbox:select', ({ platform, selected }) => selectInboxPlatform(platform, selected))
+    handle('translate:status', () => translateStatus())
+    handle('translate:usage', () => translateUsage())
+    handle('translate:setKey', ({ key }) => saveTranslateKey(String(key || '')))
+    handle('translate:deleteKey', () => removeTranslateKey())
+    handle('translate:run', ({ text, target }) => translateText(String(text || ''), target))
   }
   const censorFolderFiles = new Set<string>()
   const censorPathKey = (filePath: string): string => resolve(filePath).toLowerCase()

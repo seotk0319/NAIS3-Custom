@@ -27,6 +27,8 @@ interface LayoutState {
   /** 탭별 패널 열림 상태 — leftOpen/rightOpen은 현재 탭의 값을 비춘다 */
   panels: PanelPrefs
   settingsOpen: boolean
+  /** 다음에 설정 창을 열 때 보여줄 섹션 (알림 화면의 '설정' 링크 등) */
+  settingsSection: string | null
   centerMode: CenterMode
   /** 좌측 사이드바 폭 (드래그로 조절, 영속) */
   sidebarWidth: number
@@ -35,6 +37,8 @@ interface LayoutState {
   toggleLeft: () => void
   toggleRight: () => void
   setSettingsOpen: (open: boolean) => void
+  openSettingsAt: (section: string) => void
+  clearSettingsSection: () => void
   setCenterMode: (mode: CenterMode) => void
   setSidebarWidth: (w: number) => void
   setPageHidden: (page: CenterMode, hidden: boolean) => void
@@ -53,6 +57,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   rightOpen: true,
   panels: DEFAULT_PANELS,
   settingsOpen: false,
+  settingsSection: null,
   centerMode: 'main',
   sidebarWidth: Math.min(
     SIDEBAR_MAX,
@@ -100,6 +105,8 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     persistPanels(next)
   },
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  openSettingsAt: (section) => set({ settingsOpen: true, settingsSection: section }),
+  clearSettingsSection: () => set({ settingsSection: null }),
   hydrate: async () => {
     const [left, right, hidden, saved] = await Promise.all([
       window.nais.invoke('settings:get', { key: 'ui_left_open' }),

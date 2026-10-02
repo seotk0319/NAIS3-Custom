@@ -226,6 +226,60 @@ const eden: Adapter = {
   }
 }
 
+/** 사이트에서 직접 단 내 답글. 알림 댓글 이후에 같은 묶음에 단 첫 답글이다. */
+export interface FoundReply {
+  at: string
+  content: string
+}
+const SAFE_ID = /^[A-Za-z0-9_-]{1,80}$/
+const EDEN_BATCH = 60
+/**
+ * 에덴 댓글 알림마다 내가 그 뒤에 답글을 달았는지 찾는다 (읽기만 한다).
+ * 알림 댓글의 묶음(부모 댓글)에 내 계정으로 단 답글이 알림 댓글보다 늦게 있으면 답글을 단 것이다.
+ * 반환: 댓글 번호 → 내 첫 답글. 확인할 수 없는 댓글(지워짐 등)은 빠진다.
+ */
+export async function findEdenReplies(
+  ctx: ReplyContext,
+  commentIds: string[]
+): Promise<Record<string, FoundReply>> {
+  const me = ctx.accountId(EDEN_ORIGIN)
+  if (!me || !SAFE_ID.test(me)) throw new ReplyError('LOGIN_REQUIRED')
+  const ids = [...new Set(commentIds)].filter((id) => SAFE_ID.test(id))
+  const comments: EdenComment[] = []
+  for (let i = 0; i < ids.length; i += EDEN_BATCH) {
+    const chunk = ids.slice(i, i + EDEN_BATCH).join(',')
+    const rows = (await json(
+      await ctx.send(`${EDEN}?id=in.(${chunk})&select=id,parent_id,user_id,created_at`, { method: 'GET' }),
+      'LIST_FAILED'
+    )) as EdenComment[]
+    if (Array.isArray(rows)) comments.push(...rows)
+  }
+  // 내가 쓴 댓글 알림은 건너뛴다.
+  const others = comments.filter((c) => c.user_id !== me && SAFE_ID.test(String(c.parent_id || c.id)))
+  const roots = [...new Set(others.map((c) => String(c.parent_id || c.id)))]
+  const mine: EdenComment[] = []
+  for (let i = 0; i < roots.length; i += EDEN_BATCH) {
+    const chunk = roots.slice(i, i + EDEN_BATCH).join(',')
+    const rows = (await json(
+      await ctx.send(
+        `${EDEN}?parent_id=in.(${chunk})&user_id=eq.${me}&select=id,parent_id,content,created_at&order=created_at.asc`,
+        { method: 'GET' }
+      ),
+      'LIST_FAILED'
+    )) as EdenComment[]
+    if (Array.isArray(rows)) mine.push(...rows)
+  }
+  const found: Record<string, FoundReply> = {}
+  for (const c of others) {
+    const root = String(c.parent_id || c.id)
+    const after = Date.parse(c.created_at)
+    // 내 답글만 받아 왔다 (user_id=eq.나). 같은 묶음에 알림 댓글보다 늦게 단 첫 답글.
+    const reply = mine.find((r) => r.parent_id === root && Date.parse(r.created_at) > after)
+    if (reply) found[c.id] = { at: reply.created_at, content: String(reply.content ?? '').slice(0, 1000) }
+  }
+  return found
+}
+
 // 스토리챗: 댓글은 작품 정보의 comments 배열에 있고, 답글은 그 배열 순번(commentIdx)으로 단다.
 const RPLAY_READ = 'https://chat-api.rplay.live/story-chat/chat-content'
 const RPLAY_WRITE = 'https://api.rplay.live/content/comment'

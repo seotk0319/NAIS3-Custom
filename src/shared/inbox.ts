@@ -42,6 +42,14 @@ export interface InboxItem {
   thumbnail?: string | null
   /** NAIS3에서 바로 답글을 달 수 있는 알림인지 (현재 베이비챗 작품 댓글) */
   canReply?: boolean
+  /** 내가 이 댓글에 답글을 달았는지. NAIS3에서 보냈거나, 에덴 사이트에서 직접 단 답글을 찾았을 때. */
+  replied?: InboxReplied | null
+}
+export interface InboxReplied {
+  at: string
+  content: string
+  /** app: NAIS3에서 보냄 / site: 사이트에서 직접 단 답글을 찾음 */
+  via: 'app' | 'site'
 }
 export interface InboxPlatformStatus {
   status?: string
@@ -83,6 +91,8 @@ export interface InboxQuery {
   search?: string
   page?: number
   unread?: boolean
+  /** 답글을 달 수 있는데 아직 안 단 댓글만 */
+  unreplied?: boolean
 }
 export interface InboxResult {
   intervalMinutes: number
@@ -126,6 +136,8 @@ export interface InboxResult {
   directError: string | null
   /** 플랫폼 작품 이미지를 뒤에서 채우는 중이면 true — 화면이 잠시 뒤 다시 읽는다. */
   thumbnailsPending: boolean
+  /** 사이트에서 단 답글을 뒤에서 확인하는 중이면 true — 화면이 잠시 뒤 다시 읽는다. */
+  repliesPending?: boolean
 }
 export interface InboxConnectResult {
   state: 'connected' | 'login-required' | 'error'

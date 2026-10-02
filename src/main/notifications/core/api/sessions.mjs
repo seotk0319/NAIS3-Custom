@@ -11,7 +11,8 @@ export function teapotQueries(profile){
       const part=auth.slice(7).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),claims=JSON.parse(atob(part));
       if(claims.iss==='https://securetoken.google.com/chat-ai-7a275'&&claims.aud==='chat-ai-7a275'&&typeof claims.sub==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(claims.sub)){
         const root='projects/chat-ai-7a275/databases/(default)/documents';
-        return [{parent:`${root}/users/${claims.sub}`,structuredQuery:{from:[{collectionId:'notice'}],orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}]}},{parent:`${root}/notice/v1`,structuredQuery:{from:[{collectionId:'data'}],orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}]}}];
+        // 2026-10-02: 티팟이 전체 공지 목록을 is_deleted==false 조건 없이 읽으면 403을 준다 (사이트도 이 조건으로 읽음).
+        return [{parent:`${root}/users/${claims.sub}`,structuredQuery:{from:[{collectionId:'notice'}],orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}]}},{parent:`${root}/notice/v1`,structuredQuery:{from:[{collectionId:'data'}],where:{fieldFilter:{field:{fieldPath:'is_deleted'},op:'EQUAL',value:{booleanValue:false}}},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}]}}];
       }
     }catch{/* A malformed or unrelated token cannot select a user collection. */}
   }

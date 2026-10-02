@@ -52,6 +52,51 @@ const teaToken = (claims: Record<string, unknown>): string =>
   '.test'
 
 describe('in-app collector', () => {
+  it('keeps Teapot connected when only the public notice list is refused', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'nais-collector-test-'))
+    directories.push(directory)
+    const now = Math.floor(Date.now() / 1000)
+    const profile = profileUpdate('teapot', {
+      origin: 'https://firestore.googleapis.com',
+      headers: { authorization: 'Bearer ' + teaToken({ exp: now + 3600 }) }
+    })
+    await writeFile(
+      join(directory, 'direct-sessions.bin'),
+      'sealed:' +
+        JSON.stringify({
+          version: 1,
+          userAgent: null,
+          platforms: { teapot: { profile, connectedAt: new Date().toISOString() } },
+          checkpoints: {},
+          lastRun: {}
+        })
+    )
+    electron.fetch.mockImplementation(async (url) => {
+      if (url.includes('/documents/users/')) return json([])
+      if (url.includes('/documents/notice/v1:runQuery'))
+        return json({ error: { status: 'PERMISSION_DENIED' } }, 403)
+      throw new Error('UNEXPECTED_REQUEST ' + url)
+    })
+    const batches: Record<string, unknown>[] = []
+    const collector = createDirectCollector({
+      directory,
+      profileDir: join(directory, 'browser-profile'),
+      version: 'test',
+      store: {
+        ingest: async (batch) => {
+          batches.push(structuredClone(batch))
+          return { accepted: 0, added: 0 }
+        },
+        heartbeat: async () => ({ enabled: true, selection: {} })
+      }
+    })
+    await collector.collect()
+    await collector.stop()
+    expect(batches.some((b) => b.platform === 'teapot' && b.status === 'login')).toBe(false)
+    expect(batches.some((b) => b.platform === 'teapot' && b.channel === 'personal')).toBe(true)
+    expect((await collector.status()).platforms.teapot.connected).toBe(true)
+  })
+
   it('renews an expired bearer once mid-collection and keeps every secret out of the inbox', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nais-collector-test-'))
     directories.push(directory)

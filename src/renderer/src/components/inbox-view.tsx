@@ -114,6 +114,22 @@ function dayLabel(value: string | null | undefined, now: number): string {
 }
 const isReaction = (event: InboxEvent): boolean =>
   (INBOX_EVENT_GROUPS.reaction as readonly string[]).includes(event)
+// 에덴처럼 알림 본문을 "…"로 잘라 주는 곳이 있다. 원래 댓글을 불러왔고 그 앞부분이 알림 본문과
+// 같으면 원래 댓글 전체를 본문으로 쓴다 (번역도 전체를 한다).
+function fullComment(
+  body: string,
+  target: InboxReplyTarget | 'loading' | undefined
+): { text: string; merged: boolean } {
+  const content = target && target !== 'loading' && target.ok ? target.content || '' : ''
+  if (!content.trim()) return { text: body, merged: false }
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim()
+  const head = norm(body)
+    .replace(/(?:\.{3}|…)$/, '')
+    .trim()
+  return norm(content).startsWith(head)
+    ? { text: content, merged: true }
+    : { text: body, merged: false }
+}
 // A like on the same comment, arriving back to back, says one thing: that comment is
 // landing. One row per like said it twelve times and pushed the comments off screen.
 type Row = { kind: 'item'; item: InboxItem } | { kind: 'bundle'; key: string; items: InboxItem[] }
@@ -182,6 +198,7 @@ export function InboxView(): React.JSX.Element {
   // 답글 대상 확인: 알림별로 한 번 불러와 기억한다 (크랙·네코는 시각으로 찾으므로 보여주고 보낸다).
   const [targets, setTargets] = useState<Record<string, InboxReplyTarget | 'loading'>>({})
   const replyTarget = selected ? targets[selected.id] : undefined
+  const comment = selected ? fullComment(selected.body, replyTarget) : null
   const selectedId = selected?.canReply ? selected.id : null
   // 알림마다 한 번만 요청한다. 결과는 알림 id로 저장하므로 다른 알림을 보는 중에 와도 안전하다.
   const requested = useRef(new Set<string>())
@@ -977,7 +994,10 @@ export function InboxView(): React.JSX.Element {
             <WorkThumb item={selected} className="aspect-[3/4] w-full rounded-xl text-[40px]" />
           )}
           <h3 className="text-[16px] font-semibold leading-snug">{selected.title}</h3>
-          <TranslatableText key={selected.id + ':body'} text={selected.body} />
+          <TranslatableText
+            key={selected.id + (comment?.merged ? ':full' : ':body')}
+            text={comment?.text ?? selected.body}
+          />
           <dl className="grid grid-cols-[4rem_1fr] gap-y-3 text-[12px]">
             <dt className="text-muted">작성자</dt>
             <dd className="break-words">{selected.actor?.name || '제공되지 않음'}</dd>
@@ -1006,16 +1026,22 @@ export function InboxView(): React.JSX.Element {
                   원래 댓글을 찾고 있어요…
                 </p>
               ) : replyTarget.ok ? (
-                <div className="rounded-xl border border-line px-3 py-2.5 text-[12px]">
+                <div className="shrink-0 rounded-xl border border-line px-3 py-2.5 text-[12px]">
                   <p className="font-semibold text-ink">
                     {replyTarget.author || '작성자 미확인'}
                     <span className="ml-1.5 font-normal text-faint">
                       {time(replyTarget.at ?? null)}
                     </span>
                   </p>
-                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-muted">
-                    {replyTarget.content}
-                  </p>
+                  {comment?.merged ? (
+                    <p className="mt-1 text-faint">위 댓글에 답글을 달아요</p>
+                  ) : (
+                    <TranslatableText
+                      key={selected.id + ':target'}
+                      text={replyTarget.content || ''}
+                      plain
+                    />
+                  )}
                 </div>
               ) : (
                 <p className="rounded-xl bg-danger/10 px-3 py-2.5 text-[12px] text-danger">
@@ -1058,9 +1084,9 @@ export function InboxView(): React.JSX.Element {
                 value={replyText}
                 onChange={setReplyText}
                 source={
-                  replyTarget && replyTarget !== 'loading' && replyTarget.ok
-                    ? replyTarget.content || selected.body
-                    : selected.body
+                  replyTarget && replyTarget !== 'loading' && replyTarget.ok && replyTarget.content
+                    ? replyTarget.content
+                    : (comment?.text ?? selected.body)
                 }
               />
               <button

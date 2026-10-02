@@ -47,7 +47,11 @@ export async function collectTeapot({profile,transport,commit}){
   for(const q of queries){
     profileUpdate('teapot',{origin:'https://firestore.googleapis.com',query:q});
     const url='https://firestore.googleapis.com/v1/'+q.parent+':runQuery';
-    const rows=await jsonRequest('teapot',url,transport,{method:'POST',body:JSON.stringify({structuredQuery:q.structuredQuery}),headers:{'Content-Type':'application/json'}},q.parent.endsWith('/notice/v1')?'notice:public':'notice:personal');
+    const isPublic=q.parent.endsWith('/notice/v1');let rows;
+    try{rows=await jsonRequest('teapot',url,transport,{method:'POST',body:JSON.stringify({structuredQuery:q.structuredQuery}),headers:{'Content-Type':'application/json'}},isPublic?'notice:public':'notice:personal');}
+    // 전체 공지는 내 알림을 읽은 뒤에 읽는다. 같은 토큰으로 내 알림이 통과했는데 공지만 거절되면
+    // 로그인 문제가 아니라 사이트 규칙 변경이므로, 공지만 건너뛰고 연결은 유지한다.
+    catch(error){if(isPublic&&error?.name==='SessionExpired')continue;throw error}
     if(!Array.isArray(rows))throw Error('UNRECOGNIZED_RESPONSE');const items=[],issues=[];
     for(const entry of rows){if(!entry.document)continue;const d=entry.document,f=Object.fromEntries(Object.entries(d.fields||{}).map(([k,v])=>[k,firestoreValue(v)])),publicNotice=q.parent.endsWith('/notice/v1');
       const result=notification('teapot',{...f,id:d.name.split('/documents/')[1],created_at:f.time_created},{channel:publicNotice?'global':'personal',classification:publicNotice?{event:'admin',type:'public-notice',evidence:'source-collection'}:undefined});

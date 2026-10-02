@@ -43,10 +43,13 @@ type ReadState =
  */
 export function TranslatableText({
   text,
-  className
+  className,
+  plain = false
 }: {
   text: string
   className?: string
+  /** 다른 카드 안에 넣을 때: 테두리 없이 작은 글씨로 */
+  plain?: boolean
 }): React.JSX.Element {
   const hasKey = useTranslateStore((s) => s.status?.hasKey)
   const [state, setState] = useState<ReadState>({ kind: 'idle' })
@@ -65,13 +68,27 @@ export function TranslatableText({
   return (
     // 상세 패널은 세로 flex라, 넘칠 때 이 카드가 눌리지 않게 shrink-0을 둔다.
     <div
-      className={cn('shrink-0 overflow-hidden rounded-xl border border-line bg-paper', className)}
+      className={cn(
+        'shrink-0',
+        !plain && 'overflow-hidden rounded-xl border border-line bg-paper',
+        className
+      )}
     >
-      <p className="select-text whitespace-pre-wrap break-words p-3 text-[13px] leading-relaxed">
+      <p
+        className={cn(
+          'select-text whitespace-pre-wrap break-words',
+          plain ? 'mt-1 text-[12px] text-muted' : 'p-3 text-[13px] leading-relaxed'
+        )}
+      >
         {shown || '내용 없음'}
       </p>
       {foreign && (
-        <div className="flex min-h-9 items-center gap-2 border-t border-line px-3 py-1.5 text-[11.5px]">
+        <div
+          className={cn(
+            'flex items-center gap-2 text-[11.5px]',
+            plain ? 'mt-1.5' : 'min-h-9 border-t border-line px-3 py-1.5'
+          )}
+        >
           {state.kind === 'idle' && (
             <button
               onClick={() => void translate()}

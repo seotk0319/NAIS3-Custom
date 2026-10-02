@@ -16,6 +16,8 @@ const teaToken=(overrides={})=>'test.'+Buffer.from(JSON.stringify({iss:'https://
 test('Teapot own-account query uses only the observed Firebase issuer and audience',()=>{
   const profile={headers:{authorization:'Bearer '+teaToken()},queries:[]};
   const queries=teapotQueries(profile);assert.equal(queries.length,2);assert.ok(queries[0].parent.endsWith('/users/test-self'));assert.equal(queries[0].structuredQuery.from[0].collectionId,'notice');assert.ok(queries[1].parent.endsWith('/notice/v1'));
+  // 티팟은 전체 공지를 is_deleted==false 조건 없이 읽으면 403을 준다 (2026-10-02 확인).
+  assert.deepEqual(queries[1].structuredQuery.where,{fieldFilter:{field:{fieldPath:'is_deleted'},op:'EQUAL',value:{booleanValue:false}}});
   for(const overrides of [{sub:'other/notice'},{aud:'other-project'},{iss:'https://unrelated.example'}, {sub:''}])assert.deepEqual(teapotQueries({headers:{authorization:'Bearer '+teaToken(overrides)}}),[]);
   assert.deepEqual(teapotQueries({headers:{authorization:'Bearer broken'}}),[]);
   assert.equal(JSON.stringify(safeSessionSummary(profile)).includes(teaToken()),false);
